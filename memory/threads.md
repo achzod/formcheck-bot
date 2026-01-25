@@ -12,7 +12,9 @@
 - Plateforme SaaS d'optimisation humaine
 - 5 offres (Discovery Scan gratuit → Peptides Engine 99€)
 - URL: https://neurocore-360.onrender.com/
-- **Prochaines étapes:** À définir
+- **Specs Dashboard v2:** `projects/apexlabs/dashboard-specs-v2.md`
+- **Benchmark:** Ultrahuman Blood Vision analysé
+- **Prochaines étapes:** Valider specs → Design Figma
 
 ---
 
