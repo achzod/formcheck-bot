@@ -6,15 +6,15 @@
 
 ## 📌 Discussions Actives
 
-### APEXLABS
+### APEXLABS — Blood Analysis
 **Statut:** 🟢 En développement actif
 **Dernière update:** 25 jan 2025
-- Plateforme SaaS d'optimisation humaine
-- 5 offres (Discovery Scan gratuit → Peptides Engine 99€)
-- URL: https://neurocore-360.onrender.com/
-- **Specs Dashboard v2:** `projects/apexlabs/dashboard-specs-v2.md`
-- **Benchmark:** Ultrahuman Blood Vision analysé
-- **Prochaines étapes:** Valider specs → Design Figma
+- Focus: Blood Analysis (99€)
+- URL: https://neurocore-360.onrender.com/offers/blood-analysis
+- **Benchmark:** `projects/apexlabs/blood-analysis-benchmark.md`
+- **Concurrents analysés:** Ultrahuman Blood Vision, Oura (UX)
+- **Bibliothèques:** Huberman, Applied Metabolics (à intégrer)
+- **Prochaines étapes:** Améliorer specs avec bibliothèques
 
 ---
 
