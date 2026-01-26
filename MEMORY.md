@@ -18,4 +18,10 @@
 
 ## First Contact
 - 2026-01-25: Bootstrap session via Telegram
+- 2026-01-26: Setup mémoire propre après un reset de contexte
 - On n'a toujours pas choisi mon nom !
+
+## Leçons Apprises
+- **Toujours logger les conversations importantes** dans memory/YYYY-MM-DD.md
+- Mettre à jour MEMORY.md régulièrement avec les infos clés
+- Ne pas compter sur le contexte de session seul
