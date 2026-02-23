@@ -129,10 +129,16 @@ class AnthropometricAnalysis:
     torso_length: float = 0.0
     upper_arm_length: float = 0.0
     forearm_length: float = 0.0
+    shoulder_width: float = 0.0
+    hip_width: float = 0.0
     femur_tibia_ratio: float = 1.0
     torso_femur_ratio: float = 1.0
     arm_torso_ratio: float = 1.0
+    shoulder_hip_ratio: float = 1.0
+    upper_arm_forearm_ratio: float = 1.0
     squat_type: str = "balanced"
+    deadlift_type: str = "conventional"
+    bench_grip: str = "moyen"
     morphology_note: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -142,10 +148,16 @@ class AnthropometricAnalysis:
             "torso_length": round(self.torso_length, 4),
             "upper_arm_length": round(self.upper_arm_length, 4),
             "forearm_length": round(self.forearm_length, 4),
+            "shoulder_width": round(self.shoulder_width, 4),
+            "hip_width": round(self.hip_width, 4),
             "femur_tibia_ratio": round(self.femur_tibia_ratio, 3),
             "torso_femur_ratio": round(self.torso_femur_ratio, 3),
             "arm_torso_ratio": round(self.arm_torso_ratio, 3),
+            "shoulder_hip_ratio": round(self.shoulder_hip_ratio, 3),
+            "upper_arm_forearm_ratio": round(self.upper_arm_forearm_ratio, 3),
             "squat_type": self.squat_type,
+            "deadlift_type": self.deadlift_type,
+            "bench_grip": self.bench_grip,
             "morphology_note": self.morphology_note,
         }
 
@@ -431,10 +443,33 @@ def _compute_anthropometry(extraction: ExtractionResult) -> AnthropometricAnalys
     a.upper_arm_length = _safe_div(upper_arm_raw, height)
     a.forearm_length = _safe_div(forearm_raw, height)
 
+    # Shoulder width
+    if ls and rs:
+        a.shoulder_width = _safe_div(_distance_2d(ls, rs), height)
+    # Hip width
+    if lh and rh:
+        a.hip_width = _safe_div(_distance_2d(lh, rh), height)
+
     a.femur_tibia_ratio = _safe_div(a.femur_length, a.tibia_length, 1.0)
     a.torso_femur_ratio = _safe_div(a.torso_length, a.femur_length, 1.0)
     total_arm = a.upper_arm_length + a.forearm_length
     a.arm_torso_ratio = _safe_div(total_arm, a.torso_length, 1.0)
+    a.shoulder_hip_ratio = _safe_div(a.shoulder_width, a.hip_width, 1.0)
+    a.upper_arm_forearm_ratio = _safe_div(a.upper_arm_length, a.forearm_length, 1.0)
+
+    # Deadlift type
+    if a.hip_width > 0.19 and a.femur_tibia_ratio < 1.05:
+        a.deadlift_type = "sumo"
+    else:
+        a.deadlift_type = "conventional"
+
+    # Bench grip
+    if a.shoulder_width > 0.24:
+        a.bench_grip = "large"
+    elif a.shoulder_width < 0.2:
+        a.bench_grip = "etroit"
+    else:
+        a.bench_grip = "moyen"
 
     # Interprétation
     if a.femur_tibia_ratio > 1.1 and a.torso_femur_ratio < 0.95:
