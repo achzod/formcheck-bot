@@ -158,6 +158,15 @@ COMPENSATIONS ET BIOMECANIQUE AVANCEE
 
 ---
 
+PROFIL MORPHOLOGIQUE
+[UNIQUEMENT si un profil morphologique est fourni dans les donnees]
+[Resume du type morphologique du client et de ses ratios cles]
+[Explique comment sa morphologie impacte SPECIFIQUEMENT l'exercice analyse]
+[Recommandations de stance/prise personnalisees basees sur ses proportions]
+[Si pas de profil morpho fourni, OMETS cette section entierement]
+
+---
+
 EXERCICES CORRECTIFS
 
 1. [Nom de l'exercice] — [Sets x Reps ou duree]
@@ -213,6 +222,8 @@ def _build_analysis_prompt(
     confidence: AnalysisConfidence | None = None,
     advanced: Any = None,
     levers: Any = None,
+    morpho_profile: dict | None = None,
+    adapted_thresholds: dict | None = None,
 ) -> tuple[str, str]:
     """Construit le system prompt et le user prompt pour l'analyse.
 
@@ -285,6 +296,34 @@ def _build_analysis_prompt(
         except Exception:
             pass
 
+    # Build morpho profile section
+    morpho_section = ""
+    if morpho_profile:
+        # Filtrer les champs pertinents pour le LLM
+        morpho_for_llm = {
+            k: v for k, v in morpho_profile.items()
+            if k not in ("photos_analyzed", "analysis_quality", "full_json")
+        }
+        morpho_section = f"""
+
+### PROFIL MORPHOLOGIQUE DU CLIENT
+Le client a un profil morphologique enregistre. Les seuils d'angles ont ete adaptes a sa morphologie.
+IMPORTANT : ne penalise PAS les adaptations morphologiques normales (ex: trunk lean prononce si femurs longs).
+```json
+{json.dumps(morpho_for_llm, indent=2, ensure_ascii=False)}
+```"""
+
+    # Build adapted thresholds section
+    thresholds_section = ""
+    if adapted_thresholds:
+        thresholds_section = f"""
+
+### Seuils d'angles adaptes a la morphologie
+Ces seuils sont personnalises pour CE client. Utilise-les comme reference au lieu des seuils generiques.
+```json
+{json.dumps(adapted_thresholds, indent=2, ensure_ascii=False)}
+```"""
+
     user_prompt = f"""Analyse cette video de {exercise.display_name}.
 
 ## Donnees de pose estimation
@@ -302,6 +341,8 @@ Raisonnement : {exercise.reasoning}
 {confidence_section}
 {advanced_section}
 {levers_section}
+{morpho_section}
+{thresholds_section}
 
 ### Angles frame par frame (echantillon)
 ```json
@@ -349,6 +390,8 @@ def generate_report_claude(
     levers: Any = None,
     api_key: str | None = None,
     model: str = "claude-sonnet-4-20250514",
+    morpho_profile: dict | None = None,
+    adapted_thresholds: dict | None = None,
 ) -> Report:
     """Génère le rapport via l'API Anthropic (Claude)."""
     key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
@@ -363,6 +406,7 @@ def generate_report_claude(
     system_prompt, user_prompt = _build_analysis_prompt(
         exercise, angles, knowledge, reps=reps, confidence=confidence,
         advanced=advanced, levers=levers,
+        morpho_profile=morpho_profile, adapted_thresholds=adapted_thresholds,
     )
 
     message = client.messages.create(
@@ -386,6 +430,8 @@ def generate_report_openai(
     levers: Any = None,
     api_key: str | None = None,
     model: str = "gpt-4o",
+    morpho_profile: dict | None = None,
+    adapted_thresholds: dict | None = None,
 ) -> Report:
     """Génère le rapport via l'API OpenAI (GPT-4)."""
     key = api_key or os.environ.get("OPENAI_API_KEY", "")
@@ -398,6 +444,7 @@ def generate_report_openai(
     system_prompt, user_prompt = _build_analysis_prompt(
         exercise, angles, knowledge, reps=reps, confidence=confidence,
         advanced=advanced, levers=levers,
+        morpho_profile=morpho_profile, adapted_thresholds=adapted_thresholds,
     )
 
     response = client.chat.completions.create(
@@ -423,6 +470,8 @@ def generate_report(
     levers: Any = None,
     knowledge_path: str | None = None,
     provider: str = "auto",
+    morpho_profile: dict | None = None,
+    adapted_thresholds: dict | None = None,
 ) -> Report:
     """Point d'entrée principal pour la génération de rapport.
 
@@ -439,6 +488,8 @@ def generate_report(
         confidence=confidence,
         advanced=advanced,
         levers=levers,
+        morpho_profile=morpho_profile,
+        adapted_thresholds=adapted_thresholds,
     )
 
     if provider == "auto":

@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Sequence
 
-from sqlalchemy import ForeignKey, String, func, select, update
+from sqlalchemy import ForeignKey, String, Text, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -33,6 +33,7 @@ class User(Base):
 
     analyses: Mapped[list[Analysis]] = relationship(back_populates="user")
     payments: Mapped[list[Payment]] = relationship(back_populates="user")
+    morpho_profiles: Mapped[list[MorphoProfileDB]] = relationship(back_populates="user")
 
 
 class Analysis(Base):
@@ -47,6 +48,47 @@ class Analysis(Base):
     created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="analyses")
+
+
+class MorphoProfileDB(Base):
+    """Profil morphologique d'un client (issu de l'analyse de 3 photos statiques)."""
+    __tablename__ = "morpho_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    # Mesures normalisees
+    shoulder_width: Mapped[float] = mapped_column(default=0.0)
+    hip_width: Mapped[float] = mapped_column(default=0.0)
+    femur_length: Mapped[float] = mapped_column(default=0.0)
+    tibia_length: Mapped[float] = mapped_column(default=0.0)
+    torso_length: Mapped[float] = mapped_column(default=0.0)
+    upper_arm_length: Mapped[float] = mapped_column(default=0.0)
+    forearm_length: Mapped[float] = mapped_column(default=0.0)
+    total_arm_length: Mapped[float] = mapped_column(default=0.0)
+    # Ratios
+    femur_tibia_ratio: Mapped[float] = mapped_column(default=1.0)
+    torso_femur_ratio: Mapped[float] = mapped_column(default=1.0)
+    arm_torso_ratio: Mapped[float] = mapped_column(default=1.0)
+    shoulder_hip_ratio: Mapped[float] = mapped_column(default=1.0)
+    upper_arm_forearm_ratio: Mapped[float] = mapped_column(default=1.0)
+    # Classification
+    morpho_type: Mapped[str] = mapped_column(String(30), default="mesomorphe")
+    squat_type: Mapped[str] = mapped_column(String(30), default="balanced")
+    deadlift_type: Mapped[str] = mapped_column(String(30), default="conventional")
+    bench_grip: Mapped[str] = mapped_column(String(30), default="moyen")
+    biceps_type: Mapped[str] = mapped_column(String(30), default="moyen")
+    # Textuel
+    posture_notes: Mapped[str | None] = mapped_column(Text, default=None)
+    recommendations: Mapped[str | None] = mapped_column(Text, default=None)
+    summary: Mapped[str | None] = mapped_column(Text, default=None)
+    # JSON complet pour les donnees detaillees
+    full_json: Mapped[str | None] = mapped_column(Text, default=None)
+    # Meta
+    analysis_quality: Mapped[float] = mapped_column(default=0.0)
+    photos_analyzed: Mapped[str] = mapped_column(String(50), default="")
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+    user: Mapped[User] = relationship(back_populates="morpho_profiles")
 
 
 class Payment(Base):
@@ -218,3 +260,108 @@ async def get_user_analyses(user_id: int) -> Sequence[Analysis]:
             select(Analysis).where(Analysis.user_id == user_id).order_by(Analysis.created_at.desc())
         )
         return result.scalars().all()
+
+
+# ── Morpho Profile CRUD ───────────────────────────────────────────────────
+
+
+async def save_morpho_profile(user_id: int, morpho_data: dict) -> MorphoProfileDB:
+    """Sauvegarde un profil morphologique. Remplace le precedent si existant."""
+    import json
+
+    async with async_session() as session:
+        # Supprimer l'ancien profil s'il existe
+        existing = await session.execute(
+            select(MorphoProfileDB).where(MorphoProfileDB.user_id == user_id)
+        )
+        old = existing.scalar_one_or_none()
+        if old:
+            await session.delete(old)
+            await session.flush()
+
+        profile = MorphoProfileDB(
+            user_id=user_id,
+            shoulder_width=morpho_data.get("shoulder_width", 0.0),
+            hip_width=morpho_data.get("hip_width", 0.0),
+            femur_length=morpho_data.get("femur_length", 0.0),
+            tibia_length=morpho_data.get("tibia_length", 0.0),
+            torso_length=morpho_data.get("torso_length", 0.0),
+            upper_arm_length=morpho_data.get("upper_arm_length", 0.0),
+            forearm_length=morpho_data.get("forearm_length", 0.0),
+            total_arm_length=morpho_data.get("total_arm_length", 0.0),
+            femur_tibia_ratio=morpho_data.get("femur_tibia_ratio", 1.0),
+            torso_femur_ratio=morpho_data.get("torso_femur_ratio", 1.0),
+            arm_torso_ratio=morpho_data.get("arm_torso_ratio", 1.0),
+            shoulder_hip_ratio=morpho_data.get("shoulder_hip_ratio", 1.0),
+            upper_arm_forearm_ratio=morpho_data.get("upper_arm_forearm_ratio", 1.0),
+            morpho_type=morpho_data.get("morpho_type", "mesomorphe"),
+            squat_type=morpho_data.get("squat_type", "balanced"),
+            deadlift_type=morpho_data.get("deadlift_type", "conventional"),
+            bench_grip=morpho_data.get("bench_grip", "moyen"),
+            biceps_type=morpho_data.get("biceps_type", "moyen"),
+            posture_notes=morpho_data.get("posture", {}).get("summary", ""),
+            recommendations="\n".join(morpho_data.get("recommendations", [])),
+            summary=morpho_data.get("summary", ""),
+            full_json=json.dumps(morpho_data, ensure_ascii=False),
+            analysis_quality=morpho_data.get("analysis_quality", 0.0),
+            photos_analyzed=",".join(morpho_data.get("photos_analyzed", [])),
+        )
+        session.add(profile)
+        await session.commit()
+        await session.refresh(profile)
+        return profile
+
+
+async def get_morpho_profile(user_id: int) -> MorphoProfileDB | None:
+    """Recupere le profil morpho d'un utilisateur."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(MorphoProfileDB).where(MorphoProfileDB.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+
+async def has_morpho_profile(user_id: int) -> bool:
+    """Verifie si un utilisateur a un profil morpho."""
+    profile = await get_morpho_profile(user_id)
+    return profile is not None
+
+
+async def get_morpho_profile_dict(user_id: int) -> dict | None:
+    """Recupere le profil morpho sous forme de dict complet (depuis full_json)."""
+    import json
+
+    profile = await get_morpho_profile(user_id)
+    if not profile:
+        return None
+    if profile.full_json:
+        try:
+            return json.loads(profile.full_json)
+        except json.JSONDecodeError:
+            pass
+    # Fallback : construire le dict depuis les colonnes
+    return {
+        "shoulder_width": profile.shoulder_width,
+        "hip_width": profile.hip_width,
+        "femur_length": profile.femur_length,
+        "tibia_length": profile.tibia_length,
+        "torso_length": profile.torso_length,
+        "upper_arm_length": profile.upper_arm_length,
+        "forearm_length": profile.forearm_length,
+        "total_arm_length": profile.total_arm_length,
+        "femur_tibia_ratio": profile.femur_tibia_ratio,
+        "torso_femur_ratio": profile.torso_femur_ratio,
+        "arm_torso_ratio": profile.arm_torso_ratio,
+        "shoulder_hip_ratio": profile.shoulder_hip_ratio,
+        "upper_arm_forearm_ratio": profile.upper_arm_forearm_ratio,
+        "morpho_type": profile.morpho_type,
+        "squat_type": profile.squat_type,
+        "deadlift_type": profile.deadlift_type,
+        "bench_grip": profile.bench_grip,
+        "biceps_type": profile.biceps_type,
+        "posture_notes": profile.posture_notes,
+        "recommendations": profile.recommendations.split("\n") if profile.recommendations else [],
+        "summary": profile.summary,
+        "analysis_quality": profile.analysis_quality,
+        "photos_analyzed": profile.photos_analyzed.split(",") if profile.photos_analyzed else [],
+    }

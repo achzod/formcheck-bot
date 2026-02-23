@@ -74,6 +74,7 @@ _SECTION_TITLES = [
     "ANALYSE DU TEMPO ET DES PHASES",
     "ANALYSE DU TEMPO ET DES REPETITIONS",
     "COMPENSATIONS ET BIOMECANIQUE AVANCEE",
+    "PROFIL MORPHOLOGIQUE",
     "EXERCICES CORRECTIFS",
     "DECOMPOSITION DU SCORE",
     "ANALYSE AVANCEE",
@@ -88,6 +89,7 @@ _SECTION_ICONS: dict[str, str] = {
     "AMPLITUDE DE MOUVEMENT": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
     "EXERCICES CORRECTIFS": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>',
     "POINT BIOMECANIQUE": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    "PROFIL MORPHOLOGIQUE": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
 }
 
 
@@ -331,6 +333,14 @@ def generate_html_report(
     if pipeline_result and hasattr(pipeline_result, 'reps') and pipeline_result.reps:
         reps_timeline_html = _build_reps_timeline(pipeline_result.reps)
 
+    # ── Section Profil Morphologique (si donnees disponibles) ─────────────
+    morpho_html = ""
+    morpho_data = None
+    if pipeline_result and hasattr(pipeline_result, 'morpho_profile') and pipeline_result.morpho_profile:
+        morpho_data = pipeline_result.morpho_profile
+    if morpho_data:
+        morpho_html = _build_morpho_section(morpho_data)
+
     # ── Report text formatted ─────────────────────────────────────────────
     report_html = _format_report_html(report.report_text)
 
@@ -557,6 +567,31 @@ body{{
 .confidence-haute{{background:#00ff8820;color:#00ff88;border:1px solid #00ff8840}}
 .confidence-moyenne{{background:#ff6b3520;color:#ff6b35;border:1px solid #ff6b3540}}
 .confidence-limitee{{background:#ff336620;color:#ff3366;border:1px solid #ff336640}}
+
+/* ── Morpho profile ──────────────────────────────────────── */
+.morpho-ratio{{
+    background:#0a0a1a;border-radius:8px;padding:8px 10px;
+    text-align:center
+}}
+.morpho-ratio-label{{color:#8888aa;font-size:0.72em;margin-bottom:2px}}
+.morpho-ratio-val{{color:#e0e0f0;font-weight:700;font-size:1.05em}}
+.morpho-tag{{
+    background:#1a1a3a;color:#00d4ff;padding:3px 10px;border-radius:12px;
+    font-size:0.78em;font-weight:600
+}}
+.morpho-posture-item{{
+    padding:6px 12px;margin:4px 0;font-size:0.88em;color:#e0e0f0;
+    border-radius:4px;background:#0a0a1a
+}}
+.morpho-rec{{
+    display:flex;gap:10px;align-items:flex-start;margin:8px 0
+}}
+.morpho-rec-num{{
+    background:#1a1a3a;color:#00d4ff;width:22px;height:22px;
+    border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:0.75em;flex-shrink:0;margin-top:2px
+}}
+.morpho-rec-text{{color:#c8c8e0;font-size:0.85em;line-height:1.5}}
 </style>
 </head>
 <body>
@@ -586,6 +621,9 @@ body{{
 
 <!-- Reps timeline -->
 {reps_timeline_html}
+
+<!-- Profil morphologique -->
+{morpho_html}
 
 <!-- Analyse detaillee -->
 <div class="fade-in" style="animation-delay:0.4s">
@@ -711,6 +749,191 @@ def _build_angle_chart(pipeline_result: Any) -> str:
                 <text x="{max_x:.1f}" y="{max_y - 8:.1f}" text-anchor="middle" fill="#00ff88" font-size="9" font-weight="700">{max(values):.0f}deg</text>
             </svg>
         </div>
+    </div>'''
+
+
+def _build_morpho_section(morpho: dict) -> str:
+    """Construit la section visuelle du profil morphologique avec silhouette SVG."""
+    morpho_type = morpho.get("morpho_type", "?").capitalize()
+    squat_type = morpho.get("squat_type", "?").replace("_", " ")
+    deadlift_type = morpho.get("deadlift_type", "?")
+    bench_grip = morpho.get("bench_grip", "?")
+
+    ftr = morpho.get("femur_tibia_ratio", 1.0)
+    tfr = morpho.get("torso_femur_ratio", 1.0)
+    atr = morpho.get("arm_torso_ratio", 1.0)
+    shr = morpho.get("shoulder_hip_ratio", 1.0)
+    uafr = morpho.get("upper_arm_forearm_ratio", 1.0)
+
+    # Couleurs des ratios
+    def _ratio_color(val: float, low: float, high: float) -> str:
+        if val < low:
+            return "#ff6b35"
+        elif val > high:
+            return "#00d4ff"
+        return "#00ff88"
+
+    ftr_col = _ratio_color(ftr, 0.95, 1.1)
+    tfr_col = _ratio_color(tfr, 0.95, 1.1)
+    shr_col = _ratio_color(shr, 1.15, 1.35)
+
+    # Silhouette SVG simplifiee avec proportions annotees
+    # Les longueurs de segments sont normalisees pour la silhouette
+    shoulder_w = morpho.get("shoulder_width", 0.22)
+    hip_w = morpho.get("hip_width", 0.16)
+    femur_l = morpho.get("femur_length", 0.26)
+    tibia_l = morpho.get("tibia_length", 0.24)
+    torso_l = morpho.get("torso_length", 0.28)
+
+    # Normaliser les segments pour la silhouette (total = 300px de haut)
+    total_seg = torso_l + femur_l + tibia_l
+    if total_seg < 0.01:
+        total_seg = 0.78
+    scale = 240 / total_seg
+    t_h = torso_l * scale
+    f_h = femur_l * scale
+    ti_h = tibia_l * scale
+    s_w = shoulder_w * scale * 2.5
+    h_w = hip_w * scale * 2.5
+
+    # Points de la silhouette
+    head_y = 20
+    shoulder_y = head_y + 30
+    hip_y = shoulder_y + t_h
+    knee_y = hip_y + f_h
+    ankle_y = knee_y + ti_h
+    cx = 100  # centre x
+
+    silhouette_svg = f'''
+    <svg viewBox="0 0 200 {int(ankle_y + 30)}" style="width:140px;height:auto;margin:0 auto;display:block">
+        <!-- Tete -->
+        <circle cx="{cx}" cy="{head_y}" r="12" fill="none" stroke="#00d4ff" stroke-width="1.5"/>
+        <!-- Torse -->
+        <line x1="{cx}" y1="{head_y + 12}" x2="{cx}" y2="{hip_y}" stroke="#00d4ff" stroke-width="2"/>
+        <!-- Epaules -->
+        <line x1="{cx - s_w/2}" y1="{shoulder_y}" x2="{cx + s_w/2}" y2="{shoulder_y}" stroke="#00d4ff" stroke-width="2"/>
+        <!-- Bras G -->
+        <line x1="{cx - s_w/2}" y1="{shoulder_y}" x2="{cx - s_w/2 - 8}" y2="{hip_y - 5}" stroke="#6868aa" stroke-width="1.5"/>
+        <!-- Bras D -->
+        <line x1="{cx + s_w/2}" y1="{shoulder_y}" x2="{cx + s_w/2 + 8}" y2="{hip_y - 5}" stroke="#6868aa" stroke-width="1.5"/>
+        <!-- Hanches -->
+        <line x1="{cx - h_w/2}" y1="{hip_y}" x2="{cx + h_w/2}" y2="{hip_y}" stroke="#00d4ff" stroke-width="2"/>
+        <!-- Femur G -->
+        <line x1="{cx - h_w/2}" y1="{hip_y}" x2="{cx - h_w/3}" y2="{knee_y}" stroke="#ff6b35" stroke-width="2"/>
+        <!-- Femur D -->
+        <line x1="{cx + h_w/2}" y1="{hip_y}" x2="{cx + h_w/3}" y2="{knee_y}" stroke="#ff6b35" stroke-width="2"/>
+        <!-- Tibia G -->
+        <line x1="{cx - h_w/3}" y1="{knee_y}" x2="{cx - h_w/4}" y2="{ankle_y}" stroke="#00ff88" stroke-width="2"/>
+        <!-- Tibia D -->
+        <line x1="{cx + h_w/3}" y1="{knee_y}" x2="{cx + h_w/4}" y2="{ankle_y}" stroke="#00ff88" stroke-width="2"/>
+        <!-- Annotations -->
+        <text x="12" y="{(shoulder_y + hip_y) / 2}" fill="#8888aa" font-size="8" font-family="Inter,system-ui">Torse</text>
+        <text x="12" y="{(hip_y + knee_y) / 2}" fill="#8888aa" font-size="8" font-family="Inter,system-ui">Femur</text>
+        <text x="12" y="{(knee_y + ankle_y) / 2}" fill="#8888aa" font-size="8" font-family="Inter,system-ui">Tibia</text>
+        <!-- Largeur epaules -->
+        <text x="{cx}" y="{shoulder_y - 6}" text-anchor="middle" fill="#00d4ff" font-size="7" font-family="Inter,system-ui">{shoulder_w:.3f}</text>
+        <!-- Largeur hanches -->
+        <text x="{cx}" y="{hip_y + 12}" text-anchor="middle" fill="#00d4ff" font-size="7" font-family="Inter,system-ui">{hip_w:.3f}</text>
+    </svg>'''
+
+    # Posture
+    posture = morpho.get("posture", {})
+    posture_items = []
+    posture_summary = posture.get("summary", "")
+    if posture.get("lordose_severity", 0) > 0.3:
+        sev = posture["lordose_severity"]
+        posture_items.append(f'<div class="morpho-posture-item" style="border-left:3px solid #ff6b35">Lordose lombaire <span style="color:#ff6b35;font-weight:600">{sev:.0%}</span></div>')
+    if posture.get("cyphose_severity", 0) > 0.3:
+        sev = posture["cyphose_severity"]
+        posture_items.append(f'<div class="morpho-posture-item" style="border-left:3px solid #ff6b35">Cyphose thoracique <span style="color:#ff6b35;font-weight:600">{sev:.0%}</span></div>')
+    if posture.get("epaules_enroulees"):
+        posture_items.append('<div class="morpho-posture-item" style="border-left:3px solid #ff6b35">Epaules enroulees</div>')
+    if posture.get("tete_en_avant"):
+        posture_items.append('<div class="morpho-posture-item" style="border-left:3px solid #ff6b35">Tete en avant</div>')
+    if posture.get("antéversion_bassin") or posture.get("anteversion_bassin"):
+        posture_items.append('<div class="morpho-posture-item" style="border-left:3px solid #ff6b35">Antéversion du bassin</div>')
+    if not posture_items:
+        posture_items.append('<div class="morpho-posture-item" style="border-left:3px solid #00ff88">Posture equilibree</div>')
+
+    posture_html = "\n".join(posture_items)
+
+    # Recommendations (top 3)
+    recs = morpho.get("recommendations", [])[:3]
+    recs_html = ""
+    if recs:
+        rec_items = []
+        for i, r in enumerate(recs):
+            rec_items.append(
+                f'<div class="morpho-rec">'
+                f'<span class="morpho-rec-num">{i+1}</span>'
+                f'<span class="morpho-rec-text">{html.escape(r)}</span>'
+                f'</div>'
+            )
+        recs_html = "\n".join(rec_items)
+
+    return f'''
+    <div class="card fade-in" style="animation-delay:0.42s">
+        <div class="card-header">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;vertical-align:middle;opacity:0.8"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Profil Morphologique
+        </div>
+
+        <!-- Type + silhouette -->
+        <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px">
+                <div style="font-size:1.1em;color:#fff;font-weight:700;margin-bottom:12px">{morpho_type}</div>
+
+                <!-- Ratios -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+                    <div class="morpho-ratio">
+                        <div class="morpho-ratio-label">Femur/Tibia</div>
+                        <div class="morpho-ratio-val" style="color:{ftr_col}">{ftr:.2f}</div>
+                    </div>
+                    <div class="morpho-ratio">
+                        <div class="morpho-ratio-label">Torse/Femur</div>
+                        <div class="morpho-ratio-val" style="color:{tfr_col}">{tfr:.2f}</div>
+                    </div>
+                    <div class="morpho-ratio">
+                        <div class="morpho-ratio-label">Epaules/Hanches</div>
+                        <div class="morpho-ratio-val" style="color:{shr_col}">{shr:.2f}</div>
+                    </div>
+                    <div class="morpho-ratio">
+                        <div class="morpho-ratio-label">Bras/Torse</div>
+                        <div class="morpho-ratio-val">{atr:.2f}</div>
+                    </div>
+                    <div class="morpho-ratio">
+                        <div class="morpho-ratio-label">Bras sup/Avant-bras</div>
+                        <div class="morpho-ratio-val">{uafr:.2f}</div>
+                    </div>
+                </div>
+
+                <!-- Preferences -->
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+                    <span class="morpho-tag">Squat: {squat_type}</span>
+                    <span class="morpho-tag">Deadlift: {deadlift_type}</span>
+                    <span class="morpho-tag">Bench: {bench_grip}</span>
+                </div>
+            </div>
+
+            <!-- Silhouette -->
+            <div style="flex-shrink:0">
+                {silhouette_svg}
+            </div>
+        </div>
+
+        <!-- Posture -->
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #151530">
+            <div style="color:#8888aa;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Bilan postural</div>
+            {posture_html}
+        </div>
+
+        <!-- Recommandations -->
+        {"" if not recs_html else f'''
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #151530">
+            <div style="color:#8888aa;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Recommandations personnalisees</div>
+            {recs_html}
+        </div>
+        '''}
     </div>'''
 
 

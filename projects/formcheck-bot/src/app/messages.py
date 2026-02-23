@@ -70,6 +70,105 @@ FILMING_GUIDE = (
     "Plus la video est propre, plus l'analyse sera precise et detaillee."
 )
 
+# ── PROFIL MORPHOLOGIQUE ─────────────────────────────────────────────────────
+# Flow d'acquisition des 3 photos statiques pour le profil morpho.
+
+MORPHO_WELCOME = (
+    "*PROFIL MORPHOLOGIQUE — Personnalise tes analyses*\n\n"
+    "Avant ta premiere analyse video, je te propose de creer ton "
+    "*profil morphologique*. Ca prend 2 minutes et ca permet :\n\n"
+    "- Des seuils d'angles adaptes a TA morphologie\n"
+    "- Des recommandations de stance/prise personnalisees\n"
+    "- Un bilan postural offert\n"
+    "- Des analyses video beaucoup plus precises\n\n"
+    "J'ai besoin de *3 photos* de toi debout :\n"
+    "1. De *face*\n"
+    "2. De *profil* (cote)\n"
+    "3. De *dos*\n\n"
+    "On commence ? Envoie ta photo de *face*.\n\n"
+    "Tape *skip* si tu veux passer directement a l'analyse video "
+    "(les seuils seront generiques)."
+)
+
+MORPHO_INSTRUCTIONS_FRONT = (
+    "*Photo 1/3 — DE FACE*\n\n"
+    "Instructions :\n"
+    "1. Debout, bras le long du corps, pieds largeur des epaules\n"
+    "2. Vetements ajustes (pas de jogging large)\n"
+    "3. Fond neutre (mur uni de preference)\n"
+    "4. Bonne lumiere (face a une fenetre ou lampe)\n"
+    "5. Corps entier visible (tete aux pieds)\n"
+    "6. Camera a hauteur de la taille, a 2-3 metres\n\n"
+    "Envoie la photo quand tu es pret."
+)
+
+MORPHO_INSTRUCTIONS_SIDE = (
+    "*Photo 2/3 — DE PROFIL (cote)*\n\n"
+    "Tourne-toi sur le cote (gauche ou droit, peu importe).\n"
+    "Memes regles : debout naturellement, bras le long du corps, "
+    "corps entier visible.\n\n"
+    "Cette photo permet de mesurer tes segments (femur, tibia, torse) "
+    "et d'analyser ta posture.\n\n"
+    "Envoie la photo."
+)
+
+MORPHO_INSTRUCTIONS_BACK = (
+    "*Photo 3/3 — DE DOS*\n\n"
+    "Tourne-toi dos a la camera.\n"
+    "Memes regles : debout, bras le long du corps, corps entier visible.\n\n"
+    "Cette photo permet de verifier la symetrie et la position des omoplates.\n\n"
+    "Envoie la photo."
+)
+
+MORPHO_ANALYZING = (
+    "Photos recues. Analyse morphologique en cours...\n"
+    "Resultat dans quelques secondes."
+)
+
+MORPHO_PROFILE_RESULT = (
+    "*PROFIL MORPHOLOGIQUE — Resultats*\n\n"
+    "*Type :* {morpho_type}\n"
+    "*Squat :* {squat_type}\n"
+    "*Deadlift :* {deadlift_type}\n"
+    "*Bench grip :* {bench_grip}\n\n"
+    "*Ratios cles :*\n"
+    "Femur/Tibia : {femur_tibia_ratio}\n"
+    "Torse/Femur : {torso_femur_ratio}\n"
+    "Epaules/Hanches : {shoulder_hip_ratio}\n\n"
+    "{summary}\n\n"
+    "Tes analyses video seront maintenant adaptees a ta morphologie.\n"
+    "Envoie ta premiere video quand tu veux."
+)
+
+MORPHO_POSTURE_REPORT = (
+    "*BILAN POSTURAL*\n\n"
+    "{posture_summary}\n\n"
+    "*Recommandations :*\n"
+    "{recommendations}"
+)
+
+MORPHO_SKIPPED = (
+    "Profil morpho ignore — pas de probleme.\n"
+    "Les analyses utiliseront des seuils generiques.\n"
+    "Tu pourras creer ton profil plus tard en tapant *morpho*.\n\n"
+    "Envoie ta video quand tu veux."
+)
+
+MORPHO_ALREADY_EXISTS = (
+    "Tu as deja un profil morphologique.\n"
+    "Tape *morpho reset* pour en creer un nouveau, "
+    "ou envoie directement ta video."
+)
+
+MORPHO_PHOTO_RECEIVED = "Photo recue ({step}/3). {next_instruction}"
+
+MORPHO_ERROR = (
+    "Je n'ai pas reussi a analyser cette photo.\n"
+    "Assure-toi que ton corps entier est visible, debout, "
+    "avec un bon eclairage.\n"
+    "Renvoie la photo."
+)
+
 # ── MESSAGES RECEPTION VIDEO ─────────────────────────────────────────────────
 
 VIDEO_RECEIVED = (

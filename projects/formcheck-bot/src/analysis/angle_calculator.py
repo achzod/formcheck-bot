@@ -374,6 +374,146 @@ def compute_angles(extraction: ExtractionResult) -> AngleResult:
     return result
 
 
+# ── Seuils adaptatifs par morphologie ─────────────────────────────────────────
+
+# Seuils par defaut (sans profil morpho)
+DEFAULT_THRESHOLDS: dict[str, dict[str, float]] = {
+    "squat": {
+        "trunk_lean_max": 40.0,         # Inclinaison tronc max acceptable (°)
+        "knee_over_toe_max": 10.0,      # Degres de depassement genou/orteil
+        "depth_knee_angle": 90.0,       # Angle genou au parallele
+        "valgus_max": 8.0,              # Valgus dynamique max (°)
+    },
+    "front_squat": {
+        "trunk_lean_max": 30.0,
+        "knee_over_toe_max": 12.0,
+        "depth_knee_angle": 90.0,
+        "valgus_max": 8.0,
+    },
+    "deadlift": {
+        "trunk_lean_max": 55.0,
+        "hip_hinge_min": 60.0,          # Angle hanche min en bas
+        "lockout_hip_min": 170.0,
+    },
+    "bench_press": {
+        "elbow_flare_max": 75.0,        # Angle abduction epaule max
+        "elbow_depth_min": 80.0,        # Angle coude au point bas
+        "lockout_elbow_min": 165.0,
+    },
+    "ohp": {
+        "trunk_lean_max": 15.0,
+        "lockout_elbow_min": 170.0,
+    },
+    "rdl": {
+        "trunk_lean_max": 60.0,
+        "hip_hinge_min": 70.0,
+        "knee_bend_max": 30.0,          # Flexion genou max (degres depuis extension)
+    },
+    "hip_thrust": {
+        "lockout_hip_min": 170.0,
+        "knee_angle_target": 90.0,
+    },
+    "curl": {
+        "elbow_rom_min": 40.0,
+        "shoulder_movement_max": 15.0,
+    },
+    "barbell_row": {
+        "trunk_lean_min": 30.0,
+        "trunk_lean_max": 60.0,
+        "elbow_rom_min": 40.0,
+    },
+    "lateral_raise": {
+        "shoulder_abduction_target": 90.0,
+        "trunk_sway_max": 10.0,
+    },
+}
+
+
+def get_adapted_thresholds(
+    exercise: str,
+    morpho_profile: dict | None = None,
+) -> dict[str, float]:
+    """Retourne des seuils d'angles adaptes au profil morphologique du client.
+
+    Si pas de profil morpho → retourne les seuils par defaut.
+    Si profil morpho → ajuste les seuils en fonction des ratios anthropometriques.
+
+    Args:
+        exercise: Nom de l'exercice (ex: "squat", "bench_press").
+        morpho_profile: Dict du profil morpho (depuis MorphoProfile.to_dict() ou DB).
+
+    Returns:
+        Dict {nom_seuil: valeur_adaptee}.
+    """
+    # Commencer avec les seuils par defaut
+    base = DEFAULT_THRESHOLDS.get(exercise, {}).copy()
+    if not base:
+        return base
+
+    if not morpho_profile:
+        return base
+
+    ftr = morpho_profile.get("femur_tibia_ratio", 1.0)
+    tfr = morpho_profile.get("torso_femur_ratio", 1.0)
+    shr = morpho_profile.get("shoulder_hip_ratio", 1.0)
+    arm_torso = morpho_profile.get("arm_torso_ratio", 1.0)
+    hip_width = morpho_profile.get("hip_width", 0.0)
+    total_arm = morpho_profile.get("total_arm_length", 0.0)
+
+    # ── Adaptations SQUAT ─────────────────────────────────────────────────
+    if exercise in ("squat", "front_squat"):
+        # Femurs longs + torse court → trunk lean naturellement plus prononce
+        if ftr > 1.05 and tfr < 1.0:
+            # Augmenter le seuil de trunk lean proportionnellement
+            lean_bonus = (ftr - 1.0) * 30 + (1.0 - tfr) * 20
+            base["trunk_lean_max"] = min(60.0, base["trunk_lean_max"] + lean_bonus)
+
+        # Torse long → peut rester plus vertical
+        if tfr > 1.1:
+            base["trunk_lean_max"] = max(25.0, base["trunk_lean_max"] - 5.0)
+
+        # Hanches larges → valgus seuil legerement plus tolerant
+        if hip_width > 0.19:
+            base["valgus_max"] = min(12.0, base["valgus_max"] + 2.0)
+
+        # Femurs longs → depth naturellement plus difficile
+        if ftr > 1.1:
+            base["depth_knee_angle"] = min(100.0, base["depth_knee_angle"] + 5.0)
+
+    # ── Adaptations DEADLIFT ──────────────────────────────────────────────
+    elif exercise == "deadlift":
+        # Bras longs → moins de ROM → trunk lean max ajuste
+        if total_arm > 0.38:
+            base["trunk_lean_max"] = min(65.0, base["trunk_lean_max"] + 5.0)
+        # Femurs longs → setup plus incline
+        if ftr > 1.1:
+            base["trunk_lean_max"] = min(65.0, base["trunk_lean_max"] + 5.0)
+
+    # ── Adaptations BENCH PRESS ───────────────────────────────────────────
+    elif exercise == "bench_press":
+        # Bras longs → plus de ROM → seuil de depth ajuste
+        if total_arm > 0.38:
+            base["elbow_depth_min"] = max(70.0, base["elbow_depth_min"] - 10.0)
+        # Clavicules larges → flare naturellement plus ouvert
+        if shr > 1.35:
+            base["elbow_flare_max"] = min(85.0, base["elbow_flare_max"] + 5.0)
+        # Clavicules etroites → garder les coudes plus rentres
+        elif shr < 1.15:
+            base["elbow_flare_max"] = max(60.0, base["elbow_flare_max"] - 5.0)
+
+    # ── Adaptations RDL ───────────────────────────────────────────────────
+    elif exercise == "rdl":
+        if ftr > 1.1:
+            base["trunk_lean_max"] = min(70.0, base["trunk_lean_max"] + 5.0)
+
+    # ── Adaptations BARBELL ROW ───────────────────────────────────────────
+    elif exercise == "barbell_row":
+        if arm_torso > 1.1:
+            base["elbow_rom_min"] = max(30.0, base["elbow_rom_min"] - 5.0)
+
+    return base
+
+
 def angles_to_dict(result: AngleResult) -> dict[str, Any]:
     """Convertit le résultat des angles en dict JSON-sérialisable."""
     frames_data = []

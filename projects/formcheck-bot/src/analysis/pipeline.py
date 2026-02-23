@@ -105,6 +105,9 @@ class PipelineConfig:
     llm_provider: str = "auto"  # "auto", "anthropic" ou "openai"
     knowledge_path: str | None = None
 
+    # Profil morphologique (dict depuis MorphoProfile.to_dict() ou DB)
+    morpho_profile: dict[str, Any] | None = None
+
     # Sortie
     output_dir: str | None = None
     save_json: bool = True
@@ -129,6 +132,9 @@ class PipelineResult:
     levers: Any | None = None  # LeverBiomechanics
     confidence: AnalysisConfidence | None = None
     report: Report | None = None
+    # Profil morphologique
+    morpho_profile: dict[str, Any] | None = None
+    adapted_thresholds: dict[str, float] | None = None
     # Fichiers générés
     annotated_frames: dict[str, str] = field(default_factory=dict)
     json_path: str | None = None
@@ -308,6 +314,24 @@ def run_pipeline(
         logger.error("Détection échouée: %s", e)
         return result
 
+    # ── Étape 5b : Chargement profil morphologique ─────────────────────
+    # Si un profil morpho est fourni dans la config, on l'utilise
+    morpho_profile = cfg.morpho_profile
+    if morpho_profile:
+        result.morpho_profile = morpho_profile
+        logger.info("  → Profil morpho charge (type: %s)", morpho_profile.get("morpho_type", "?"))
+
+        # Calculer les seuils adaptes
+        try:
+            from analysis.angle_calculator import get_adapted_thresholds
+            adapted = get_adapted_thresholds(
+                detection.exercise.value, morpho_profile
+            )
+            result.adapted_thresholds = adapted
+            logger.info("  → Seuils adaptes au profil morpho: %s", adapted)
+        except Exception as e:
+            logger.error("Calcul seuils adaptes echoue: %s", e)
+
     # ── Étape 6 : Segmentation des répétitions ───────────────────────────
     _notify_progress(cfg, 6, "Segmentation des reps")
     logger.info("Étape 6/%d : Segmentation des répétitions...", TOTAL_STEPS)
@@ -406,6 +430,8 @@ def run_pipeline(
             levers=result.levers,
             knowledge_path=cfg.knowledge_path,
             provider=cfg.llm_provider,
+            morpho_profile=result.morpho_profile,
+            adapted_thresholds=result.adapted_thresholds,
         )
         result.report = report
         result.timings["report"] = time.monotonic() - t0
@@ -549,5 +575,11 @@ def pipeline_result_to_dict(result: PipelineResult) -> dict[str, Any]:
 
     if result.annotated_frames:
         data["annotated_frames"] = result.annotated_frames
+
+    if result.morpho_profile:
+        data["morpho_profile"] = result.morpho_profile
+
+    if result.adapted_thresholds:
+        data["adapted_thresholds"] = result.adapted_thresholds
 
     return data
