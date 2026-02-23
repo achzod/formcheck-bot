@@ -1,15 +1,17 @@
 """Pipeline d'analyse biomécanique complet.
 
 Orchestre les étapes :
-1. Validation vidéo
+1. Validation vidéo (gracieuse — analyse quand même si possible)
 2. Extraction de pose (MediaPipe)
 3. Lissage des landmarks
 4. Calcul des angles articulaires
-5. Segmentation des répétitions
-6. Détection automatique de l'exercice
-7. Calcul du score de confiance
-8. Génération du rapport (LLM)
-9. Annotation des frames clés
+5. Détection automatique de l'exercice
+6. Segmentation des répétitions (+ fatigue + triche)
+7. Analyse biomécanique avancée
+8. Analyse bras de levier / morphologie
+9. Calcul du score de confiance
+10. Génération du rapport (LLM)
+11. Annotation des frames clés
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from analysis.angle_calculator import AngleResult, angles_to_dict, compute_angles
 from analysis.confidence import AnalysisConfidence, compute_confidence
@@ -43,6 +45,37 @@ logger = logging.getLogger("formcheck.pipeline")
 
 # Thread pool dédié au traitement CV (CPU-bound)
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="formcheck-cv")
+
+# Messages d'erreur user-friendly (français)
+_USER_ERRORS = {
+    "extraction_failed": (
+        "Je n'ai pas réussi à détecter ton corps dans la vidéo. "
+        "Assure-toi d'être entièrement visible, des pieds à la tête, "
+        "avec un bon éclairage et un arrière-plan dégagé."
+    ),
+    "no_frames": (
+        "Aucune position n'a pu être détectée. "
+        "Vérifie que tu es bien visible dans toute la vidéo. "
+        "Évite le contre-jour et les vêtements trop amples."
+    ),
+    "angles_failed": (
+        "Erreur lors de l'analyse des angles articulaires. "
+        "La vidéo est peut-être de trop basse qualité. "
+        "Essaie de filmer en 720p minimum avec un bon éclairage."
+    ),
+    "detection_failed": (
+        "Je n'ai pas réussi à identifier l'exercice automatiquement. "
+        "Assure-toi que le mouvement est bien visible de la tête aux pieds."
+    ),
+    "report_failed": (
+        "L'analyse est terminée mais la génération du rapport a échoué. "
+        "Réessaie dans quelques instants — si le problème persiste, "
+        "contacte le support."
+    ),
+}
+
+# Nombre total d'étapes pour le suivi de progression
+TOTAL_STEPS = 11
 
 
 @dataclass
@@ -77,6 +110,9 @@ class PipelineConfig:
     save_json: bool = True
     save_annotated_frames: bool = True
 
+    # Callback de progression (step_num, total_steps, description)
+    progress_callback: Callable[[int, int, str], None] | None = None
+
 
 @dataclass
 class PipelineResult:
@@ -98,9 +134,23 @@ class PipelineResult:
     json_path: str | None = None
     # Timing
     timings: dict[str, float] = field(default_factory=dict)
-    # Erreurs
+    total_time: float = 0.0
+    # Erreurs (techniques pour les logs)
     errors: list[str] = field(default_factory=list)
+    # Messages user-friendly (pour WhatsApp)
+    user_messages: list[str] = field(default_factory=list)
+    # Indicateurs
     success: bool = False
+    low_quality: bool = False  # True si analyse faite malgré qualité faible
+
+
+def _notify_progress(cfg: PipelineConfig, step: int, desc: str) -> None:
+    """Notifie la progression si un callback est configuré."""
+    if cfg.progress_callback:
+        try:
+            cfg.progress_callback(step, TOTAL_STEPS, desc)
+        except Exception:
+            pass  # Le callback de progression ne doit jamais bloquer le pipeline
 
 
 def run_pipeline(
@@ -117,6 +167,7 @@ def run_pipeline(
         PipelineResult avec tous les résultats.
     """
     cfg = config or PipelineConfig()
+    pipeline_start = time.monotonic()
 
     video = Path(video_path)
     out_dir = Path(cfg.output_dir) if cfg.output_dir else video.parent / "formcheck_output"
@@ -126,7 +177,8 @@ def run_pipeline(
 
     # ── Étape 1 : Validation vidéo ──────────────────────────────────────
     if not cfg.skip_validation:
-        logger.info("Étape 1/9 : Validation vidéo...")
+        _notify_progress(cfg, 1, "Validation vidéo")
+        logger.info("Étape 1/%d : Validation vidéo...", TOTAL_STEPS)
         t0 = time.monotonic()
         try:
             validation = validate_video(
@@ -142,17 +194,31 @@ def run_pipeline(
                 validation.quality_score, validation.is_valid,
                 result.timings["validation"],
             )
+
             if not validation.is_valid:
+                # Erreurs bloquantes (vidéo corrompue, noire...)
                 result.errors.extend(validation.blocking_errors)
-                logger.error("Validation échouée: %s", validation.blocking_errors)
+                result.user_messages.extend(validation.blocking_errors)
+                if validation.suggestions:
+                    result.user_messages.append(
+                        "Conseils : " + " | ".join(validation.suggestions)
+                    )
+                logger.error("Validation bloquante: %s", validation.blocking_errors)
                 return result
+
+            # Qualifier la vidéo comme low_quality si nécessaire
+            if getattr(validation, "low_quality_disclaimer", False):
+                result.low_quality = True
+                logger.info("  → Qualité faible — analyse avec disclaimer")
+
         except Exception as e:
             result.errors.append(f"Validation échouée: {e}")
             logger.error("Validation échouée: %s", e)
             # Continuer quand même si la validation crash
 
     # ── Étape 2 : Extraction de pose ─────────────────────────────────────
-    logger.info("Étape 2/9 : Extraction des landmarks de pose...")
+    _notify_progress(cfg, 2, "Extraction de pose")
+    logger.info("Étape 2/%d : Extraction des landmarks de pose...", TOTAL_STEPS)
     t0 = time.monotonic()
     try:
         extraction = extract_pose(
@@ -172,17 +238,20 @@ def run_pipeline(
         )
     except Exception as e:
         result.errors.append(f"Extraction échouée: {e}")
+        result.user_messages.append(_USER_ERRORS["extraction_failed"])
         logger.error("Extraction échouée: %s", e)
         return result
 
     if not extraction.frames:
         result.errors.append("Aucune frame avec landmarks détectés.")
+        result.user_messages.append(_USER_ERRORS["no_frames"])
         logger.error("Aucune frame avec landmarks.")
         return result
 
     # ── Étape 3 : Lissage des landmarks ──────────────────────────────────
     if cfg.smoothing_enabled:
-        logger.info("Étape 3/9 : Lissage temporel des landmarks...")
+        _notify_progress(cfg, 3, "Lissage des données")
+        logger.info("Étape 3/%d : Lissage temporel des landmarks...", TOTAL_STEPS)
         t0 = time.monotonic()
         try:
             extraction.frames = smooth_landmarks(
@@ -197,7 +266,8 @@ def run_pipeline(
             logger.error("Lissage échoué: %s — on continue sans.", e)
 
     # ── Étape 4 : Calcul des angles articulaires ─────────────────────────
-    logger.info("Étape 4/9 : Calcul des angles articulaires...")
+    _notify_progress(cfg, 4, "Calcul des angles")
+    logger.info("Étape 4/%d : Calcul des angles articulaires...", TOTAL_STEPS)
     t0 = time.monotonic()
     try:
         angles = compute_angles(extraction)
@@ -210,11 +280,13 @@ def run_pipeline(
         )
     except Exception as e:
         result.errors.append(f"Calcul d'angles échoué: {e}")
+        result.user_messages.append(_USER_ERRORS["angles_failed"])
         logger.error("Calcul d'angles échoué: %s", e)
         return result
 
     # ── Étape 5 : Détection de l'exercice ────────────────────────────────
-    logger.info("Étape 5/9 : Détection de l'exercice...")
+    _notify_progress(cfg, 5, "Détection de l'exercice")
+    logger.info("Étape 5/%d : Détection de l'exercice...", TOTAL_STEPS)
     t0 = time.monotonic()
     try:
         mid_frame_path = extraction.key_frame_images.get("mid")
@@ -232,11 +304,13 @@ def run_pipeline(
         )
     except Exception as e:
         result.errors.append(f"Détection d'exercice échouée: {e}")
+        result.user_messages.append(_USER_ERRORS["detection_failed"])
         logger.error("Détection échouée: %s", e)
         return result
 
     # ── Étape 6 : Segmentation des répétitions ───────────────────────────
-    logger.info("Étape 6/9 : Segmentation des répétitions...")
+    _notify_progress(cfg, 6, "Segmentation des reps")
+    logger.info("Étape 6/%d : Segmentation des répétitions...", TOTAL_STEPS)
     t0 = time.monotonic()
     try:
         rep_seg = segment_reps(
@@ -247,8 +321,9 @@ def run_pipeline(
         result.reps = rep_seg
         result.timings["rep_segmentation"] = time.monotonic() - t0
         logger.info(
-            "  → %d reps détectées, tempo: %s (%.1fs)",
+            "  → %d reps, tempo=%s, fatigue=%.0f%%, triche=%d%% (%.1fs)",
             rep_seg.total_reps, rep_seg.avg_tempo,
+            rep_seg.rom_degradation, rep_seg.cheat_percentage,
             result.timings["rep_segmentation"],
         )
     except Exception as e:
@@ -256,8 +331,9 @@ def run_pipeline(
         logger.error("Segmentation reps échouée: %s", e)
         result.reps = RepSegmentation()
 
-    # ── Étape 5b : Analyse biomécanique avancée ──────────────────────────
-    logger.info("Étape 5b/9 : Analyse biomécanique avancée...")
+    # ── Étape 7 : Analyse biomécanique avancée ───────────────────────────
+    _notify_progress(cfg, 7, "Analyse biomécanique avancée")
+    logger.info("Étape 7/%d : Analyse biomécanique avancée...", TOTAL_STEPS)
     t0 = time.monotonic()
     try:
         from analysis.biomechanics_advanced import compute_advanced_biomechanics
@@ -274,8 +350,9 @@ def run_pipeline(
         result.errors.append(f"Analyse avancée échouée: {e}")
         logger.error("Analyse avancée échouée: %s", e)
 
-    # ── Étape 5c : Analyse bras de levier et morphologie ────────────────
-    logger.info("Étape 5c : Bras de levier, anthropométrie, séquençage...")
+    # ── Étape 8 : Analyse bras de levier et morphologie ──────────────────
+    _notify_progress(cfg, 8, "Analyse morphologique")
+    logger.info("Étape 8/%d : Bras de levier, anthropométrie, séquençage...", TOTAL_STEPS)
     t0 = time.monotonic()
     try:
         from analysis.biomechanics_levers import compute_lever_biomechanics
@@ -292,8 +369,9 @@ def run_pipeline(
         result.errors.append(f"Analyse levers échouée: {e}")
         logger.error("Analyse levers échouée: %s", e)
 
-    # ── Étape 7 : Score de confiance ─────────────────────────────────────
-    logger.info("Étape 7/9 : Calcul du score de confiance...")
+    # ── Étape 9 : Score de confiance ─────────────────────────────────────
+    _notify_progress(cfg, 9, "Score de confiance")
+    logger.info("Étape 9/%d : Calcul du score de confiance...", TOTAL_STEPS)
     t0 = time.monotonic()
     try:
         validation_for_confidence = result.validation or VideoValidation(quality_score=70)
@@ -305,16 +383,18 @@ def run_pipeline(
         result.confidence = confidence
         result.timings["confidence"] = time.monotonic() - t0
         logger.info(
-            "  → Confiance: %d/100 (%s) (%.1fs)",
+            "  → Confiance: %d/100 (%s) — camera=%s (%.1fs)",
             confidence.overall_score, confidence.reliability,
+            confidence.camera_angle,
             result.timings["confidence"],
         )
     except Exception as e:
         result.errors.append(f"Calcul confiance échoué: {e}")
         logger.error("Confiance échouée: %s", e)
 
-    # ── Étape 8 : Génération du rapport ──────────────────────────────────
-    logger.info("Étape 8/9 : Génération du rapport biomécanique...")
+    # ── Étape 10 : Génération du rapport ─────────────────────────────────
+    _notify_progress(cfg, 10, "Génération du rapport")
+    logger.info("Étape 10/%d : Génération du rapport biomécanique...", TOTAL_STEPS)
     t0 = time.monotonic()
     try:
         report = generate_report(
@@ -336,12 +416,13 @@ def run_pipeline(
         )
     except Exception as e:
         result.errors.append(f"Génération du rapport échouée: {e}")
+        result.user_messages.append(_USER_ERRORS["report_failed"])
         logger.error("Rapport échoué: %s", e)
-        # On continue même sans rapport — les annotations restent utiles
 
-    # ── Étape 9 : Annotation des frames clés ─────────────────────────────
+    # ── Étape 11 : Annotation des frames clés ────────────────────────────
     if cfg.save_annotated_frames:
-        logger.info("Étape 9/9 : Annotation des frames clés...")
+        _notify_progress(cfg, 11, "Annotation des frames")
+        logger.info("Étape 11/%d : Annotation des frames clés...", TOTAL_STEPS)
         t0 = time.monotonic()
         try:
             annotated = annotate_key_frames(
@@ -372,9 +453,24 @@ def run_pipeline(
         except Exception as e:
             result.errors.append(f"Sauvegarde JSON échouée: {e}")
 
+    # ── Finalisation ─────────────────────────────────────────────────────
     result.success = result.report is not None
-    total_time = sum(result.timings.values())
-    logger.info("Pipeline terminé en %.1fs (succès: %s)", total_time, result.success)
+    result.total_time = time.monotonic() - pipeline_start
+    total_step_time = sum(result.timings.values())
+
+    logger.info(
+        "Pipeline terminé en %.1fs (steps: %.1fs, succès: %s, erreurs: %d)",
+        result.total_time, total_step_time, result.success, len(result.errors),
+    )
+
+    # Ajouter les suggestions de confiance aux user_messages si pertinent
+    if result.confidence and result.confidence.suggestions:
+        # Uniquement si la confiance est limitée
+        if result.confidence.overall_score < 60:
+            result.user_messages.append(
+                "Pour améliorer la précision de l'analyse : "
+                + " | ".join(result.confidence.suggestions[:2])
+            )
 
     return result
 
@@ -398,7 +494,10 @@ def pipeline_result_to_dict(result: PipelineResult) -> dict[str, Any]:
         "output_dir": result.output_dir,
         "success": result.success,
         "errors": result.errors,
+        "user_messages": result.user_messages,
+        "low_quality": result.low_quality,
         "timings": {k: round(v, 2) for k, v in result.timings.items()},
+        "total_time": round(result.total_time, 2),
     }
 
     if result.validation:

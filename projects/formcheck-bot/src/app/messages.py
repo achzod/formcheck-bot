@@ -7,63 +7,136 @@ Regles :
 - C'est Achzod seul (pas "nous", pas "notre equipe")
 """
 
+# ── MESSAGE DE BIENVENUE ────────────────────────────────────────────────────
+# Inclut directement les instructions essentielles de tournage
+# pour que le client filme correctement DES le premier envoi.
+
 WELCOME = (
-    "Bienvenue sur *FORMCHECK by ACHZOD*\n\n"
-    "Envoie-moi une video de ton exercice de musculation "
-    "et je te fais une analyse biomecanique complete :\n\n"
-    "- Detection automatique de l'exercice\n"
-    "- Score de forme detaille sur 100\n"
-    "- Analyse rep par rep\n"
+    "Bienvenue sur *FORMCHECK by ACHZOD* — Analyse biomecanique experte.\n\n"
+    "Envoie-moi une video de ton exercice et tu recois :\n"
+    "- Score de forme detaille /100\n"
+    "- Analyse rep par rep (tempo, ROM, fatigue)\n"
     "- Corrections prioritaires avec explications\n"
     "- Exercices correctifs personnalises\n"
     "- Rapport complet avec images annotees\n\n"
-    "*1 analyse offerte* pour tester.\n\n"
-    "Tape *guide* pour savoir comment bien filmer."
+    "--- --- ---\n\n"
+    "*AVANT DE FILMER — Les 5 regles essentielles :*\n\n"
+    "1. *Profil (lateral)* — C'est le meilleur angle pour 90% des exos\n"
+    "2. *Corps entier visible* — Tete aux pieds dans le cadre\n"
+    "3. *Camera fixe* — Pose ton tel sur un support, pas de mouvement\n"
+    "4. *Bon eclairage* — Pas de contre-jour, pas dans le noir\n"
+    "5. *3 a 8 reps completes* — Pas juste une demi-rep\n\n"
+    "--- --- ---\n\n"
+    "*1 analyse offerte* pour tester.\n"
+    "Envoie ta video quand tu es pret.\n"
+    "Tape *guide* pour le guide complet par exercice."
 )
+
+# ── GUIDE DE TOURNAGE DETAILLE ───────────────────────────────────────────────
 
 FILMING_GUIDE = (
     "*GUIDE DE TOURNAGE — Comment bien filmer*\n\n"
-    "Pour une analyse precise, respecte ces regles :\n\n"
-    "*Angle de camera :*\n"
-    "- De *profil* (lateral) = le meilleur angle pour la plupart des exos\n"
-    "- De *face* (frontal) pour verifier la symetrie\n"
-    "- Evite de filmer de dos — les articulations ne sont pas visibles\n"
-    "- Evite les angles en diagonale — ca fausse les mesures\n\n"
-    "*Position du telephone :*\n"
-    "- Pose-le sur un support ou demande a quelqu'un de filmer\n"
-    "- A hauteur de hanche environ\n"
-    "- Camera *fixe* — pas de mouvement pendant la serie\n"
-    "- Distance : recule assez pour que ton *corps entier* soit visible (tete aux pieds)\n\n"
-    "*Conditions :*\n"
-    "- Bonne luminosite (pas dans le noir)\n"
-    "- Vetements ajustes si possible (pas de jogging ultra large)\n"
-    "- Personne ne passe entre toi et la camera\n\n"
-    "*La video :*\n"
-    "- Filme une serie complete (3 a 8 reps)\n"
-    "- 1080p suffit, pas besoin de 4K\n"
-    "- Duree : 10 secondes a 3 minutes\n\n"
-    "Plus la video est propre, plus l'analyse sera precise."
+    "*ANGLE DE CAMERA PAR EXERCICE :*\n\n"
+    "*Squat / Front Squat / Goblet Squat :*\n"
+    "- De *profil* pour l'angle du tronc, profondeur, genou vs orteils\n"
+    "- De *face* en complement pour la symetrie et le valgus du genou\n"
+    "- Hauteur camera : *au niveau de la hanche*\n\n"
+    "*Deadlift / RDL / Sumo :*\n"
+    "- De *profil* obligatoire — position du dos, hip hinge, trajectoire barre\n"
+    "- Hauteur camera : *au sol ou legerement au-dessus*\n\n"
+    "*Bench Press / Developpe Incline :*\n"
+    "- De *profil* a hauteur du banc\n"
+    "- On voit le trajet de la barre, l'angle des coudes, l'arche\n\n"
+    "*Developpe Militaire (OHP) :*\n"
+    "- De *profil* — on verifie l'inclinaison du tronc et le lockout\n"
+    "- Camera a hauteur de la taille\n\n"
+    "*Curl / Extensions / Isolations :*\n"
+    "- De *profil* pour voir l'amplitude complete\n"
+    "- Bien cadrer le bras entier (epaule a main)\n\n"
+    "*Hip Thrust :*\n"
+    "- De *profil* a hauteur du banc ou legerement en-dessous\n\n"
+    "*Fentes / Bulgarian Split Squat :*\n"
+    "- De *profil* ou en diagonale 45 degres\n"
+    "- Camera a hauteur de la hanche\n\n"
+    "--- --- ---\n\n"
+    "*REGLES GENERALES :*\n\n"
+    "1. *Support fixe* — Pose ton tel contre un poids, un sac, ou utilise un mini-trepied\n"
+    "2. *Distance* — Recule de 2 a 3 metres pour cadrer le corps entier\n"
+    "3. *Luminosite* — Face a la lumiere, jamais en contre-jour\n"
+    "4. *Vetements* — Ajustes si possible (pas de jogging ultra large qui cache les genoux)\n"
+    "5. *Personne* — Pas de passage entre toi et la camera\n"
+    "6. *Resolution* — 1080p suffit, pas besoin de 4K\n"
+    "7. *Duree* — 10 secondes a 3 minutes (une serie complete)\n\n"
+    "Plus la video est propre, plus l'analyse sera precise et detaillee."
 )
 
+# ── MESSAGES RECEPTION VIDEO ─────────────────────────────────────────────────
+
 VIDEO_RECEIVED = (
-    "Video recue. Analyse en cours.\n"
+    "Video recue. Analyse biomecanique en cours.\n"
     "Resultat dans 2-3 minutes."
 )
 
 VIDEO_QUALITY_WARNING = (
     "Video recue. J'ai detecte quelques limites :\n"
     "{warnings}\n\n"
-    "Je lance l'analyse quand meme, mais la precision sera reduite.\n"
-    "Tape *guide* pour les conseils de tournage."
+    "Je lance l'analyse quand meme — la precision sera reduite sur certains points.\n"
+    "Pour un resultat optimal, tape *guide* pour les conseils de tournage."
 )
+
+# ── MESSAGES DE SUIVI POST-ANALYSE ──────────────────────────────────────────
+
+FOLLOWUP_ANGLE_SUGGESTION = (
+    "Pour completer cette analyse, tu peux aussi m'envoyer une video de *{exercise}* "
+    "filmee *{suggested_angle}*.\n\n"
+    "Ca me permettra de verifier {what_it_checks}."
+)
+
+FOLLOWUP_REFILM = (
+    "La confiance de cette analyse est de {confidence}%. "
+    "Pour un resultat plus precis, tu peux refilmer en suivant ces conseils :\n\n"
+    "{tips}\n\n"
+    "Tape *guide* pour le guide complet."
+)
+
+FOLLOWUP_PROGRESS = (
+    "C'est ta {count}e analyse de *{exercise}*.\n\n"
+    "Progression :\n"
+    "- Premiere analyse : {first_score}/100\n"
+    "- Aujourd'hui : {current_score}/100\n"
+    "{trend_message}"
+)
+
+FOLLOWUP_CORRECTIVE_REMINDER = (
+    "N'oublie pas les exercices correctifs de ta derniere analyse.\n"
+    "Fais-les en echauffement pendant 2-3 semaines, puis renvoie une video "
+    "pour voir ta progression."
+)
+
+# ── RAPPORT D'ANALYSE ────────────────────────────────────────────────────────
 
 ANALYSIS_REPORT_SHORT = (
     "*FORMCHECK — {exercise}*\n"
-    "Score : {score}/100\n"
+    "Score : *{score}/100*\n"
     "Confiance : {confidence}\n"
     "Reps detectees : {reps}\n\n"
     "Rapport complet :\n{report_url}"
 )
+
+ANALYSIS_REPORT_SUMMARY = (
+    "*FORMCHECK — {exercise}*\n"
+    "Score : *{score}/100*\n\n"
+    "*Decomposition :*\n"
+    "Securite : {safety}/40\n"
+    "Efficacite technique : {efficiency}/30\n"
+    "Controle et tempo : {control}/20\n"
+    "Symetrie : {symmetry}/10\n\n"
+    "*Top corrections :*\n"
+    "{top_corrections}\n\n"
+    "Rapport complet avec images annotees :\n{report_url}"
+)
+
+# ── CREDITS & PAIEMENTS ─────────────────────────────────────────────────────
 
 NO_CREDITS = (
     "Tu n'as plus de credits d'analyse.\n\n"
@@ -84,46 +157,15 @@ PAYMENT_CONFIRMED_UNLIMITED = (
     "Envoie autant de videos que tu veux."
 )
 
-CREDITS_STATUS = "Il te reste {credits} analyse(s)."
+CREDITS_STATUS = "Il te reste *{credits}* analyse(s)."
 
-CREDITS_UNLIMITED = "Tu as un acces illimite."
+CREDITS_UNLIMITED = "Tu as un *acces illimite*."
+
+# ── MESSAGES GENERIQUES ──────────────────────────────────────────────────────
 
 UNSUPPORTED_MESSAGE = (
     "Envoie-moi une *video* de ton exercice pour recevoir ton analyse.\n"
     "Tape *menu* pour voir les options."
-)
-
-ERROR_GENERIC = (
-    "Erreur technique. Reessaie dans quelques instants.\n"
-    "Si ca persiste, ecris-moi sur Instagram @achzod."
-)
-
-ERROR_ANALYSIS_FAILED = (
-    "L'analyse n'a pas abouti.\n\n"
-    "Verifie que :\n"
-    "- Ton corps est visible en entier (tete aux pieds)\n"
-    "- Tu es filme de profil ou de face\n"
-    "- La lumiere est suffisante\n"
-    "- La camera est fixe\n\n"
-    "Tape *guide* pour les conseils de tournage detailles."
-)
-
-ERROR_VIDEO_QUALITY = (
-    "La qualite de cette video ne permet pas une analyse fiable.\n\n"
-    "{errors}\n\n"
-    "Tape *guide* pour les conseils de tournage."
-)
-
-ERROR_VIDEO_TOO_LARGE = (
-    "Video trop lourde (max 25 MB). Filme en 1080p, pas en 4K."
-)
-
-ERROR_VIDEO_TOO_SHORT = (
-    "Video trop courte ou corrompue. Minimum 3 secondes."
-)
-
-RATE_LIMIT = (
-    "Une analyse est deja en cours. Attends le resultat."
 )
 
 HELP_TEXT = (
@@ -136,7 +178,7 @@ MENU_TEXT = (
     "*Envoie une video* — Analyse biomecanique complete\n\n"
     "*Commandes :*\n"
     "- *menu* — Ce message\n"
-    "- *guide* — Comment bien filmer\n"
+    "- *guide* — Comment bien filmer (par exercice)\n"
     "- *credits* — Tes analyses restantes\n"
     "- *forfaits* — Les offres\n\n"
     "*Forfaits :*\n"
@@ -146,3 +188,244 @@ MENU_TEXT = (
     "70+ exercices supportes.\n"
     "Filme-toi de profil, corps entier visible, camera fixe."
 )
+
+# ── ERREURS ──────────────────────────────────────────────────────────────────
+
+ERROR_GENERIC = (
+    "Erreur technique. Reessaie dans quelques instants.\n"
+    "Si ca persiste, ecris-moi sur Instagram @achzod."
+)
+
+ERROR_ANALYSIS_FAILED = (
+    "L'analyse n'a pas abouti.\n\n"
+    "Verifie ces points :\n"
+    "1. Ton corps est visible en entier (tete aux pieds)\n"
+    "2. Tu es filme de profil ou de face (pas en diagonale)\n"
+    "3. La lumiere est suffisante (pas de contre-jour)\n"
+    "4. La camera est fixe (pas de mouvement)\n"
+    "5. Tu fais au moins 2-3 reps completes\n\n"
+    "Tape *guide* pour les conseils de tournage par exercice."
+)
+
+ERROR_VIDEO_QUALITY = (
+    "La qualite de cette video ne permet pas une analyse fiable.\n\n"
+    "{errors}\n\n"
+    "Voici comment ameliorer :\n"
+    "{suggestions}\n\n"
+    "Tape *guide* pour le guide complet."
+)
+
+ERROR_VIDEO_TOO_LARGE = (
+    "Video trop lourde (max 25 MB).\n"
+    "Filme en 1080p au lieu de 4K, ou reduis la duree."
+)
+
+ERROR_VIDEO_TOO_SHORT = (
+    "Video trop courte ou corrompue.\n"
+    "Minimum 3 secondes — filme au moins 2-3 reps completes."
+)
+
+RATE_LIMIT = (
+    "Une analyse est deja en cours. Attends le resultat avant d'envoyer une autre video."
+)
+
+# ── HELPERS POUR GENERER LES MESSAGES DE SUIVI ──────────────────────────────
+
+# Angles de camera suggeres par exercice
+EXERCISE_FILMING_TIPS: dict[str, dict[str, str]] = {
+    "squat": {
+        "primary_angle": "de profil",
+        "secondary_angle": "de face",
+        "secondary_checks": "la symetrie et l'alignement des genoux (valgus)",
+        "camera_height": "au niveau de la hanche",
+        "tips": "Recule de 2-3m, corps entier visible tete aux pieds.",
+    },
+    "front_squat": {
+        "primary_angle": "de profil",
+        "secondary_angle": "de face",
+        "secondary_checks": "l'alignement des coudes et la symetrie",
+        "camera_height": "au niveau de la hanche",
+        "tips": "Meme conseils que le back squat.",
+    },
+    "deadlift": {
+        "primary_angle": "de profil",
+        "secondary_angle": "de face",
+        "secondary_checks": "la symetrie des epaules et la position de la barre",
+        "camera_height": "au sol ou legerement au-dessus",
+        "tips": "Filme depuis le depart (barre au sol) jusqu'au lockout complet.",
+    },
+    "rdl": {
+        "primary_angle": "de profil",
+        "secondary_angle": "en leger 3/4",
+        "secondary_checks": "la trajectoire de la barre et l'alignement du dos",
+        "camera_height": "au niveau de la hanche",
+        "tips": "Descente lente et controlee pour mieux analyser le tempo.",
+    },
+    "bench_press": {
+        "primary_angle": "de profil (cote de la tete)",
+        "secondary_angle": "a 45 degres depuis les pieds",
+        "secondary_checks": "la trajectoire de la barre et l'angle des coudes",
+        "camera_height": "au niveau du banc",
+        "tips": "Cadre bien du debut a la fin, y compris le rack/unrack.",
+    },
+    "ohp": {
+        "primary_angle": "de profil",
+        "secondary_angle": "de face",
+        "secondary_checks": "la symetrie des bras et le lockout overhead",
+        "camera_height": "au niveau de la taille",
+        "tips": "Filme debout, corps entier visible.",
+    },
+    "hip_thrust": {
+        "primary_angle": "de profil",
+        "secondary_angle": "de face",
+        "secondary_checks": "la symetrie des hanches et l'alignement des genoux",
+        "camera_height": "au niveau du banc ou legerement en-dessous",
+        "tips": "Cadre bien les hanches, genoux et pieds.",
+    },
+    "curl": {
+        "primary_angle": "de profil",
+        "secondary_angle": "de face",
+        "secondary_checks": "la symetrie des bras et le mouvement du tronc",
+        "camera_height": "au niveau de la taille",
+        "tips": "Bras entier visible (epaule a main).",
+    },
+    "barbell_row": {
+        "primary_angle": "de profil",
+        "secondary_angle": "de face",
+        "secondary_checks": "la rotation du tronc et la symetrie",
+        "camera_height": "au niveau de la hanche",
+        "tips": "Montre bien l'angle du tronc et le mouvement complet.",
+    },
+    "lateral_raise": {
+        "primary_angle": "de face",
+        "secondary_angle": "de profil",
+        "secondary_checks": "l'amplitude du mouvement et la triche du tronc",
+        "camera_height": "au niveau de la taille",
+        "tips": "Cadre le haut du corps complet.",
+    },
+    "bulgarian_split_squat": {
+        "primary_angle": "de profil",
+        "secondary_angle": "en leger 3/4 avant",
+        "secondary_checks": "l'alignement du genou avant et la stabilite du bassin",
+        "camera_height": "au niveau de la hanche",
+        "tips": "Filme le cote du pied avant, corps entier visible.",
+    },
+    "lunge": {
+        "primary_angle": "de profil",
+        "secondary_angle": "de face",
+        "secondary_checks": "la symetrie et l'alignement des genoux",
+        "camera_height": "au niveau de la hanche",
+        "tips": "Si fentes marchees, recule assez pour garder le cadre.",
+    },
+}
+
+
+def get_followup_angle_message(exercise: str) -> str | None:
+    """Genere un message suggerant un angle de camera complementaire."""
+    tips = EXERCISE_FILMING_TIPS.get(exercise)
+    if not tips:
+        return None
+    return FOLLOWUP_ANGLE_SUGGESTION.format(
+        exercise=exercise.replace("_", " ").title(),
+        suggested_angle=tips["secondary_angle"],
+        what_it_checks=tips["secondary_checks"],
+    )
+
+
+def get_refilm_tips(exercise: str, issues: list[str]) -> str:
+    """Genere des tips specifiques pour refilmer en corrigeant les problemes detectes."""
+    tips_list: list[str] = []
+
+    ex_tips = EXERCISE_FILMING_TIPS.get(exercise, {})
+
+    for issue in issues:
+        issue_lower = issue.lower()
+        if "sombre" in issue_lower or "luminosite" in issue_lower:
+            tips_list.append("- Eclairage : place-toi face a la source de lumiere, evite le contre-jour")
+        elif "resolution" in issue_lower or "basse" in issue_lower:
+            tips_list.append("- Resolution : filme en 1080p minimum dans les reglages de ta camera")
+        elif "occlusion" in issue_lower or "visible" in issue_lower:
+            tips_list.append("- Cadrage : recule de 2-3m, assure-toi que ton corps entier est visible")
+        elif "camera" in issue_lower or "bouge" in issue_lower:
+            tips_list.append("- Stabilite : pose ton tel sur un support fixe (poids, sac, trepied)")
+        elif "lateral" in issue_lower or "angle" in issue_lower:
+            primary = ex_tips.get("primary_angle", "de profil")
+            tips_list.append(f"- Angle : filme {primary} pour cet exercice")
+
+    if not tips_list:
+        tips_list.append("- Filme de profil, corps entier visible, camera fixe, bon eclairage")
+
+    if ex_tips.get("tips"):
+        tips_list.append(f"- Specifique a l'exercice : {ex_tips['tips']}")
+
+    return "\n".join(tips_list)
+
+
+def get_progress_message(
+    exercise: str,
+    count: int,
+    first_score: int,
+    current_score: int,
+) -> str:
+    """Genere un message de progression pour les clients recurrents."""
+    diff = current_score - first_score
+    if diff > 10:
+        trend = f"Progression de +{diff} points. Continue comme ca."
+    elif diff > 0:
+        trend = f"Legere amelioration (+{diff}). Les exercices correctifs font effet."
+    elif diff == 0:
+        trend = "Score stable. Concentre-toi sur les corrections prioritaires."
+    else:
+        trend = (
+            f"Score en baisse ({diff}). Ca peut etre la fatigue ou une charge plus lourde. "
+            "Verifie les corrections du dernier rapport."
+        )
+
+    return FOLLOWUP_PROGRESS.format(
+        count=count,
+        exercise=exercise.replace("_", " ").title(),
+        first_score=first_score,
+        current_score=current_score,
+        trend_message=trend,
+    )
+
+
+def get_quality_suggestions(errors: list[str]) -> str:
+    """Genere des suggestions specifiques a partir des erreurs de qualite video."""
+    suggestions: list[str] = []
+
+    for error in errors:
+        error_lower = error.lower()
+        if "sombre" in error_lower or "luminosite" in error_lower:
+            suggestions.append(
+                "- Eclairage : filme face a une fenetre ou sous un bon eclairage. "
+                "Evite le contre-jour (lumiere derriere toi)."
+            )
+        elif "courte" in error_lower or "duree" in error_lower:
+            suggestions.append(
+                "- Duree : filme au moins 3 repetitions completes. "
+                "Lance la camera avant de commencer et arrete apres."
+            )
+        elif "longue" in error_lower:
+            suggestions.append(
+                "- Duree : envoie seulement ta serie (10s a 1min30), "
+                "pas toute la seance."
+            )
+        elif "resolution" in error_lower:
+            suggestions.append(
+                "- Resolution : verifie que ta camera est reglee en 1080p minimum. "
+                "Parametres > Camera > Resolution video."
+            )
+        elif "personne" in error_lower or "detecter" in error_lower:
+            suggestions.append(
+                "- Cadrage : recule de 2-3 metres, assure-toi que ton corps entier "
+                "est visible de la tete aux pieds. Porte des vetements ajustes."
+            )
+
+    if not suggestions:
+        suggestions.append(
+            "- Profil, corps entier visible, camera fixe, bon eclairage, "
+            "3 a 8 reps completes."
+        )
+
+    return "\n".join(suggestions)

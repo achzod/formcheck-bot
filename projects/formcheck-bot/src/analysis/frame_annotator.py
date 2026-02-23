@@ -1,12 +1,13 @@
-"""Annotation visuelle des frames clés avec overlay d'angles articulaires.
+"""Annotation visuelle des frames cles avec overlay d'angles articulaires.
 
-Dessine les angles mesurés directement sur les images extraites.
+Dessine les angles mesures directement sur les images extraites.
 Code couleur :
 - Vert (#00C853)  : angle dans la norme
 - Orange (#FF9100) : warning (proche des limites)
-- Rouge (#FF1744)  : problème détecté
+- Rouge (#FF1744)  : probleme detecte
 
-Utilise OpenCV pour le squelette et PIL/Pillow pour le texte (support UTF-8).
+Squelette epure avec gradient de couleur, arcs d'angle visuels,
+labels positionnes intelligemment pour eviter le chevauchement.
 """
 
 from __future__ import annotations
@@ -33,32 +34,36 @@ COLOR_GREEN_BGR = (83, 200, 0)
 COLOR_ORANGE_BGR = (0, 145, 255)
 COLOR_RED_BGR = (68, 23, 255)
 COLOR_WHITE_BGR = (255, 255, 255)
-COLOR_GRAY_BGR = (180, 180, 180)
+COLOR_GRAY_BGR = (120, 120, 140)
+COLOR_SKELETON_BGR = (160, 160, 180)
 COLOR_BLACK_BGR = (0, 0, 0)
+COLOR_CYAN_BGR = (255, 212, 0)  # #00D4FF en BGR
 
 COLOR_GREEN_RGB = (0, 200, 83)
 COLOR_ORANGE_RGB = (255, 145, 0)
 COLOR_RED_RGB = (255, 23, 68)
 COLOR_WHITE_RGB = (255, 255, 255)
 COLOR_BLACK_RGB = (0, 0, 0)
+COLOR_CYAN_RGB = (0, 212, 255)
 
 # ── Font loading ─────────────────────────────────────────────────────────────
 
+
 def _load_font(size: int = 18) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    """Charge une font système qui gère l'UTF-8 (accents français)."""
+    """Charge une font systeme qui gere l'UTF-8 (accents francais)."""
     font_candidates = [
-        "/System/Library/Fonts/Helvetica.ttc",           # macOS
-        "/System/Library/Fonts/SFNSText.ttf",             # macOS SF
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Linux
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/System/Library/Fonts/SFNSText.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "C:/Windows/Fonts/arial.ttf",                      # Windows
+        "C:/Windows/Fonts/arial.ttf",
     ]
     for path in font_candidates:
         try:
             return ImageFont.truetype(path, size)
         except (OSError, IOError):
             continue
-    logger.warning("Aucune font système trouvée, fallback sur font par défaut PIL")
+    logger.warning("Aucune font systeme trouvee, fallback sur font par defaut PIL")
     return ImageFont.load_default()
 
 
@@ -79,60 +84,107 @@ def _load_font_bold(size: int = 18) -> ImageFont.FreeTypeFont | ImageFont.ImageF
 
 
 # Cache fonts
-_FONT_LABEL = _load_font(16)
-_FONT_BADGE = _load_font_bold(22)
-_FONT_SMALL = _load_font(13)
+_FONT_LABEL = _load_font(15)
+_FONT_BADGE = _load_font_bold(20)
+_FONT_SMALL = _load_font(12)
+_FONT_BRAND = _load_font_bold(11)
 
 # ── Seuils par exercice ─────────────────────────────────────────────────────
+# (min_ok, max_ok, min_warn, max_warn) — dans cette plage, c'est vert/orange/rouge
 
 ANGLE_THRESHOLDS: dict[str, dict[str, tuple[float, float, float, float]]] = {
     "squat": {
-        "knee_flexion": (90, 120, 70, 140),
-        "hip_flexion": (70, 100, 55, 115),
+        "knee_flexion": (85, 125, 65, 145),
+        "hip_flexion": (65, 105, 50, 120),
         "trunk_inclination": (0, 45, 0, 55),
-        # NOTE: knee_valgus retiré — mesure 2D non fiable sans vue frontale
+    },
+    "front_squat": {
+        "knee_flexion": (85, 125, 65, 145),
+        "hip_flexion": (65, 105, 50, 120),
+        "trunk_inclination": (0, 30, 0, 40),
     },
     "deadlift": {
-        "hip_flexion": (60, 80, 50, 90),
-        "knee_flexion": (130, 150, 120, 160),
-        "trunk_inclination": (30, 45, 20, 55),
+        "hip_flexion": (55, 85, 45, 95),
+        "knee_flexion": (125, 155, 115, 165),
+        "trunk_inclination": (25, 50, 15, 60),
+    },
+    "rdl": {
+        "hip_flexion": (55, 85, 45, 95),
+        "knee_flexion": (150, 175, 140, 180),
+        "trunk_inclination": (30, 55, 20, 65),
     },
     "bench_press": {
-        "elbow_flexion": (80, 100, 70, 110),
-        "shoulder_abduction": (45, 75, 30, 85),
+        "elbow_flexion": (75, 105, 65, 115),
+        "shoulder_abduction": (40, 75, 30, 85),
     },
     "ohp": {
         "trunk_inclination": (0, 15, 0, 25),
-        "elbow_flexion": (70, 180, 60, 180),
+        "elbow_flexion": (65, 180, 55, 180),
     },
     "barbell_row": {
-        "trunk_inclination": (30, 45, 20, 60),
+        "trunk_inclination": (25, 50, 15, 65),
+        "elbow_flexion": (40, 170, 30, 180),
     },
     "hip_thrust": {
-        "knee_flexion": (80, 100, 70, 110),
+        "knee_flexion": (75, 105, 65, 115),
+        "hip_flexion": (100, 180, 85, 180),
     },
     "curl": {
-        "elbow_flexion": (30, 170, 20, 175),
-        "trunk_inclination": (0, 10, 0, 15),
+        "elbow_flexion": (25, 175, 15, 180),
+        "trunk_inclination": (0, 10, 0, 18),
     },
     "lateral_raise": {
-        "shoulder_abduction": (0, 90, 0, 100),
-        "trunk_inclination": (0, 10, 0, 15),
+        "shoulder_abduction": (0, 95, 0, 105),
+        "trunk_inclination": (0, 10, 0, 18),
+    },
+    "bulgarian_split_squat": {
+        "knee_flexion": (80, 120, 65, 140),
+        "hip_flexion": (65, 110, 50, 125),
+        "trunk_inclination": (0, 35, 0, 45),
+    },
+    "lunge": {
+        "knee_flexion": (80, 120, 65, 140),
+        "hip_flexion": (65, 110, 50, 125),
+        "trunk_inclination": (0, 30, 0, 40),
+    },
+    "leg_press": {
+        "knee_flexion": (85, 120, 70, 140),
+    },
+    "leg_extension": {
+        "knee_flexion": (40, 180, 30, 180),
+    },
+    "leg_curl": {
+        "knee_flexion": (40, 170, 30, 180),
+    },
+    "tricep_extension": {
+        "elbow_flexion": (40, 180, 30, 180),
+    },
+    "pullup": {
+        "elbow_flexion": (40, 170, 30, 180),
+        "shoulder_abduction": (10, 60, 0, 75),
+    },
+    "lat_pulldown": {
+        "elbow_flexion": (40, 170, 30, 180),
+        "shoulder_abduction": (30, 80, 20, 90),
     },
 }
 
 # ── Angles prioritaires par exercice ────────────────────────────────────────
-# On n'affiche que les 4-6 angles les plus pertinents pour chaque exercice.
-# Clé = exercise, valeur = liste ordonnée d'angle_attr à afficher.
 
 PRIORITY_ANGLES: dict[str, list[str]] = {
     "squat": [
         "left_knee_flexion", "right_knee_flexion",
         "left_hip_flexion", "right_hip_flexion",
-        # NOTE: valgus exclu — mesure 2D non fiable depuis un angle de caméra arbitraire.
-        # Le valgus du genou nécessite une vue frontale calibrée pour être pertinent.
+    ],
+    "front_squat": [
+        "left_knee_flexion", "right_knee_flexion",
+        "left_hip_flexion", "right_hip_flexion",
     ],
     "deadlift": [
+        "left_hip_flexion", "right_hip_flexion",
+        "left_knee_flexion", "right_knee_flexion",
+    ],
+    "rdl": [
         "left_hip_flexion", "right_hip_flexion",
         "left_knee_flexion", "right_knee_flexion",
     ],
@@ -142,6 +194,7 @@ PRIORITY_ANGLES: dict[str, list[str]] = {
     ],
     "ohp": [
         "left_elbow_flexion", "right_elbow_flexion",
+        "left_shoulder_flexion", "right_shoulder_flexion",
     ],
     "barbell_row": [
         "left_elbow_flexion", "right_elbow_flexion",
@@ -155,6 +208,32 @@ PRIORITY_ANGLES: dict[str, list[str]] = {
     ],
     "lateral_raise": [
         "left_shoulder_abduction", "right_shoulder_abduction",
+    ],
+    "bulgarian_split_squat": [
+        "left_knee_flexion", "right_knee_flexion",
+        "left_hip_flexion", "right_hip_flexion",
+    ],
+    "lunge": [
+        "left_knee_flexion", "right_knee_flexion",
+        "left_hip_flexion", "right_hip_flexion",
+    ],
+    "leg_press": [
+        "left_knee_flexion", "right_knee_flexion",
+    ],
+    "leg_extension": [
+        "left_knee_flexion", "right_knee_flexion",
+    ],
+    "leg_curl": [
+        "left_knee_flexion", "right_knee_flexion",
+    ],
+    "tricep_extension": [
+        "left_elbow_flexion", "right_elbow_flexion",
+    ],
+    "pullup": [
+        "left_elbow_flexion", "right_elbow_flexion",
+    ],
+    "lat_pulldown": [
+        "left_elbow_flexion", "right_elbow_flexion",
     ],
 }
 
@@ -213,13 +292,23 @@ ANGLE_DISPLAY_CONFIG: dict[str, dict[str, Any]] = {
     },
     "left_shoulder_abduction": {
         "landmarks": ("left_hip", "left_shoulder", "left_elbow"),
-        "label": "Épaule G",
+        "label": "Epaule G",
         "threshold_key": "shoulder_abduction",
     },
     "right_shoulder_abduction": {
         "landmarks": ("right_hip", "right_shoulder", "right_elbow"),
-        "label": "Épaule D",
+        "label": "Epaule D",
         "threshold_key": "shoulder_abduction",
+    },
+    "left_shoulder_flexion": {
+        "landmarks": ("left_hip", "left_shoulder", "left_elbow"),
+        "label": "Epaule G flex",
+        "threshold_key": "shoulder_flexion",
+    },
+    "right_shoulder_flexion": {
+        "landmarks": ("right_hip", "right_shoulder", "right_elbow"),
+        "label": "Epaule D flex",
+        "threshold_key": "shoulder_flexion",
     },
 }
 
@@ -246,7 +335,7 @@ def _landmark_pixel(
     width: int,
     height: int,
 ) -> tuple[int, int] | None:
-    """Convertit les coordonnées normalisées d'un landmark en pixels."""
+    """Convertit les coordonnees normalisees d'un landmark en pixels."""
     for lm in landmarks:
         if lm["name"] == name:
             return (int(lm["x"] * width), int(lm["y"] * height))
@@ -271,54 +360,11 @@ def _draw_rounded_rect(
     radius: int = 6,
     outline_width: int = 2,
 ) -> None:
-    """Dessine un rectangle arrondi semi-transparent avec bord coloré."""
-    x1, y1, x2, y2 = xy
-    # PIL >= 8.2 supporte rounded_rectangle nativement
+    """Dessine un rectangle arrondi semi-transparent avec bord colore."""
     try:
         draw.rounded_rectangle(xy, radius=radius, fill=fill, outline=outline, width=outline_width)
     except AttributeError:
-        # Fallback pour vieilles versions de Pillow
         draw.rectangle(xy, fill=fill, outline=outline, width=outline_width)
-
-
-def _draw_label_badge(
-    overlay: Image.Image,
-    position: tuple[int, int],
-    text: str,
-    color_rgb: tuple[int, int, int],
-    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
-) -> tuple[int, int]:
-    """Dessine un label avec fond coloré semi-transparent. Retourne (largeur, hauteur) du badge."""
-    # On dessine sur un overlay RGBA pour la transparence
-    txt_overlay = Image.new("RGBA", overlay.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(txt_overlay)
-
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    pad_x, pad_y = 8, 4
-    x, y = position
-
-    # Fond semi-transparent
-    bg_color = (*color_rgb, 200)  # alpha 200/255
-    _draw_rounded_rect(
-        draw,
-        (x, y, x + tw + 2 * pad_x, y + th + 2 * pad_y),
-        fill=(30, 30, 30, 180),
-        outline=color_rgb,
-        radius=6,
-    )
-
-    # Texte
-    draw.text((x + pad_x, y + pad_y), text, font=font, fill=(*color_rgb, 255))
-
-    # Composite
-    overlay.paste(Image.alpha_composite(
-        overlay.convert("RGBA") if overlay.mode != "RGBA" else overlay,
-        txt_overlay,
-    ).convert("RGB"))
-
-    # Hmm, paste modifies in place for same-size, let's do it properly
-    return (tw + 2 * pad_x, th + 2 * pad_y)
 
 
 # ── Zone-based label layout ─────────────────────────────────────────────────
@@ -328,7 +374,7 @@ class _LabelInfo:
     text: str
     color_bgr: tuple[int, int, int]
     color_rgb: tuple[int, int, int]
-    anchor_pt: tuple[int, int]  # point d'articulation sur le squelette
+    anchor_pt: tuple[int, int]
 
 
 def _layout_labels(
@@ -336,10 +382,9 @@ def _layout_labels(
     img_w: int,
     img_h: int,
 ) -> list[tuple[_LabelInfo, tuple[int, int]]]:
-    """Positionne les labels dans des zones pour éviter le chevauchement.
+    """Positionne les labels pour eviter le chevauchement.
 
-    Stratégie : les labels dont l'ancre est à gauche du centre vont à gauche,
-    ceux à droite vont à droite. On empile verticalement dans chaque colonne.
+    Gauche de l'image = labels gauche, droite = labels droite.
     """
     left_labels: list[_LabelInfo] = []
     right_labels: list[_LabelInfo] = []
@@ -351,24 +396,23 @@ def _layout_labels(
         else:
             right_labels.append(lbl)
 
-    # Trier par Y de l'ancre pour un ordre cohérent
     left_labels.sort(key=lambda l: l.anchor_pt[1])
     right_labels.sort(key=lambda l: l.anchor_pt[1])
 
     result: list[tuple[_LabelInfo, tuple[int, int]]] = []
     margin = 10
-    label_h = 28  # hauteur approximative d'un badge
-    gap = 4
+    label_h = 26
+    gap = 5
 
-    # Colonne gauche : position x=margin, y commence à 55 (sous le badge titre)
+    # Colonne gauche
     y = 55
     for lbl in left_labels:
         result.append((lbl, (margin, y)))
         y += label_h + gap
 
-    # Colonne droite : aligné à droite
+    # Colonne droite
     y = 55
-    label_w_approx = 160
+    label_w_approx = 140
     for lbl in right_labels:
         result.append((lbl, (img_w - label_w_approx - margin, y)))
         y += label_h + gap
@@ -390,12 +434,12 @@ def annotate_frame(
     Args:
         image_path: Chemin vers l'image de la frame.
         frame_landmarks: Landmarks de la frame.
-        frame_angles: Angles calculés pour la frame.
+        frame_angles: Angles calcules pour la frame.
         exercise: Nom de l'exercice (pour les seuils de couleur).
-        label: Label à afficher sur l'image (ex: "Point bas").
+        label: Label a afficher sur l'image (ex: "Point bas").
 
     Returns:
-        Image annotée (numpy array BGR).
+        Image annotee (numpy array BGR).
     """
     img = cv2.imread(image_path)
     if img is None:
@@ -404,23 +448,29 @@ def annotate_frame(
     h, w = img.shape[:2]
     landmarks = frame_landmarks.landmarks
 
-    # ── 1. Squelette (OpenCV) ────────────────────────────────────────────
+    # ── 1. Darkened background pour contraste ─────────────────────────────
     overlay = img.copy()
+    darken = np.zeros_like(img)
+    cv2.addWeighted(img, 0.75, darken, 0.25, 0, overlay)
 
+    # ── 2. Squelette epure (OpenCV) ───────────────────────────────────────
     for lm_a, lm_b in SKELETON_CONNECTIONS:
         pt_a = _landmark_pixel(landmarks, lm_a, w, h)
         pt_b = _landmark_pixel(landmarks, lm_b, w, h)
         if pt_a and pt_b:
-            cv2.line(overlay, pt_a, pt_b, COLOR_GRAY_BGR, 2, cv2.LINE_AA)
+            # Ligne semi-transparente via overlay
+            cv2.line(overlay, pt_a, pt_b, COLOR_SKELETON_BGR, 2, cv2.LINE_AA)
 
+    # Points aux articulations — petits cercles avec contour
     for lm in landmarks:
-        px, py = int(lm["x"] * w), int(lm["y"] * h)
         if lm["visibility"] > 0.5:
-            cv2.circle(overlay, (px, py), 4, COLOR_WHITE_BGR, -1, cv2.LINE_AA)
+            px, py = int(lm["x"] * w), int(lm["y"] * h)
+            cv2.circle(overlay, (px, py), 5, COLOR_BLACK_BGR, -1, cv2.LINE_AA)
+            cv2.circle(overlay, (px, py), 3, COLOR_WHITE_BGR, -1, cv2.LINE_AA)
 
-    cv2.addWeighted(overlay, 0.7, img, 0.3, 0, img)
+    cv2.addWeighted(overlay, 0.8, img, 0.2, 0, img)
 
-    # ── 2. Arcs d'angle colorés sur les articulations (OpenCV) ───────────
+    # ── 3. Arcs d'angle colores sur les articulations ─────────────────────
     thresholds = ANGLE_THRESHOLDS.get(exercise, {})
     priority = PRIORITY_ANGLES.get(exercise, list(ANGLE_DISPLAY_CONFIG.keys())[:6])
 
@@ -449,12 +499,16 @@ def annotate_frame(
         else:
             color_bgr, color_rgb = COLOR_WHITE_BGR, COLOR_WHITE_RGB
 
-        # Lignes de l'angle
-        cv2.line(img, pt_a, pt_center, color_bgr, 2, cv2.LINE_AA)
-        cv2.line(img, pt_center, pt_b, color_bgr, 2, cv2.LINE_AA)
+        # Lignes de l'angle (plus epaisses, colorees)
+        cv2.line(img, pt_a, pt_center, color_bgr, 3, cv2.LINE_AA)
+        cv2.line(img, pt_center, pt_b, color_bgr, 3, cv2.LINE_AA)
 
-        # Arc
-        radius = 25
+        # Point central marque
+        cv2.circle(img, pt_center, 6, color_bgr, -1, cv2.LINE_AA)
+        cv2.circle(img, pt_center, 3, COLOR_BLACK_BGR, -1, cv2.LINE_AA)
+
+        # Arc visuel
+        radius = max(20, min(35, int(min(w, h) * 0.04)))
         vec_a = np.array(pt_a) - np.array(pt_center)
         vec_b = np.array(pt_b) - np.array(pt_center)
         start_angle = np.degrees(np.arctan2(vec_a[1], vec_a[0]))
@@ -465,22 +519,24 @@ def annotate_frame(
             start_angle, end_angle = end_angle, start_angle + 360
         cv2.ellipse(img, pt_center, (radius, radius), 0, start_angle, end_angle, color_bgr, 2, cv2.LINE_AA)
 
-        # Préparer le label pour le layout
+        # Preparer le label
         text = f"{config['label']}: {value:.0f}°"
         label_infos.append(_LabelInfo(text=text, color_bgr=color_bgr, color_rgb=color_rgb, anchor_pt=pt_center))
 
-    # NOTE: Valgus du genou volontairement NON affiché.
-    # La mesure du valgus en 2D n'est pas fiable sans vue frontale calibrée.
-    # Depuis une vue latérale ou arrière, l'angle projeté n'a aucun sens biomécanique.
-
-    # ── 3. Texte via PIL (UTF-8 safe) ────────────────────────────────────
+    # ── 4. Texte via PIL (UTF-8 safe) ─────────────────────────────────────
     pil_img = _cv2_to_pil(img).convert("RGBA")
     txt_layer = Image.new("RGBA", pil_img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(txt_layer)
 
-    # Badge titre (DÉBUT / POINT BAS / FIN)
+    # Badge titre (DEBUT / POINT BAS / FIN)
     if label:
-        label_map = {"start": "DÉBUT", "mid": "POINT BAS", "end": "FIN"}
+        label_map = {
+            "start": "DEBUT",
+            "mid": "POINT BAS",
+            "end": "FIN",
+            "quarter": "DESCENTE",
+            "three_quarter": "REMONTEE",
+        }
         display_label = label_map.get(label, label.upper())
         bbox = draw.textbbox((0, 0), display_label, font=_FONT_BADGE)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -488,14 +544,14 @@ def annotate_frame(
         _draw_rounded_rect(
             draw,
             (8, 8, 8 + tw + 2 * pad_x, 8 + th + 2 * pad_y),
-            fill=(0, 0, 0, 210),
-            outline=(255, 255, 255),
+            fill=(0, 0, 0, 220),
+            outline=(0, 212, 255),
             radius=8,
             outline_width=2,
         )
-        draw.text((8 + pad_x, 8 + pad_y), display_label, font=_FONT_BADGE, fill=(255, 255, 255, 255))
+        draw.text((8 + pad_x, 8 + pad_y), display_label, font=_FONT_BADGE, fill=(0, 212, 255, 255))
 
-    # Labels d'angles positionnés intelligemment
+    # Labels d'angles positionnes intelligemment
     positioned = _layout_labels(label_infos, w, h)
     for lbl_info, (lx, ly) in positioned:
         text = lbl_info.text
@@ -505,23 +561,23 @@ def annotate_frame(
         _draw_rounded_rect(
             draw,
             (lx, ly, lx + tw + 2 * pad_x, ly + th + 2 * pad_y),
-            fill=(20, 20, 20, 180),
+            fill=(10, 10, 20, 200),
             outline=lbl_info.color_rgb,
             radius=6,
             outline_width=2,
         )
         draw.text((lx + pad_x, ly + pad_y), text, font=_FONT_LABEL, fill=(*lbl_info.color_rgb, 255))
 
-        # Ligne de connexion entre le badge et le point d'articulation
+        # Ligne de connexion
         badge_center_x = lx + (tw + 2 * pad_x) // 2
-        badge_center_y = ly + (th + 2 * pad_y) // 2
+        badge_bottom_y = ly + th + 2 * pad_y
         draw.line(
-            [(badge_center_x, badge_center_y), lbl_info.anchor_pt],
-            fill=(*lbl_info.color_rgb, 100),
+            [(badge_center_x, badge_bottom_y), lbl_info.anchor_pt],
+            fill=(*lbl_info.color_rgb, 80),
             width=1,
         )
 
-    # Symétrie (en bas)
+    # Symetrie (en bas)
     sym = frame_angles.knee_flexion_symmetry
     if sym is not None:
         if sym > 0.9:
@@ -530,16 +586,20 @@ def annotate_frame(
             sym_color = COLOR_ORANGE_RGB
         else:
             sym_color = COLOR_RED_RGB
-        sym_text = f"Symétrie genoux: {sym:.0%}"
+        sym_text = f"Symetrie genoux: {sym:.0%}"
         bbox = draw.textbbox((0, 0), sym_text, font=_FONT_SMALL)
         tw = bbox[2] - bbox[0]
         sx = w - tw - 20
         sy = h - 30
         _draw_rounded_rect(
             draw, (sx - 6, sy - 4, sx + tw + 6, sy + 18),
-            fill=(20, 20, 20, 160), outline=sym_color, radius=4, outline_width=1,
+            fill=(10, 10, 20, 180), outline=sym_color, radius=4, outline_width=1,
         )
         draw.text((sx, sy), sym_text, font=_FONT_SMALL, fill=(*sym_color, 255))
+
+    # Branding discret en bas a gauche
+    brand_text = "FORMCHECK by ACHZOD"
+    draw.text((10, h - 22), brand_text, font=_FONT_BRAND, fill=(100, 100, 140, 150))
 
     # Composite et retour en OpenCV
     result = Image.alpha_composite(pil_img, txt_layer)
@@ -552,16 +612,16 @@ def annotate_key_frames(
     exercise: str,
     output_dir: str | None = None,
 ) -> dict[str, str]:
-    """Annote toutes les frames clés et sauvegarde les images.
+    """Annote toutes les frames cles et sauvegarde les images.
 
     Args:
-        extraction: Résultat de l'extraction de pose.
-        angles: Résultat du calcul d'angles.
+        extraction: Resultat de l'extraction de pose.
+        angles: Resultat du calcul d'angles.
         exercise: Nom de l'exercice.
-        output_dir: Dossier de sortie. Si None, utilise le même dossier que les frames clés.
+        output_dir: Dossier de sortie.
 
     Returns:
-        Dict {label: chemin_image_annotée}.
+        Dict {label: chemin_image_annotee}.
     """
     out_dir = Path(output_dir) if output_dir else Path(extraction.video_path).parent / "formcheck_output"
     out_dir.mkdir(parents=True, exist_ok=True)

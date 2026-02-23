@@ -24,22 +24,30 @@ from analysis.angle_calculator import AngleResult, AngleStats
 
 
 class Exercise(str, Enum):
-    """Exercices supportés."""
+    """Exercices supportes."""
     SQUAT = "squat"
     FRONT_SQUAT = "front_squat"
     BULGARIAN_SPLIT_SQUAT = "bulgarian_split_squat"
     LUNGE = "lunge"
     DEADLIFT = "deadlift"
+    SUMO_DEADLIFT = "sumo_deadlift"
     RDL = "rdl"
     BENCH_PRESS = "bench_press"
+    INCLINE_BENCH = "incline_bench"
     OHP = "ohp"
     BARBELL_ROW = "barbell_row"
+    DUMBBELL_ROW = "dumbbell_row"
     HIP_THRUST = "hip_thrust"
     CURL = "curl"
+    TRICEP_EXTENSION = "tricep_extension"
     LATERAL_RAISE = "lateral_raise"
+    FACE_PULL = "face_pull"
+    PULLUP = "pullup"
+    LAT_PULLDOWN = "lat_pulldown"
     LEG_PRESS = "leg_press"
     LEG_EXTENSION = "leg_extension"
     LEG_CURL = "leg_curl"
+    GOBLET_SQUAT = "goblet_squat"
     UNKNOWN = "unknown"
 
 
@@ -47,20 +55,28 @@ class Exercise(str, Enum):
 EXERCISE_DISPLAY_NAMES: dict[str, str] = {
     "squat": "Back Squat",
     "front_squat": "Front Squat",
+    "goblet_squat": "Goblet Squat",
     "bulgarian_split_squat": "Fente Bulgare (Bulgarian Split Squat)",
     "lunge": "Fente (Lunge)",
     "deadlift": "Deadlift Conventionnel",
+    "sumo_deadlift": "Sumo Deadlift",
     "rdl": "Romanian Deadlift (RDL)",
     "bench_press": "Bench Press",
-    "ohp": "Overhead Press (Développé Militaire)",
+    "incline_bench": "Developpe Incline (Incline Bench Press)",
+    "ohp": "Overhead Press (Developpe Militaire)",
     "barbell_row": "Barbell Row (Rowing Barre)",
+    "dumbbell_row": "Dumbbell Row (Rowing Haltere)",
     "hip_thrust": "Hip Thrust",
     "curl": "Curl Biceps",
-    "lateral_raise": "Élévations Latérales",
+    "tricep_extension": "Extension Triceps",
+    "lateral_raise": "Elevations Laterales",
+    "face_pull": "Face Pull",
+    "pullup": "Pull-Up / Traction",
+    "lat_pulldown": "Lat Pulldown (Tirage Vertical)",
     "leg_press": "Leg Press",
     "leg_extension": "Leg Extension",
     "leg_curl": "Leg Curl",
-    "unknown": "Exercice non identifié",
+    "unknown": "Exercice non identifie",
 }
 
 
@@ -499,11 +515,100 @@ def _score_lateral_raise(stats: dict[str, AngleStats]) -> tuple[float, str]:
     return score, "; ".join(reasons) if reasons else "Pas de pattern lat raise"
 
 
+def _score_tricep_extension(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'une extension triceps."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    shoulder_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    trunk_rom = _rom(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # Grand ROM coude, peu de mouvement epaule (contrairement au curl ou OHP)
+    if elbow_rom > 40:
+        score += 0.35
+        reasons.append(f"Grand ROM coude ({elbow_rom:.0f} deg)")
+    if shoulder_rom < 15:
+        score += 0.25
+        reasons.append(f"Epaules stables ({shoulder_rom:.0f} deg)")
+    if trunk_rom < 10:
+        score += 0.2
+        reasons.append(f"Tronc stable ({trunk_rom:.0f} deg)")
+    if knee_rom < 10:
+        score += 0.2
+        reasons.append("Jambes immobiles")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern tricep extension"
+
+
+def _score_pullup(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un pull-up ou traction."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    shoulder_abd_rom = max(
+        _rom(stats, "left_shoulder_abduction"), _rom(stats, "right_shoulder_abduction")
+    )
+    trunk_rom = _rom(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # Grand ROM coude + mouvement epaule + pas de mouvement jambes
+    if elbow_rom > 30:
+        score += 0.3
+        reasons.append(f"ROM coude important ({elbow_rom:.0f} deg)")
+    if shoulder_abd_rom > 15:
+        score += 0.2
+        reasons.append(f"ROM epaule ({shoulder_abd_rom:.0f} deg)")
+    if trunk_rom < 20:
+        score += 0.25
+        reasons.append(f"Tronc stable ({trunk_rom:.0f} deg)")
+    if knee_rom < 10:
+        score += 0.25
+        reasons.append("Jambes stables (suspension)")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern pull-up"
+
+
+def _score_goblet_squat(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un goblet squat (similaire au front squat, tronc tres vertical)."""
+    score = 0.0
+    reasons: list[str] = []
+
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+    trunk_mean = _mean(stats, "trunk_inclination")
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+
+    if knee_rom > 30:
+        score += 0.25
+        reasons.append(f"ROM genou ({knee_rom:.0f} deg)")
+    if hip_rom > 30:
+        score += 0.25
+        reasons.append(f"ROM hanche ({hip_rom:.0f} deg)")
+    if trunk_mean < 20:
+        score += 0.3
+        reasons.append(f"Tronc tres vertical ({trunk_mean:.0f} deg) — typique goblet squat")
+    if elbow_rom < 15:
+        score += 0.2
+        reasons.append(f"Coudes stables ({elbow_rom:.0f} deg) — charge contre le torse")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern goblet squat"
+
+
 # Mapping exercice → fonction de scoring
 _SCORERS: dict[Exercise, Any] = {
     Exercise.BULGARIAN_SPLIT_SQUAT: _score_bulgarian_split_squat,
     Exercise.LUNGE: _score_lunge,
     Exercise.FRONT_SQUAT: _score_front_squat,
+    Exercise.GOBLET_SQUAT: _score_goblet_squat,
     Exercise.SQUAT: _score_squat,
     Exercise.RDL: _score_rdl,
     Exercise.DEADLIFT: _score_deadlift,
@@ -512,7 +617,9 @@ _SCORERS: dict[Exercise, Any] = {
     Exercise.BARBELL_ROW: _score_barbell_row,
     Exercise.HIP_THRUST: _score_hip_thrust,
     Exercise.CURL: _score_curl,
+    Exercise.TRICEP_EXTENSION: _score_tricep_extension,
     Exercise.LATERAL_RAISE: _score_lateral_raise,
+    Exercise.PULLUP: _score_pullup,
 }
 
 
