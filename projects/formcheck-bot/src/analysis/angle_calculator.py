@@ -511,6 +511,22 @@ def get_adapted_thresholds(
         if arm_torso > 1.1:
             base["elbow_rom_min"] = max(30.0, base["elbow_rom_min"] - 5.0)
 
+    # ── Adaptations CURL ──────────────────────────────────────────────────
+    elif exercise == "curl":
+        ua_fa = morpho_profile.get("upper_arm_forearm_ratio", 1.0)
+        # Avant-bras long → levier plus dur → ROM attendu legerement reduit
+        if ua_fa < 0.9:
+            base["elbow_rom_min"] = max(30.0, base["elbow_rom_min"] - 5.0)
+        # Biceps long (bras sup long) → plus de ROM possible
+        elif ua_fa > 1.15:
+            base["elbow_rom_min"] = min(50.0, base["elbow_rom_min"] + 5.0)
+
+    # ── Adaptations LATERAL RAISE ─────────────────────────────────────────
+    elif exercise == "lateral_raise":
+        # Bras longs → plus de levier → tolerer un peu plus de trunk sway
+        if total_arm > 0.38:
+            base["trunk_sway_max"] = min(15.0, base["trunk_sway_max"] + 3.0)
+
     return base
 
 

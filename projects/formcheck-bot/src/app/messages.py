@@ -74,19 +74,21 @@ FILMING_GUIDE = (
 # Flow d'acquisition des 3 photos statiques pour le profil morpho.
 
 MORPHO_WELCOME = (
-    "*PROFIL MORPHOLOGIQUE — Personnalise tes analyses*\n\n"
-    "Avant ta premiere analyse video, je te propose de creer ton "
-    "*profil morphologique*. Ca prend 2 minutes et ca permet :\n\n"
-    "- Des seuils d'angles adaptes a TA morphologie\n"
-    "- Des recommandations de stance/prise personnalisees\n"
-    "- Un bilan postural offert\n"
-    "- Des analyses video beaucoup plus precises\n\n"
-    "J'ai besoin de *3 photos* de toi debout :\n"
+    "*PROFIL MORPHOLOGIQUE*\n\n"
+    "Avant de lancer ta premiere analyse, on va creer ton "
+    "profil morpho. 2 minutes, 3 photos, et ensuite toutes tes "
+    "analyses seront calibrees sur TES proportions.\n\n"
+    "Ce que ca change concretement :\n"
+    "- Les seuils d'angles sont adaptes a tes segments (femurs, torse, bras)\n"
+    "- Les recommandations de stance et de prise sont personnalisees\n"
+    "- Tu recois un bilan postural complet\n"
+    "- Le score reflete ta technique RELATIVE a ta morphologie\n\n"
+    "J'ai besoin de 3 photos debout :\n"
     "1. De *face*\n"
     "2. De *profil* (cote)\n"
     "3. De *dos*\n\n"
     "On commence ? Envoie ta photo de *face*.\n\n"
-    "Tape *skip* si tu veux passer directement a l'analyse video "
+    "Tape *skip* si tu veux passer direct a l'analyse video "
     "(les seuils seront generiques)."
 )
 
@@ -126,18 +128,21 @@ MORPHO_ANALYZING = (
 )
 
 MORPHO_PROFILE_RESULT = (
-    "*PROFIL MORPHOLOGIQUE — Resultats*\n\n"
-    "*Type :* {morpho_type}\n"
-    "*Squat :* {squat_type}\n"
-    "*Deadlift :* {deadlift_type}\n"
-    "*Bench grip :* {bench_grip}\n\n"
-    "*Ratios cles :*\n"
+    "*TON PROFIL MORPHOLOGIQUE*\n\n"
+    "*Type :* {morpho_type}\n\n"
+    "*Tes proportions changent tout :*\n"
     "Femur/Tibia : {femur_tibia_ratio}\n"
     "Torse/Femur : {torso_femur_ratio}\n"
     "Epaules/Hanches : {shoulder_hip_ratio}\n\n"
+    "*Ce que ca implique pour toi :*\n"
+    "Squat : {squat_type}\n"
+    "Deadlift : {deadlift_type}\n"
+    "Bench : prise {bench_grip}\n\n"
     "{summary}\n\n"
-    "Tes analyses video seront maintenant adaptees a ta morphologie.\n"
-    "Envoie ta premiere video quand tu veux."
+    "A partir de maintenant, chaque analyse video que tu m'envoies "
+    "sera calibree sur TES proportions. Les scores et les corrections "
+    "tiennent compte de ta morphologie.\n\n"
+    "Envoie ta premiere video."
 )
 
 MORPHO_POSTURE_REPORT = (

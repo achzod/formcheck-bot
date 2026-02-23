@@ -812,10 +812,14 @@ def _build_morpho_section(morpho: dict) -> str:
         <line x1="{cx}" y1="{head_y + 12}" x2="{cx}" y2="{hip_y}" stroke="#00d4ff" stroke-width="2"/>
         <!-- Epaules -->
         <line x1="{cx - s_w/2}" y1="{shoulder_y}" x2="{cx + s_w/2}" y2="{shoulder_y}" stroke="#00d4ff" stroke-width="2"/>
-        <!-- Bras G -->
-        <line x1="{cx - s_w/2}" y1="{shoulder_y}" x2="{cx - s_w/2 - 8}" y2="{hip_y - 5}" stroke="#6868aa" stroke-width="1.5"/>
-        <!-- Bras D -->
-        <line x1="{cx + s_w/2}" y1="{shoulder_y}" x2="{cx + s_w/2 + 8}" y2="{hip_y - 5}" stroke="#6868aa" stroke-width="1.5"/>
+        <!-- Bras G (upper arm + forearm) -->
+        <line x1="{cx - s_w/2}" y1="{shoulder_y}" x2="{cx - s_w/2 - 6}" y2="{shoulder_y + t_h * 0.55}" stroke="#6868aa" stroke-width="1.5"/>
+        <line x1="{cx - s_w/2 - 6}" y1="{shoulder_y + t_h * 0.55}" x2="{cx - s_w/2 - 2}" y2="{hip_y + 5}" stroke="#6868aa" stroke-width="1.5"/>
+        <circle cx="{cx - s_w/2 - 6}" cy="{shoulder_y + t_h * 0.55}" r="2" fill="#6868aa"/>
+        <!-- Bras D (upper arm + forearm) -->
+        <line x1="{cx + s_w/2}" y1="{shoulder_y}" x2="{cx + s_w/2 + 6}" y2="{shoulder_y + t_h * 0.55}" stroke="#6868aa" stroke-width="1.5"/>
+        <line x1="{cx + s_w/2 + 6}" y1="{shoulder_y + t_h * 0.55}" x2="{cx + s_w/2 + 2}" y2="{hip_y + 5}" stroke="#6868aa" stroke-width="1.5"/>
+        <circle cx="{cx + s_w/2 + 6}" cy="{shoulder_y + t_h * 0.55}" r="2" fill="#6868aa"/>
         <!-- Hanches -->
         <line x1="{cx - h_w/2}" y1="{hip_y}" x2="{cx + h_w/2}" y2="{hip_y}" stroke="#00d4ff" stroke-width="2"/>
         <!-- Femur G -->
@@ -826,6 +830,15 @@ def _build_morpho_section(morpho: dict) -> str:
         <line x1="{cx - h_w/3}" y1="{knee_y}" x2="{cx - h_w/4}" y2="{ankle_y}" stroke="#00ff88" stroke-width="2"/>
         <!-- Tibia D -->
         <line x1="{cx + h_w/3}" y1="{knee_y}" x2="{cx + h_w/4}" y2="{ankle_y}" stroke="#00ff88" stroke-width="2"/>
+        <!-- Joints -->
+        <circle cx="{cx - s_w/2}" cy="{shoulder_y}" r="2.5" fill="#00d4ff" opacity="0.7"/>
+        <circle cx="{cx + s_w/2}" cy="{shoulder_y}" r="2.5" fill="#00d4ff" opacity="0.7"/>
+        <circle cx="{cx - h_w/2}" cy="{hip_y}" r="2.5" fill="#00d4ff" opacity="0.7"/>
+        <circle cx="{cx + h_w/2}" cy="{hip_y}" r="2.5" fill="#00d4ff" opacity="0.7"/>
+        <circle cx="{cx - h_w/3}" cy="{knee_y}" r="2.5" fill="#ff6b35" opacity="0.7"/>
+        <circle cx="{cx + h_w/3}" cy="{knee_y}" r="2.5" fill="#ff6b35" opacity="0.7"/>
+        <circle cx="{cx - h_w/4}" cy="{ankle_y}" r="2.5" fill="#00ff88" opacity="0.7"/>
+        <circle cx="{cx + h_w/4}" cy="{ankle_y}" r="2.5" fill="#00ff88" opacity="0.7"/>
         <!-- Annotations -->
         <text x="12" y="{(shoulder_y + hip_y) / 2}" fill="#8888aa" font-size="8" font-family="Inter,system-ui">Torse</text>
         <text x="12" y="{(hip_y + knee_y) / 2}" fill="#8888aa" font-size="8" font-family="Inter,system-ui">Femur</text>
@@ -857,8 +870,8 @@ def _build_morpho_section(morpho: dict) -> str:
 
     posture_html = "\n".join(posture_items)
 
-    # Recommendations (top 3)
-    recs = morpho.get("recommendations", [])[:3]
+    # Recommendations (top 5)
+    recs = morpho.get("recommendations", [])[:5]
     recs_html = ""
     if recs:
         rec_items = []

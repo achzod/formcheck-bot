@@ -344,9 +344,12 @@ def _analyze_side(landmarks, height: float, profile: MorphoProfile) -> None:
     profile.torso_femur_ratio = _safe_div(
         profile.torso_length, profile.femur_length, 1.0
     )
+    # Recalculer total_arm et arm_torso_ratio seulement si on a des données de bras
+    # (les bras sont mesurés depuis la photo de face, pas le profil)
     total_arm = profile.upper_arm_length + profile.forearm_length
-    if total_arm > 0:
-        profile.arm_torso_ratio = _safe_div(total_arm, profile.torso_length, 1.0)
+    profile.total_arm_length = max(profile.total_arm_length, total_arm)
+    if profile.total_arm_length > 0:
+        profile.arm_torso_ratio = _safe_div(profile.total_arm_length, profile.torso_length, 1.0)
 
     # ── Bilan postural ────────────────────────────────────────────────────
     posture = PostureAssessment()
@@ -435,11 +438,23 @@ def _analyze_back(landmarks, height: float, profile: MorphoProfile) -> None:
 
     # Asymetrie epaules (hauteur relative)
     shoulder_asym = abs(ls["y"] - rs["y"])
-    # Pas de champ dedie pour ca — on l'integre dans le resume postural si significatif
+    # Integrer dans le resume postural si significatif
     if _safe_div(shoulder_asym, height) > 0.015:
-        if profile.posture.summary and not profile.posture.summary.endswith("."):
-            profile.posture.summary += "."
-        profile.posture.summary += " Legere asymetrie des epaules detectee (vue de dos)."
+        if not profile.posture.summary:
+            profile.posture.summary = "Legere asymetrie des epaules detectee (vue de dos)."
+        else:
+            if not profile.posture.summary.endswith("."):
+                profile.posture.summary += "."
+            profile.posture.summary += " Legere asymetrie des epaules detectee (vue de dos)."
+
+    # Confirmer hip width depuis le dos (moyenne si deja mesure)
+    if lh and rh:
+        hip_w_back = _dist_2d(lh, rh)
+        back_hip = _safe_div(hip_w_back, height)
+        if profile.hip_width > 0:
+            profile.hip_width = (profile.hip_width + back_hip) / 2
+        else:
+            profile.hip_width = back_hip
 
 
 # ── Determination du type morphologique ───────────────────────────────────────
