@@ -56,6 +56,18 @@ class Exercise(str, Enum):
     DIP = "dip"
     SHRUG = "shrug"
     CALF_RAISE = "calf_raise"
+    HACK_SQUAT = "hack_squat"
+    PENDLAY_ROW = "pendlay_row"
+    TBAR_ROW = "tbar_row"
+    CHEST_FLY = "chest_fly"
+    CABLE_CROSSOVER = "cable_crossover"
+    REVERSE_FLY = "reverse_fly"
+    HAMMER_CURL = "hammer_curl"
+    PREACHER_CURL = "preacher_curl"
+    SKULL_CRUSHER = "skull_crusher"
+    GOOD_MORNING = "good_morning"
+    STEP_UP = "step_up"
+    SISSY_SQUAT = "sissy_squat"
     UNKNOWN = "unknown"
 
 
@@ -92,6 +104,18 @@ EXERCISE_DISPLAY_NAMES: dict[str, str] = {
     "dip": "Dips",
     "shrug": "Shrugs (Haussements d'Epaules)",
     "calf_raise": "Mollets (Calf Raise)",
+    "hack_squat": "Hack Squat",
+    "pendlay_row": "Pendlay Row",
+    "tbar_row": "T-Bar Row (Rowing en T)",
+    "chest_fly": "Ecarte Pectoraux (Chest Fly)",
+    "cable_crossover": "Cable Crossover (Vis-a-Vis)",
+    "reverse_fly": "Oiseau (Reverse Fly)",
+    "hammer_curl": "Curl Marteau (Hammer Curl)",
+    "preacher_curl": "Curl Pupitre (Preacher Curl)",
+    "skull_crusher": "Barre au Front (Skull Crusher)",
+    "good_morning": "Good Morning",
+    "step_up": "Step-Up",
+    "sissy_squat": "Sissy Squat",
     "unknown": "Exercice non identifie",
 }
 
@@ -927,21 +951,27 @@ def detect_by_vision(
     mid_frame_path: str,
     api_key: str | None = None,
 ) -> tuple[Exercise, float, str]:
-    """Utilise GPT-4 Vision pour identifier l'exercice sur la frame du milieu.
+    """Utilise GPT-4o Vision pour identifier l'exercice sur la frame du milieu.
+
+    Architecture vision-first : cette fonction est le detecteur PRIMAIRE.
+    Elle doit etre precise et fiable.
 
     Args:
         mid_frame_path: Chemin vers l'image de la frame du milieu.
-        api_key: Clé API OpenAI. Si None, utilise OPENAI_API_KEY.
+        api_key: Cle API OpenAI. Si None, utilise OPENAI_API_KEY.
 
     Returns:
         Tuple (exercise, confidence, reasoning).
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     key = api_key or os.environ.get("OPENAI_API_KEY", "")
     if not key:
-        return Exercise.UNKNOWN, 0.0, "Pas de clé API OpenAI configurée."
+        return Exercise.UNKNOWN, 0.0, "Pas de cle API OpenAI configuree."
 
     if not Path(mid_frame_path).exists():
-        return Exercise.UNKNOWN, 0.0, f"Image introuvable: {mid_frame_path}"
+        return Exercise.UNKNOWN, 0.0, "Image introuvable"
 
     try:
         import openai
@@ -950,7 +980,32 @@ def detect_by_vision(
         b64_image = _encode_image_base64(mid_frame_path)
 
         exercises_list = ", ".join(
-            [f"{e.value} ({EXERCISE_DISPLAY_NAMES[e.value]})" for e in Exercise if e != Exercise.UNKNOWN]
+            ["{} ({})".format(e.value, EXERCISE_DISPLAY_NAMES[e.value]) for e in Exercise if e != Exercise.UNKNOWN]
+        )
+
+        system_prompt = (
+            "Tu es un coach de musculation expert avec 15 ans d'experience et "
+            "des certifications NASM, ISSA, Pre-Script. Tu identifies les exercices "
+            "de musculation avec precision.\n\n"
+            "REGLES D'IDENTIFICATION :\n"
+            "- Regarde la POSITION DU CORPS, l'EQUIPEMENT utilise (barre, halteres, "
+            "poulie haute/basse, machine, poids de corps), et le PLAN DE MOUVEMENT.\n"
+            "- Un pullover poulie haute (cable_pullover/straight-arm pulldown) = debout, "
+            "bras tendus, tirant une poulie haute vers le bas en arc. NE PAS confondre "
+            "avec lat_pulldown (assis, coudes flechis) ou barbell_row.\n"
+            "- Un tirage menton (upright_row) = debout, barre/halteres/poulie monte le "
+            "long du corps, coudes montent sur les cotes.\n"
+            "- Distinguer squat (barre sur le dos) vs front_squat (barre devant) vs "
+            "goblet_squat (haltere/kettlebell contre le torse).\n"
+            "- Distinguer deadlift (depart sol) vs rdl (depart debout, jambes quasi tendues).\n"
+            "- Si la personne est DEBOUT face a une poulie avec les bras qui bougent, "
+            "c'est probablement un exercice de poulie (cable_pullover, face_pull, "
+            "cable_row, tricep_extension, cable_curl, upright_row).\n\n"
+            "Reponds UNIQUEMENT avec un JSON valide :\n"
+            '{"exercise": "<nom_exact>", "confidence": <0.0-1.0>, '
+            '"reasoning": "<explication courte>"}\n\n'
+            "Exercices possibles (utilise EXACTEMENT un de ces noms) :\n"
+            "{}".format(exercises_list)
         )
 
         response = client.chat.completions.create(
@@ -958,12 +1013,7 @@ def detect_by_vision(
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "Tu es un expert en musculation. Identifie l'exercice "
-                        "sur cette image. Réponds UNIQUEMENT avec un JSON: "
-                        '{"exercise": "<nom>", "confidence": <0.0-1.0>, "reasoning": "<explication>"}. '
-                        f"Exercices possibles: {exercises_list}."
-                    ),
+                    "content": system_prompt,
                 },
                 {
                     "role": "user",
@@ -971,45 +1021,108 @@ def detect_by_vision(
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/jpeg;base64,{b64_image}",
-                                "detail": "low",
+                                "url": "data:image/jpeg;base64,{}".format(b64_image),
+                                "detail": "high",
                             },
                         },
                         {
                             "type": "text",
-                            "text": "Quel exercice de musculation est effectué sur cette image ?",
+                            "text": (
+                                "Identifie precisement l'exercice de musculation "
+                                "sur cette image. Regarde l'equipement, la position "
+                                "du corps, et le plan de mouvement."
+                            ),
                         },
                     ],
                 },
             ],
-            max_tokens=200,
+            max_tokens=300,
             temperature=0.1,
         )
 
         import json
         content = response.choices[0].message.content or ""
-        # Extraire le JSON de la réponse
-        # Chercher le premier { et le dernier }
+        logger.info("Vision raw response: %s", content[:300])
+
+        # Extraire le JSON de la reponse
         start = content.find("{")
         end = content.rfind("}") + 1
         if start >= 0 and end > start:
             data = json.loads(content[start:end])
-            ex_name = data.get("exercise", "unknown").lower().replace(" ", "_")
-            # Mapper vers l'enum
+            ex_name = data.get("exercise", "unknown").lower().replace(" ", "_").replace("-", "_")
+
+            # Gerer les aliases courants que GPT pourrait retourner
+            _ALIASES = {
+                "straight_arm_pulldown": "cable_pullover",
+                "straight_arm_pushdown": "cable_pullover",
+                "cable_straight_arm_pulldown": "cable_pullover",
+                "pullover_poulie": "cable_pullover",
+                "pullover_poulie_haute": "cable_pullover",
+                "tirage_menton": "upright_row",
+                "rowing_barre": "barbell_row",
+                "rowing_haltere": "dumbbell_row",
+                "developpe_couche": "bench_press",
+                "developpe_incline": "incline_bench",
+                "developpe_militaire": "ohp",
+                "elevation_laterale": "lateral_raise",
+                "elevations_laterales": "lateral_raise",
+                "traction": "pullup",
+                "tirage_vertical": "lat_pulldown",
+                "tirage_poulie_basse": "cable_row",
+                "seated_cable_row": "cable_row",
+                "seated_row": "cable_row",
+                "extension_triceps": "tricep_extension",
+                "cable_tricep_extension": "tricep_extension",
+                "pushdown": "tricep_extension",
+                "tricep_pushdown": "tricep_extension",
+                "fente_bulgare": "bulgarian_split_squat",
+                "fente": "lunge",
+                "souleve_de_terre": "deadlift",
+                "hip_hinge": "rdl",
+                "romanian_deadlift": "rdl",
+                "haussement_epaules": "shrug",
+                "mollets": "calf_raise",
+                "ecarte": "chest_fly",
+                "pec_fly": "chest_fly",
+                "pec_deck": "chest_fly",
+                "butterfly": "chest_fly",
+                "vis_a_vis": "cable_crossover",
+                "cable_fly": "cable_crossover",
+                "oiseau": "reverse_fly",
+                "rear_delt_fly": "reverse_fly",
+                "rear_delt": "reverse_fly",
+                "curl_marteau": "hammer_curl",
+                "curl_pupitre": "preacher_curl",
+                "barre_au_front": "skull_crusher",
+                "lying_tricep_extension": "skull_crusher",
+                "french_press": "skull_crusher",
+                "t_bar_row": "tbar_row",
+                "t_bar": "tbar_row",
+                "hack_squat_machine": "hack_squat",
+                "step_ups": "step_up",
+            }
+            ex_name = _ALIASES.get(ex_name, ex_name)
+
             try:
                 exercise = Exercise(ex_name)
             except ValueError:
+                logger.warning("Vision returned unknown exercise name: %s", ex_name)
                 exercise = Exercise.UNKNOWN
-            return (
+            
+            result = (
                 exercise,
                 float(data.get("confidence", 0.5)),
                 data.get("reasoning", ""),
             )
+            logger.info("Vision parsed: %s (conf=%.2f)", exercise.value, result[1])
+            return result
 
-        return Exercise.UNKNOWN, 0.0, f"Réponse non parseable: {content}"
+        logger.warning("Vision response not parseable: %s", content[:200])
+        return Exercise.UNKNOWN, 0.0, "Reponse non parseable: {}".format(content[:100])
 
     except Exception as e:
-        return Exercise.UNKNOWN, 0.0, f"Erreur GPT-4 Vision: {e}"
+        logger.exception("Vision detection failed")
+        return Exercise.UNKNOWN, 0.0, "Erreur GPT-4 Vision: {}".format(str(e))
 
 
 def detect_exercise(
