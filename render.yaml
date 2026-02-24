@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: formcheck-bot
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_NUMBER
+        value: "+14155238886"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_SUCCESS_URL
+        value: "https://formcheck.achzodcoaching.com/success"
+      - key: STRIPE_CANCEL_URL
+        value: "https://formcheck.achzodcoaching.com/cancel"
+      - key: DEBUG
+        value: "false"
+      - key: DATABASE_URL
+        value: "sqlite+aiosqlite:///./formcheck.db"
