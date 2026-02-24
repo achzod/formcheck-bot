@@ -1017,41 +1017,62 @@ def detect_exercise(
     mid_frame_path: str | None = None,
     use_vision_backup: bool = True,
 ) -> DetectionResult:
-    """Détecte l'exercice en combinant pattern matching et vision.
+    """Détecte l'exercice — VISION-FIRST, pattern matching en backup.
 
-    1. Détection par patterns de mouvement (ROM, angles)
-    2. Si la confiance est faible (<0.6) et qu'une image est disponible,
-       utilise GPT-4 Vision comme backup/confirmation.
+    Architecture :
+    1. GPT-4o Vision identifie l'exercice sur la frame du milieu (primaire)
+    2. Pattern matching par angles (backup si vision échoue)
+    3. Si les deux sont d'accord → haute confiance
 
     Args:
         angles: Résultat du calcul d'angles.
         mid_frame_path: Chemin vers l'image de la frame du milieu.
-        use_vision_backup: Activer la confirmation par vision.
+        use_vision_backup: Activer la vision (désactiver uniquement pour tests).
 
     Returns:
         DetectionResult avec l'exercice détecté et les métadonnées.
     """
-    result = detect_by_pattern(angles)
+    import logging
+    logger = logging.getLogger(__name__)
 
-    # TOUJOURS utiliser la vision si une image est disponible
-    # La vision est meilleure que le pattern matching pour les variantes
+    pattern_result = detect_by_pattern(angles)
+    logger.info(
+        "Pattern detection: %s (conf=%.2f) — %s",
+        pattern_result.exercise.value, pattern_result.confidence, pattern_result.reasoning,
+    )
+
+    # ── Vision-first : GPT-4o est meilleur pour identifier visuellement ──
     if use_vision_backup and mid_frame_path:
         vision_ex, vision_conf, vision_reason = detect_by_vision(mid_frame_path)
-        result.vision_exercise = vision_ex
-        result.vision_confidence = vision_conf
+        logger.info(
+            "Vision detection: %s (conf=%.2f) — %s",
+            vision_ex.value, vision_conf, vision_reason,
+        )
 
-        if vision_ex != Exercise.UNKNOWN and vision_conf > 0.5:
-            # Si pattern et vision sont d'accord → boost confiance
-            if vision_ex == result.exercise:
-                result.confidence = min(1.0, result.confidence + 0.2)
-                result.reasoning += f" | [Vision confirme: {vision_reason}]"
-            # Si vision contredit le pattern ET vision a bonne confiance → vision gagne
-            elif vision_conf > 0.6:
-                result.exercise = vision_ex
-                result.confidence = vision_conf
-                result.reasoning = f"[Vision override] {vision_reason} (pattern disait: {result.exercise.value})"
-                result.display_name = EXERCISE_DISPLAY_NAMES.get(
-                    vision_ex.value, vision_ex.value
+        if vision_ex != Exercise.UNKNOWN and vision_conf >= 0.4:
+            # Vision a identifié quelque chose
+            if vision_ex == pattern_result.exercise:
+                # Accord vision + pattern → haute confiance
+                return DetectionResult(
+                    exercise=vision_ex,
+                    confidence=min(1.0, vision_conf + 0.2),
+                    reasoning=f"[Vision + Pattern d'accord] {vision_reason}",
+                    vision_exercise=vision_ex,
+                    vision_confidence=vision_conf,
+                )
+            else:
+                # Désaccord → vision gagne (elle est plus fiable pour l'identification)
+                logger.info(
+                    "Vision override: %s -> %s",
+                    pattern_result.exercise.value, vision_ex.value,
+                )
+                return DetectionResult(
+                    exercise=vision_ex,
+                    confidence=vision_conf,
+                    reasoning=f"[Vision] {vision_reason} (pattern suggerait: {pattern_result.exercise.value})",
+                    vision_exercise=vision_ex,
+                    vision_confidence=vision_conf,
                 )
 
-    return result
+    # ── Fallback : pattern matching seul (pas d'image ou vision a échoué) ──
+    return pattern_result
