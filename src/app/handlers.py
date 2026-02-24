@@ -127,7 +127,8 @@ async def handle_video(user: db.User, data: dict) -> None:
         return
     user = user_fresh
 
-    if not await db.has_credits(user):
+    from app.config import settings as app_settings
+    if not app_settings.test_mode and not await db.has_credits(user):
         await handle_no_credits(user)
         return
 
@@ -223,8 +224,10 @@ async def _run_analysis(
             report=result.report.report_text,
         )
 
-        # Decrement credit AFTER successful analysis
-        await db.decrement_credit(user_id)
+        # Decrement credit AFTER successful analysis (skip in test mode)
+        from app.config import settings as app_settings
+        if not app_settings.test_mode:
+            await db.decrement_credit(user_id)
 
         # Generate HTML report
         from app.config import settings

@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # App
     debug: bool = False
     base_url: str = "https://formcheck.fr"  # For media URLs
+    test_mode: bool = False  # Bypass credit checks for testing
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
