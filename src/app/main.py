@@ -82,16 +82,24 @@ async def whatsapp_webhook(request: Request) -> PlainTextResponse:
     data = parse_incoming(body)
 
     if data:
-        try:
-            await handle_incoming_message(data)
-        except Exception:
-            logger.exception("Error handling WhatsApp message from %s", data.get("from", "unknown"))
+        # Fire-and-forget: respond to Twilio IMMEDIATELY, process in background
+        # This prevents Twilio timeouts (15s limit) from killing the handler
+        import asyncio
+        asyncio.create_task(_safe_handle(data))
 
     # Twilio expects a TwiML response (empty is fine for async replies)
     return PlainTextResponse(
         '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
         media_type="text/xml",
     )
+
+
+async def _safe_handle(data: dict) -> None:
+    """Handle message in background with error protection."""
+    try:
+        await handle_incoming_message(data)
+    except Exception:
+        logger.exception("Error handling WhatsApp message from %s", data.get("from", "unknown"))
 
 
 # ── Stripe webhook ──────────────────────────────────────────────────────
