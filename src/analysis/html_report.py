@@ -19,6 +19,18 @@ from typing import Any
 from analysis.report_generator import Report
 
 
+def _morpho_recs_block(recs_html: str) -> str:
+    """Helper to avoid nested f-strings (Python 3.11 compat)."""
+    if not recs_html:
+        return ""
+    return (
+        '<div style="margin-top:16px;padding-top:14px;border-top:1px solid #151530">'
+        '<div style="color:#8888aa;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Recommandations personnalisees</div>'
+        f'{recs_html}'
+        '</div>'
+    )
+
+
 def _img_to_base64(image_path: str) -> str:
     """Encode une image en data URI base64."""
     data = Path(image_path).read_bytes()
@@ -941,12 +953,7 @@ def _build_morpho_section(morpho: dict) -> str:
         </div>
 
         <!-- Recommandations -->
-        {"" if not recs_html else f'''
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #151530">
-            <div style="color:#8888aa;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Recommandations personnalisees</div>
-            {recs_html}
-        </div>
-        '''}
+        {_morpho_recs_block(recs_html)}
     </div>'''
 
 
