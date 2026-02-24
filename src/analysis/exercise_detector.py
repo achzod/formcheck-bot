@@ -48,6 +48,9 @@ class Exercise(str, Enum):
     LEG_EXTENSION = "leg_extension"
     LEG_CURL = "leg_curl"
     GOBLET_SQUAT = "goblet_squat"
+    UPRIGHT_ROW = "upright_row"
+    CABLE_ROW = "cable_row"
+    CABLE_CURL = "cable_curl"
     UNKNOWN = "unknown"
 
 
@@ -76,6 +79,9 @@ EXERCISE_DISPLAY_NAMES: dict[str, str] = {
     "leg_press": "Leg Press",
     "leg_extension": "Leg Extension",
     "leg_curl": "Leg Curl",
+    "upright_row": "Tirage Menton (Upright Row)",
+    "cable_row": "Tirage Poulie Basse (Seated Cable Row)",
+    "cable_curl": "Curl Cable",
     "unknown": "Exercice non identifie",
 }
 
@@ -577,6 +583,91 @@ def _score_pullup(stats: dict[str, AngleStats]) -> tuple[float, str]:
     return score, "; ".join(reasons) if reasons else "Pas de pattern pull-up"
 
 
+def _score_upright_row(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un tirage menton (upright row) — barre, haltere ou poulie."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    shoulder_abd_rom = max(
+        _rom(stats, "left_shoulder_abduction"), _rom(stats, "right_shoulder_abduction")
+    )
+    shoulder_flex_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    trunk_rom = _rom(stats, "trunk_inclination")
+    trunk_mean = _mean(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # Coudes flechissent ET montent (ROM coude significatif)
+    if elbow_rom > 25:
+        score += 0.25
+        reasons.append(f"ROM coude ({elbow_rom:.0f} deg)")
+
+    # Epaules en abduction et/ou flexion (bras montent sur les cotes)
+    shoulder_combined = max(shoulder_abd_rom, shoulder_flex_rom)
+    if shoulder_combined > 20:
+        score += 0.25
+        reasons.append(f"ROM epaule significatif ({shoulder_combined:.0f} deg)")
+
+    # CRITERE CLE : coudes ET epaules bougent ensemble (distingue du curl)
+    if elbow_rom > 20 and shoulder_combined > 15:
+        score += 0.2
+        reasons.append("Coudes + epaules actifs simultanement — typique tirage menton")
+
+    # Tronc vertical et stable
+    if trunk_mean < 25 and trunk_rom < 12:
+        score += 0.15
+        reasons.append(f"Tronc vertical stable ({trunk_mean:.0f} deg)")
+
+    # Jambes immobiles (debout)
+    if knee_rom < 10:
+        score += 0.15
+        reasons.append("Jambes immobiles")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern tirage menton"
+
+
+def _score_cable_row(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un tirage poulie basse (seated cable row)."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    shoulder_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    trunk_rom = _rom(stats, "trunk_inclination")
+    trunk_mean = _mean(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # ROM coude (traction horizontale)
+    if elbow_rom > 25:
+        score += 0.3
+        reasons.append(f"ROM coude (traction) ({elbow_rom:.0f} deg)")
+    # Epaule bouge (retraction scapulaire)
+    if shoulder_rom > 10:
+        score += 0.2
+        reasons.append(f"ROM epaule ({shoulder_rom:.0f} deg)")
+    # Tronc relativement vertical avec leger mouvement (pas autant que barbell row)
+    if trunk_mean < 35:
+        score += 0.15
+        reasons.append(f"Tronc quasi vertical ({trunk_mean:.0f} deg)")
+    if 5 < trunk_rom < 20:
+        score += 0.15
+        reasons.append(f"Leger mouvement tronc ({trunk_rom:.0f} deg)")
+    # Jambes stables (assis)
+    if knee_rom < 10:
+        score += 0.2
+        reasons.append("Jambes stables (assis)")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern cable row"
+
+
 def _score_goblet_squat(stats: dict[str, AngleStats]) -> tuple[float, str]:
     """Score la probabilite d'un goblet squat (similaire au front squat, tronc tres vertical)."""
     score = 0.0
@@ -620,6 +711,8 @@ _SCORERS: dict[Exercise, Any] = {
     Exercise.TRICEP_EXTENSION: _score_tricep_extension,
     Exercise.LATERAL_RAISE: _score_lateral_raise,
     Exercise.PULLUP: _score_pullup,
+    Exercise.UPRIGHT_ROW: _score_upright_row,
+    Exercise.CABLE_ROW: _score_cable_row,
 }
 
 
