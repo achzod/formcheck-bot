@@ -68,6 +68,63 @@ class Exercise(str, Enum):
     GOOD_MORNING = "good_morning"
     STEP_UP = "step_up"
     SISSY_SQUAT = "sissy_squat"
+    # ── Pectoraux (nouveaux) ──
+    DECLINE_BENCH = "decline_bench"
+    DUMBBELL_BENCH = "dumbbell_bench"
+    DUMBBELL_INCLINE = "dumbbell_incline"
+    CHEST_DIP = "chest_dip"
+    PUSH_UP = "push_up"
+    MACHINE_CHEST_PRESS = "machine_chest_press"
+    SVEND_PRESS = "svend_press"
+    LANDMINE_PRESS = "landmine_press"
+    # ── Dos (nouveaux) ──
+    CHINUP = "chinup"
+    CLOSE_GRIP_PULLDOWN = "close_grip_pulldown"
+    SEAL_ROW = "seal_row"
+    # ── Épaules (nouveaux) ──
+    DUMBBELL_OHP = "dumbbell_ohp"
+    ARNOLD_PRESS = "arnold_press"
+    CABLE_LATERAL_RAISE = "cable_lateral_raise"
+    FRONT_RAISE = "front_raise"
+    REAR_DELT_FLY = "rear_delt_fly"
+    LU_RAISE = "lu_raise"
+    # ── Biceps (nouveaux) ──
+    DUMBBELL_CURL = "dumbbell_curl"
+    INCLINE_CURL = "incline_curl"
+    CONCENTRATION_CURL = "concentration_curl"
+    SPIDER_CURL = "spider_curl"
+    # ── Triceps (nouveaux) ──
+    OVERHEAD_TRICEP = "overhead_tricep"
+    KICKBACK = "kickback"
+    CLOSE_GRIP_BENCH = "close_grip_bench"
+    DIAMOND_PUSHUP = "diamond_pushup"
+    CABLE_OVERHEAD_TRICEP = "cable_overhead_tricep"
+    # ── Quadriceps (nouveaux) ──
+    WALKING_LUNGE = "walking_lunge"
+    # ── Ischio-jambiers (nouveaux) ──
+    NORDIC_CURL = "nordic_curl"
+    SINGLE_LEG_RDL = "single_leg_rdl"
+    GLUTE_HAM_RAISE = "glute_ham_raise"
+    # ── Fessiers (nouveaux) ──
+    CABLE_KICKBACK = "cable_kickback"
+    GLUTE_BRIDGE = "glute_bridge"
+    # ── Deadlift (nouveaux) ──
+    TRAP_BAR_DEADLIFT = "trap_bar_deadlift"
+    # ── Mollets (nouveaux) ──
+    SEATED_CALF_RAISE = "seated_calf_raise"
+    # ── Abdos ──
+    CRUNCH = "crunch"
+    CABLE_CRUNCH = "cable_crunch"
+    HANGING_LEG_RAISE = "hanging_leg_raise"
+    AB_WHEEL = "ab_wheel"
+    PLANK = "plank"
+    WOODCHOP = "woodchop"
+    # ── Full body / Fonctionnel ──
+    CLEAN = "clean"
+    SNATCH = "snatch"
+    THRUSTER = "thruster"
+    KETTLEBELL_SWING = "kettlebell_swing"
+    BATTLE_ROPE = "battle_rope"
     UNKNOWN = "unknown"
 
 
@@ -116,6 +173,51 @@ EXERCISE_DISPLAY_NAMES: dict[str, str] = {
     "good_morning": "Good Morning",
     "step_up": "Step-Up",
     "sissy_squat": "Sissy Squat",
+    "decline_bench": "Developpe Decline (Decline Bench Press)",
+    "dumbbell_bench": "Developpe Couche Halteres",
+    "dumbbell_incline": "Developpe Incline Halteres",
+    "chest_dip": "Dips Pectoraux",
+    "push_up": "Pompes (Push-Up)",
+    "machine_chest_press": "Presse Pectorale Machine",
+    "svend_press": "Svend Press",
+    "landmine_press": "Landmine Press",
+    "chinup": "Traction Supination (Chin-Up)",
+    "close_grip_pulldown": "Tirage Vertical Prise Serree",
+    "seal_row": "Seal Row",
+    "dumbbell_ohp": "Developpe Halteres (Epaules)",
+    "arnold_press": "Arnold Press",
+    "cable_lateral_raise": "Elevations Laterales Poulie",
+    "front_raise": "Elevations Frontales",
+    "rear_delt_fly": "Oiseau Arriere (Rear Delt Fly)",
+    "lu_raise": "Lu Raise / Y-Raise",
+    "dumbbell_curl": "Curl Halteres Alternes",
+    "incline_curl": "Curl Incline",
+    "concentration_curl": "Curl Concentration",
+    "spider_curl": "Spider Curl",
+    "overhead_tricep": "Extension Triceps au-dessus de la Tete",
+    "kickback": "Kickback Triceps",
+    "close_grip_bench": "Developpe Couche Prise Serree",
+    "diamond_pushup": "Pompes Diamant",
+    "cable_overhead_tricep": "Extension Triceps Poulie Basse (Overhead)",
+    "walking_lunge": "Fente Marchee (Walking Lunge)",
+    "nordic_curl": "Nordic Curl",
+    "single_leg_rdl": "RDL Unilateral",
+    "glute_ham_raise": "GHR (Glute Ham Raise)",
+    "cable_kickback": "Kickback Fessier Poulie",
+    "glute_bridge": "Pont Fessier (Glute Bridge)",
+    "trap_bar_deadlift": "Trap Bar Deadlift",
+    "seated_calf_raise": "Mollets Assis (Seated Calf Raise)",
+    "crunch": "Crunch",
+    "cable_crunch": "Crunch Poulie Haute",
+    "hanging_leg_raise": "Releve de Jambes Suspendu",
+    "ab_wheel": "Ab Wheel (Roue Abdominale)",
+    "plank": "Planche (Gainage)",
+    "woodchop": "Woodchop Poulie",
+    "clean": "Epaule (Clean)",
+    "snatch": "Arrache (Snatch)",
+    "thruster": "Thruster",
+    "kettlebell_swing": "Kettlebell Swing",
+    "battle_rope": "Battle Rope",
     "unknown": "Exercice non identifie",
 }
 
@@ -1100,6 +1202,107 @@ def detect_by_vision(
                 "t_bar": "tbar_row",
                 "hack_squat_machine": "hack_squat",
                 "step_ups": "step_up",
+                # Pectoraux
+                "decline_bench_press": "decline_bench",
+                "decline_press": "decline_bench",
+                "developpe_decline": "decline_bench",
+                "dumbbell_bench_press": "dumbbell_bench",
+                "dumbbell_press": "dumbbell_bench",
+                "developpe_couche_halteres": "dumbbell_bench",
+                "dumbbell_incline_press": "dumbbell_incline",
+                "incline_dumbbell_press": "dumbbell_incline",
+                "developpe_incline_halteres": "dumbbell_incline",
+                "chest_dips": "chest_dip",
+                "dips_pectoraux": "chest_dip",
+                "pushup": "push_up",
+                "pushups": "push_up",
+                "push_ups": "push_up",
+                "pompes": "push_up",
+                "chest_press_machine": "machine_chest_press",
+                "machine_press": "machine_chest_press",
+                "presse_pectorale": "machine_chest_press",
+                "landmine": "landmine_press",
+                # Dos
+                "chin_up": "chinup",
+                "chin_ups": "chinup",
+                "supinated_pullup": "chinup",
+                "traction_supination": "chinup",
+                "close_grip_lat_pulldown": "close_grip_pulldown",
+                "neutral_grip_pulldown": "close_grip_pulldown",
+                "tirage_prise_serree": "close_grip_pulldown",
+                "chest_supported_row": "seal_row",
+                # Épaules
+                "dumbbell_shoulder_press": "dumbbell_ohp",
+                "seated_dumbbell_press": "dumbbell_ohp",
+                "developpe_halteres": "dumbbell_ohp",
+                "cable_lateral": "cable_lateral_raise",
+                "cable_side_raise": "cable_lateral_raise",
+                "front_delt_raise": "front_raise",
+                "elevation_frontale": "front_raise",
+                "elevations_frontales": "front_raise",
+                "reverse_fly_machine": "rear_delt_fly",
+                "rear_delt_machine": "rear_delt_fly",
+                "oiseau_arriere": "rear_delt_fly",
+                "lu_raises": "lu_raise",
+                "y_raise": "lu_raise",
+                # Biceps
+                "alternating_curl": "dumbbell_curl",
+                "curl_halteres": "dumbbell_curl",
+                "incline_dumbbell_curl": "incline_curl",
+                "curl_incline": "incline_curl",
+                "curl_concentration": "concentration_curl",
+                # Triceps
+                "overhead_extension": "overhead_tricep",
+                "overhead_tricep_extension": "overhead_tricep",
+                "tricep_kickback": "kickback",
+                "kickbacks": "kickback",
+                "close_grip_press": "close_grip_bench",
+                "close_grip_bench_press": "close_grip_bench",
+                "diamond_push_up": "diamond_pushup",
+                "pompes_diamant": "diamond_pushup",
+                "cable_overhead_extension": "cable_overhead_tricep",
+                # Jambes
+                "walking_lunges": "walking_lunge",
+                "fente_marchee": "walking_lunge",
+                "nordic_ham_curl": "nordic_curl",
+                "nordics": "nordic_curl",
+                "single_leg_romanian_deadlift": "single_leg_rdl",
+                "single_leg_deadlift": "single_leg_rdl",
+                "rdl_unilateral": "single_leg_rdl",
+                "ghr": "glute_ham_raise",
+                "glute_ham": "glute_ham_raise",
+                "cable_glute_kickback": "cable_kickback",
+                "kickback_fessier": "cable_kickback",
+                "glute_bridge_barbell": "glute_bridge",
+                "pont_fessier": "glute_bridge",
+                "hex_bar_deadlift": "trap_bar_deadlift",
+                "trap_bar": "trap_bar_deadlift",
+                # Mollets
+                "seated_calf": "seated_calf_raise",
+                "mollets_assis": "seated_calf_raise",
+                "standing_calf_raise": "calf_raise",
+                # Abdos
+                "crunches": "crunch",
+                "cable_crunches": "cable_crunch",
+                "crunch_poulie": "cable_crunch",
+                "hanging_leg_raises": "hanging_leg_raise",
+                "leg_raise": "hanging_leg_raise",
+                "releve_jambes": "hanging_leg_raise",
+                "ab_rollout": "ab_wheel",
+                "roue_abdominale": "ab_wheel",
+                "gainage": "plank",
+                "planche": "plank",
+                "cable_woodchop": "woodchop",
+                "wood_chop": "woodchop",
+                # Full body
+                "power_clean": "clean",
+                "epaule": "clean",
+                "power_snatch": "snatch",
+                "arrache": "snatch",
+                "thrusters": "thruster",
+                "kb_swing": "kettlebell_swing",
+                "kettlebell_swings": "kettlebell_swing",
+                "battle_ropes": "battle_rope",
             }
             ex_name = _ALIASES.get(ex_name, ex_name)
 
