@@ -51,6 +51,11 @@ class Exercise(str, Enum):
     UPRIGHT_ROW = "upright_row"
     CABLE_ROW = "cable_row"
     CABLE_CURL = "cable_curl"
+    PULLOVER = "pullover"
+    CABLE_PULLOVER = "cable_pullover"
+    DIP = "dip"
+    SHRUG = "shrug"
+    CALF_RAISE = "calf_raise"
     UNKNOWN = "unknown"
 
 
@@ -82,6 +87,11 @@ EXERCISE_DISPLAY_NAMES: dict[str, str] = {
     "upright_row": "Tirage Menton (Upright Row)",
     "cable_row": "Tirage Poulie Basse (Seated Cable Row)",
     "cable_curl": "Curl Cable",
+    "pullover": "Pullover (Haltere)",
+    "cable_pullover": "Pullover Poulie Haute (Straight-Arm Pulldown)",
+    "dip": "Dips",
+    "shrug": "Shrugs (Haussements d'Epaules)",
+    "calf_raise": "Mollets (Calf Raise)",
     "unknown": "Exercice non identifie",
 }
 
@@ -668,6 +678,154 @@ def _score_cable_row(stats: dict[str, AngleStats]) -> tuple[float, str]:
     return score, "; ".join(reasons) if reasons else "Pas de pattern cable row"
 
 
+def _score_cable_pullover(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un pullover poulie haute (straight-arm pulldown).
+
+    Pattern cle : grand ROM epaule flexion/extension, coudes quasi fixes,
+    tronc legerement penche et stable, jambes immobiles.
+    """
+    score = 0.0
+    reasons: list[str] = []
+
+    shoulder_flex_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    shoulder_abd_rom = max(
+        _rom(stats, "left_shoulder_abduction"), _rom(stats, "right_shoulder_abduction")
+    )
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    trunk_mean = _mean(stats, "trunk_inclination")
+    trunk_rom = _rom(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+
+    # CRITERE CLE : grand ROM epaule (bras montent et descendent en arc)
+    if shoulder_flex_rom > 25:
+        score += 0.3
+        reasons.append(f"Grand ROM epaule flexion ({shoulder_flex_rom:.0f} deg)")
+    elif shoulder_abd_rom > 25:
+        score += 0.25
+        reasons.append(f"Grand ROM epaule abduction ({shoulder_abd_rom:.0f} deg)")
+
+    # Coudes quasi fixes (bras tendus ou legerement flechis)
+    if elbow_rom < 20:
+        score += 0.25
+        reasons.append(f"Coudes quasi fixes ({elbow_rom:.0f} deg) — bras tendus")
+    elif elbow_rom < 30:
+        score += 0.1
+        reasons.append(f"Coudes peu mobiles ({elbow_rom:.0f} deg)")
+
+    # Tronc legerement penche et stable
+    if 5 < trunk_mean < 40 and trunk_rom < 15:
+        score += 0.2
+        reasons.append(f"Tronc stable legerement penche ({trunk_mean:.0f} deg)")
+
+    # Jambes et hanches immobiles (debout)
+    if knee_rom < 10 and hip_rom < 15:
+        score += 0.25
+        reasons.append("Jambes et hanches immobiles — debout face a la poulie")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern pullover poulie"
+
+
+def _score_pullover(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un pullover haltere (allonge sur banc)."""
+    score = 0.0
+    reasons: list[str] = []
+
+    shoulder_flex_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    trunk_mean = _mean(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+
+    # Grand ROM epaule
+    if shoulder_flex_rom > 30:
+        score += 0.3
+        reasons.append(f"Grand ROM epaule ({shoulder_flex_rom:.0f} deg)")
+    # Coudes peu mobiles
+    if elbow_rom < 25:
+        score += 0.25
+        reasons.append(f"Coudes quasi fixes ({elbow_rom:.0f} deg)")
+    # Tronc horizontal (allonge)
+    if trunk_mean > 50:
+        score += 0.25
+        reasons.append(f"Tronc horizontal ({trunk_mean:.0f} deg) — position allongee")
+    # Jambes stables
+    if knee_rom < 10:
+        score += 0.2
+        reasons.append("Jambes stables")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern pullover"
+
+
+def _score_dip(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite de dips."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    shoulder_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    trunk_rom = _rom(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    if elbow_rom > 30:
+        score += 0.3
+        reasons.append(f"ROM coude ({elbow_rom:.0f} deg)")
+    if shoulder_rom > 15:
+        score += 0.2
+        reasons.append(f"ROM epaule ({shoulder_rom:.0f} deg)")
+    if trunk_rom > 5 and trunk_rom < 25:
+        score += 0.2
+        reasons.append(f"Leger mouvement tronc ({trunk_rom:.0f} deg)")
+    if knee_rom < 10:
+        score += 0.3
+        reasons.append("Jambes immobiles (suspension)")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern dips"
+
+
+def _score_shrug(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite de shrugs."""
+    score = 0.0
+    reasons: list[str] = []
+
+    shoulder_abd_rom = max(
+        _rom(stats, "left_shoulder_abduction"), _rom(stats, "right_shoulder_abduction")
+    )
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    trunk_rom = _rom(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # Tres faible ROM partout SAUF epaules (haussement)
+    if shoulder_abd_rom > 5 and shoulder_abd_rom < 25:
+        score += 0.3
+        reasons.append(f"Petit ROM epaule ({shoulder_abd_rom:.0f} deg) — haussement")
+    if elbow_rom < 10:
+        score += 0.3
+        reasons.append(f"Coudes immobiles ({elbow_rom:.0f} deg)")
+    if trunk_rom < 8:
+        score += 0.2
+        reasons.append(f"Tronc stable ({trunk_rom:.0f} deg)")
+    if knee_rom < 8:
+        score += 0.2
+        reasons.append("Jambes immobiles")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern shrug"
+
+
 def _score_goblet_squat(stats: dict[str, AngleStats]) -> tuple[float, str]:
     """Score la probabilite d'un goblet squat (similaire au front squat, tronc tres vertical)."""
     score = 0.0
@@ -713,6 +871,10 @@ _SCORERS: dict[Exercise, Any] = {
     Exercise.PULLUP: _score_pullup,
     Exercise.UPRIGHT_ROW: _score_upright_row,
     Exercise.CABLE_ROW: _score_cable_row,
+    Exercise.CABLE_PULLOVER: _score_cable_pullover,
+    Exercise.PULLOVER: _score_pullover,
+    Exercise.DIP: _score_dip,
+    Exercise.SHRUG: _score_shrug,
 }
 
 

@@ -698,6 +698,11 @@ def _build_angle_chart(pipeline_result: Any) -> str:
         "incline_bench": ("left_elbow_flexion", "Coude"),
         "face_pull": ("left_elbow_flexion", "Coude"),
         "lat_pulldown": ("left_elbow_flexion", "Coude"),
+        "pullover": ("left_shoulder_flexion", "Epaule"),
+        "cable_pullover": ("left_shoulder_flexion", "Epaule"),
+        "dip": ("left_elbow_flexion", "Coude"),
+        "shrug": ("left_shoulder_abduction", "Epaule"),
+        "calf_raise": ("left_knee_flexion", "Cheville"),
     }
 
     attr, label = angle_attrs.get(exercise, ("left_knee_flexion", "Angle principal"))
