@@ -222,6 +222,177 @@ EXERCISE_KB: ExerciseKB = {
         "safety_notes": "Exercice d'isolation legere. Si douleur a l'epaule, reduire l'amplitude.",
     },
 
+    "chest_dip": {
+        "muscles_primary": ["grand pectoral (partie basse)", "deltoides anterieurs"],
+        "muscles_secondary": ["triceps brachial", "serratus anterior", "core"],
+        "common_errors": [
+            "Descente trop profonde (stress capsule anterieure de l'epaule)",
+            "Torse trop vertical (transforme en dip triceps au lieu de pec)",
+            "Epaules qui remontent vers les oreilles en position basse",
+            "Balancement du corps (kipping) pour remonter",
+            "Coudes qui partent trop sur les cotes",
+        ],
+        "corrections": [
+            "Penche le torse a 30-45 deg en avant pour cibler les pectoraux",
+            "Descends jusqu'a ce que les bras soient paralleles au sol, pas plus",
+            "Depression scapulaire: epaules basses en PERMANENCE",
+            "Mouvement strict sans balancement — controle excentrique 2-3 sec",
+            "Coudes legerement ecartes (30-45 deg) pour activer les pectoraux",
+        ],
+        "cues": [
+            "Penche-toi vers l'avant, regard vers le sol",
+            "Epaules dans les poches arriere",
+            "Ecrase les barres vers l'interieur (activation pectorale)",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [70, 110]},
+            "trunk_inclination": {"optimal": [30, 50], "note": "penche en avant pour les pecs"},
+        },
+        "safety_notes": "Deconseille si douleur a l'epaule ou instabilite anterieure. Limiter l'amplitude en bas si antecedent de luxation.",
+    },
+
+    "decline_bench": {
+        "muscles_primary": ["grand pectoral (faisceau sternal inferieur)"],
+        "muscles_secondary": ["triceps brachial", "deltoides anterieurs"],
+        "common_errors": [
+            "Descendre la barre trop haut sur la poitrine (vers le cou)",
+            "Rebond sur la poitrine au lieu d'un tempo controle",
+            "Omoplates non retractees (epaules en protraction)",
+            "Arc excessif du dos qui annule l'angle de declinaison",
+            "Pieds mal cales — glissement sur le banc",
+        ],
+        "corrections": [
+            "Descends la barre vers le bas des pectoraux (ligne des tetons ou plus bas)",
+            "Controle la descente 2-3 sec, pause legere en bas",
+            "Retracte et abaisse les omoplates AVANT de decrocher la barre",
+            "Arche naturelle du dos, pas excessive — l'inclinaison du banc fait le travail",
+            "Pieds bien cales dans les supports, fessiers colles au banc",
+        ],
+        "cues": [
+            "Casse la barre en deux (rotation externe)",
+            "Omoplates serrees, poitrine haute",
+            "Pousse vers le plafond, pas vers tes pieds",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [80, 120]},
+            "shoulder_abduction": {"optimal": [45, 75], "note": "angle coude-torse"},
+        },
+        "safety_notes": "Toujours un spotter ou des safety pins. La position declinee rend le rerack plus difficile. Ne pas rester longtemps la tete en bas si hypertension.",
+    },
+
+    "dumbbell_incline": {
+        "muscles_primary": ["grand pectoral (faisceau claviculaire)"],
+        "muscles_secondary": ["deltoides anterieurs", "triceps brachial", "stabilisateurs scapulaires"],
+        "common_errors": [
+            "Banc trop incline (>45 deg) — devient un developpe epaules",
+            "Halteres qui descendent trop bas (hyperextension de l'epaule)",
+            "Rotation interne des epaules en bas du mouvement",
+            "Omoplates non retractees — epaules en protraction",
+            "Trajectoire trop ecartee (ecarte au lieu de developpe)",
+        ],
+        "corrections": [
+            "Inclinaison du banc entre 30 et 45 deg, pas plus",
+            "Descends jusqu'a l'alignement des coudes avec le torse, pas plus bas",
+            "Rotation neutre ou legere externe des poignets en bas",
+            "Retracte les omoplates AVANT de prendre les halteres",
+            "Trajectoire en arc convergent: large en bas, resserree en haut",
+        ],
+        "cues": [
+            "Pousse vers le plafond en resserrant les halteres",
+            "Omoplates collees au banc comme des timbres",
+            "Les coudes a 45 deg du torse, pas en croix",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [80, 120]},
+        },
+        "safety_notes": "Utiliser les genoux pour monter les halteres en position (kick-up). Variante plus safe que la barre pour les epaules grace a la liberte de trajectoire.",
+    },
+
+    "machine_chest_press": {
+        "muscles_primary": ["grand pectoral"],
+        "muscles_secondary": ["deltoides anterieurs", "triceps brachial"],
+        "common_errors": [
+            "Regler le siege trop haut ou trop bas (poignees pas au niveau des pecs)",
+            "Epaules qui roulent vers l'avant au lieu de rester retractees",
+            "Verrouillage agressif des coudes en extension",
+            "Utiliser l'inertie (saccades) au lieu d'un mouvement controle",
+            "Dos qui decolle du dossier",
+        ],
+        "corrections": [
+            "Regle le siege: poignees alignees avec la ligne basse des pectoraux",
+            "Retracte les omoplates AVANT de pousser — epaules collees au dossier",
+            "Extension quasi complete mais pas de verrouillage — garde une micro-flexion",
+            "Tempo controle: 2 sec pousse, 3 sec retour",
+            "Dos et fessiers colles au dossier en permanence",
+        ],
+        "cues": [
+            "Pousse avec les pectoraux, pas les epaules",
+            "Serre les omoplates dans le dossier",
+            "Controle le retour, ne laisse pas la machine te ramener",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [70, 120]},
+        },
+        "safety_notes": "Machine guidee = plus safe pour les debutants. Excellent pour finishers haute reps apres les mouvements libres. Pas de spotter necessaire.",
+    },
+
+    "pendlay_row": {
+        "muscles_primary": ["grand dorsal", "rhomboides", "trapeze moyen"],
+        "muscles_secondary": ["biceps brachial", "erecteurs spinaux", "deltoides posterieurs"],
+        "common_errors": [
+            "Dos rond sous la charge (flexion lombaire)",
+            "La barre ne repose pas au sol entre chaque rep (perd l'aspect explosif)",
+            "Trop d'extension du torse — tricher avec le momentum",
+            "Tirer vers le nombril au lieu du sternum/bas des cotes",
+            "Genoux trop tendus (manque de base stable)",
+        ],
+        "corrections": [
+            "Dos PLAT en permanence — neutre strict, zero arrondi",
+            "La barre part du sol a chaque rep — dead stop, zero stretch reflex",
+            "Le torse reste quasi parallele au sol (plus strict que le barbell row)",
+            "Tire la barre vers le bas du sternum de maniere explosive",
+            "Genoux legerement flechis pour une base solide et un dos neutre",
+        ],
+        "cues": [
+            "La barre part du sol, explose vers le sternum",
+            "Le dos est un mur horizontal — il ne bouge PAS",
+            "Serre les omoplates a chaque rep comme un etau",
+        ],
+        "key_angles": {
+            "trunk_inclination": {"optimal": [60, 80], "note": "torse quasi parallele au sol"},
+            "elbow_flexion": {"optimal_rom": [30, 110]},
+        },
+        "safety_notes": "Plus strict que le barbell row classique. Reduit la triche par design. Stop si le dos arrondit.",
+    },
+
+    "sissy_squat": {
+        "muscles_primary": ["quadriceps (rectus femoris accent)"],
+        "muscles_secondary": ["core (stabilisation)", "tibialis anterior"],
+        "common_errors": [
+            "Se pencher en avant au lieu de se pencher en arriere",
+            "Genoux qui ne depassent pas suffisamment les orteils (manque d'amplitude)",
+            "Pieds pas sur la pointe (perte d'equilibre)",
+            "Descente trop rapide sans controle (stress rotulien)",
+            "Hanches qui flechissent au lieu de rester alignees",
+        ],
+        "corrections": [
+            "Penche-toi EN ARRIERE depuis les genoux — le corps forme une ligne droite des genoux aux epaules",
+            "Les genoux avancent LOIN devant les orteils — c'est le but de l'exercice",
+            "Monte sur la pointe des pieds, tiens-toi a un support si besoin",
+            "Excentrique ultra lent (4-5 sec) — l'exercice est dur sur les tendons",
+            "Hanches en extension complete — ne casse PAS a la hanche",
+        ],
+        "cues": [
+            "Imagine que tu es une porte qui s'ouvre — le pivot est aux genoux",
+            "Corps droit des genoux aux epaules",
+            "Descends lentement, les genoux avancent",
+        ],
+        "key_angles": {
+            "knee_flexion": {"optimal_rom": [60, 130], "note": "grande amplitude pour cibler le rectus femoris"},
+        },
+        "safety_notes": "Exercice avance. Tres haute charge sur le tendon rotulien. Deconseille si douleur aux genoux. Commencer en s'aidant d'un support. Progression tres lente.",
+    },
+
     "landmine_press": {
         "muscles_primary": ["grand pectoral (faisceau claviculaire)", "deltoides anterieurs"],
         "muscles_secondary": ["triceps brachial", "serratus anterior", "core"],
