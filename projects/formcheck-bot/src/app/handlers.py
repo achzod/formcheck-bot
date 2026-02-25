@@ -47,8 +47,18 @@ async def handle_incoming_message(data: dict) -> None:
     phone: str = data["from"]
     name: str | None = data.get("name")
 
+    if not phone:
+        logger.warning("No phone number in message data")
+        return
+
     # Ensure user exists
-    user, is_new = await db.get_or_create_user(phone, name)
+    try:
+        user, is_new = await db.get_or_create_user(phone, name)
+    except Exception:
+        logger.exception("Failed to get/create user for %s", phone)
+        await wa.send_text(phone, msg.ERROR_GENERIC)
+        return
+
     if is_new:
         await wa.send_text(phone, msg.WELCOME)
         # Proposer le profil morpho au nouveau client
@@ -67,8 +77,20 @@ async def handle_incoming_message(data: dict) -> None:
                 _morpho_photos.pop(phone, None)
                 await wa.send_text(phone, msg.MORPHO_SKIPPED)
                 return
+            # Allow "menu", "aide" etc. even during morpho flow
+            if text in ("aide", "help", "?", "menu", "credits", "crédits", "solde", "forfaits", "plans"):
+                _morpho_states.pop(phone, None)
+                _morpho_photos.pop(phone, None)
+                await handle_text(user, data)
+                return
         if msg_type == "image":
             await handle_morpho_photo(user, data)
+            return
+        if msg_type == "video":
+            # User sent video during morpho flow — cancel morpho, process video
+            _morpho_states.pop(phone, None)
+            _morpho_photos.pop(phone, None)
+            await handle_video(user, data)
             return
         # Texte non-skip pendant le flow morpho → rappeler les instructions
         state = _morpho_states[phone]
@@ -100,6 +122,10 @@ async def handle_text(user: db.User, data: dict) -> None:
     text = data.get("text", "").strip().lower()
     phone = user.phone
 
+    if not text:
+        await wa.send_text(phone, msg.HELP_TEXT)
+        return
+
     if text in ("aide", "help", "?", "menu"):
         await wa.send_text(phone, msg.MENU_TEXT)
     elif text in ("guide", "tournage", "filmer", "comment filmer"):
@@ -115,6 +141,12 @@ async def handle_text(user: db.User, data: dict) -> None:
         _morpho_photos.pop(phone, None)
         await wa.send_text(phone, msg.MORPHO_INSTRUCTIONS_FRONT)
         _morpho_states[phone] = "waiting_front"
+    elif text in ("salut", "hello", "bonjour", "yo", "hey", "hi", "coucou", "slt"):
+        await wa.send_text(
+            phone,
+            "Yo ! Envoie-moi une *video* de ton exercice pour une analyse biomecanique.\n"
+            "Tape *menu* pour voir toutes les options.",
+        )
     else:
         await wa.send_text(phone, msg.HELP_TEXT)
 

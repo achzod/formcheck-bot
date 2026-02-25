@@ -71,27 +71,49 @@ async def serve_media(filename: str) -> FileResponse:
 
 @app.post("/webhook/whatsapp")
 async def whatsapp_webhook(request: Request) -> PlainTextResponse:
-    """Receive incoming WhatsApp messages from Twilio."""
+    """Receive incoming WhatsApp messages from Twilio.
+    
+    Key design:
+    - Return 200 to Twilio in <3s to prevent retries (Twilio retries after 15s)
+    - Deduplicate using MessageSid (Twilio resends on timeout/error)
+    - All processing happens in background tasks
+    """
     form = await request.form()
     body = dict(form)
     
-    # Log for debugging (remove in production)
     if settings.debug:
         logger.debug("Twilio webhook body: %s", {k: v for k, v in body.items() if k != "Body"})
+    
+    # Deduplicate: Twilio retries with same MessageSid
+    message_sid = body.get("MessageSid", "")
+    if message_sid and message_sid in _processed_sids:
+        logger.info("Duplicate MessageSid %s — skipping", message_sid)
+        return PlainTextResponse(
+            '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+            media_type="text/xml",
+        )
+    if message_sid:
+        _processed_sids[message_sid] = True
+        # Evict old entries to prevent memory leak (keep last 500)
+        if len(_processed_sids) > 500:
+            oldest = list(_processed_sids.keys())[:-500]
+            for k in oldest:
+                _processed_sids.pop(k, None)
     
     data = parse_incoming(body)
 
     if data:
-        # Fire-and-forget: respond to Twilio IMMEDIATELY, process in background
-        # This prevents Twilio timeouts (15s limit) from killing the handler
         import asyncio
         asyncio.create_task(_safe_handle(data))
 
-    # Twilio expects a TwiML response (empty is fine for async replies)
     return PlainTextResponse(
         '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
         media_type="text/xml",
     )
+
+
+# Dedup cache: MessageSid -> True (keeps last 500)
+_processed_sids: dict[str, bool] = {}
 
 
 async def _safe_handle(data: dict) -> None:
@@ -100,6 +122,13 @@ async def _safe_handle(data: dict) -> None:
         await handle_incoming_message(data)
     except Exception:
         logger.exception("Error handling WhatsApp message from %s", data.get("from", "unknown"))
+        # Try to send error message to user
+        try:
+            from app.whatsapp import send_text
+            from app.messages import ERROR_GENERIC
+            await send_text(data.get("from", ""), ERROR_GENERIC)
+        except Exception:
+            pass
 
 
 # ── Stripe webhook ──────────────────────────────────────────────────────
