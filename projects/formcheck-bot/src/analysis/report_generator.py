@@ -23,6 +23,7 @@ from analysis.exercise_detector import (
 )
 from analysis.rep_segmenter import RepSegmentation
 from analysis.confidence import AnalysisConfidence
+from analysis.exercise_knowledge import format_kb_for_prompt
 
 
 @dataclass
@@ -232,7 +233,13 @@ def _build_analysis_prompt(
     """
     angles_data = angles_to_dict(angles)
 
+    # Inject exercise-specific knowledge base
+    from analysis.exercise_knowledge import get_kb_prompt_section
+    exercise_kb_section = get_kb_prompt_section(exercise.exercise.value) if exercise else ""
+    
     system_prompt = knowledge + "\n\n" + _SYSTEM_INSTRUCTIONS
+    if exercise_kb_section:
+        system_prompt += "\n\n" + exercise_kb_section
 
     # Build reps section
     reps_section = ""

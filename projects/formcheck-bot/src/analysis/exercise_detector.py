@@ -48,6 +48,83 @@ class Exercise(str, Enum):
     LEG_EXTENSION = "leg_extension"
     LEG_CURL = "leg_curl"
     GOBLET_SQUAT = "goblet_squat"
+    UPRIGHT_ROW = "upright_row"
+    CABLE_ROW = "cable_row"
+    CABLE_CURL = "cable_curl"
+    PULLOVER = "pullover"
+    CABLE_PULLOVER = "cable_pullover"
+    DIP = "dip"
+    SHRUG = "shrug"
+    CALF_RAISE = "calf_raise"
+    HACK_SQUAT = "hack_squat"
+    PENDLAY_ROW = "pendlay_row"
+    TBAR_ROW = "tbar_row"
+    CHEST_FLY = "chest_fly"
+    CABLE_CROSSOVER = "cable_crossover"
+    REVERSE_FLY = "reverse_fly"
+    HAMMER_CURL = "hammer_curl"
+    PREACHER_CURL = "preacher_curl"
+    SKULL_CRUSHER = "skull_crusher"
+    GOOD_MORNING = "good_morning"
+    STEP_UP = "step_up"
+    SISSY_SQUAT = "sissy_squat"
+    # ── Pectoraux (nouveaux) ──
+    DECLINE_BENCH = "decline_bench"
+    DUMBBELL_BENCH = "dumbbell_bench"
+    DUMBBELL_INCLINE = "dumbbell_incline"
+    CHEST_DIP = "chest_dip"
+    PUSH_UP = "push_up"
+    MACHINE_CHEST_PRESS = "machine_chest_press"
+    SVEND_PRESS = "svend_press"
+    LANDMINE_PRESS = "landmine_press"
+    # ── Dos (nouveaux) ──
+    CHINUP = "chinup"
+    CLOSE_GRIP_PULLDOWN = "close_grip_pulldown"
+    SEAL_ROW = "seal_row"
+    # ── Épaules (nouveaux) ──
+    DUMBBELL_OHP = "dumbbell_ohp"
+    ARNOLD_PRESS = "arnold_press"
+    CABLE_LATERAL_RAISE = "cable_lateral_raise"
+    FRONT_RAISE = "front_raise"
+    REAR_DELT_FLY = "rear_delt_fly"
+    LU_RAISE = "lu_raise"
+    # ── Biceps (nouveaux) ──
+    DUMBBELL_CURL = "dumbbell_curl"
+    INCLINE_CURL = "incline_curl"
+    CONCENTRATION_CURL = "concentration_curl"
+    SPIDER_CURL = "spider_curl"
+    # ── Triceps (nouveaux) ──
+    OVERHEAD_TRICEP = "overhead_tricep"
+    KICKBACK = "kickback"
+    CLOSE_GRIP_BENCH = "close_grip_bench"
+    DIAMOND_PUSHUP = "diamond_pushup"
+    CABLE_OVERHEAD_TRICEP = "cable_overhead_tricep"
+    # ── Quadriceps (nouveaux) ──
+    WALKING_LUNGE = "walking_lunge"
+    # ── Ischio-jambiers (nouveaux) ──
+    NORDIC_CURL = "nordic_curl"
+    SINGLE_LEG_RDL = "single_leg_rdl"
+    GLUTE_HAM_RAISE = "glute_ham_raise"
+    # ── Fessiers (nouveaux) ──
+    CABLE_KICKBACK = "cable_kickback"
+    GLUTE_BRIDGE = "glute_bridge"
+    # ── Deadlift (nouveaux) ──
+    TRAP_BAR_DEADLIFT = "trap_bar_deadlift"
+    # ── Mollets (nouveaux) ──
+    SEATED_CALF_RAISE = "seated_calf_raise"
+    # ── Abdos ──
+    CRUNCH = "crunch"
+    CABLE_CRUNCH = "cable_crunch"
+    HANGING_LEG_RAISE = "hanging_leg_raise"
+    AB_WHEEL = "ab_wheel"
+    PLANK = "plank"
+    WOODCHOP = "woodchop"
+    # ── Full body / Fonctionnel ──
+    CLEAN = "clean"
+    SNATCH = "snatch"
+    THRUSTER = "thruster"
+    KETTLEBELL_SWING = "kettlebell_swing"
+    BATTLE_ROPE = "battle_rope"
     UNKNOWN = "unknown"
 
 
@@ -76,6 +153,71 @@ EXERCISE_DISPLAY_NAMES: dict[str, str] = {
     "leg_press": "Leg Press",
     "leg_extension": "Leg Extension",
     "leg_curl": "Leg Curl",
+    "upright_row": "Tirage Menton (Upright Row)",
+    "cable_row": "Tirage Poulie Basse (Seated Cable Row)",
+    "cable_curl": "Curl Cable",
+    "pullover": "Pullover (Haltere)",
+    "cable_pullover": "Pullover Poulie Haute (Straight-Arm Pulldown)",
+    "dip": "Dips",
+    "shrug": "Shrugs (Haussements d'Epaules)",
+    "calf_raise": "Mollets (Calf Raise)",
+    "hack_squat": "Hack Squat",
+    "pendlay_row": "Pendlay Row",
+    "tbar_row": "T-Bar Row (Rowing en T)",
+    "chest_fly": "Ecarte Pectoraux (Chest Fly)",
+    "cable_crossover": "Cable Crossover (Vis-a-Vis)",
+    "reverse_fly": "Oiseau (Reverse Fly)",
+    "hammer_curl": "Curl Marteau (Hammer Curl)",
+    "preacher_curl": "Curl Pupitre (Preacher Curl)",
+    "skull_crusher": "Barre au Front (Skull Crusher)",
+    "good_morning": "Good Morning",
+    "step_up": "Step-Up",
+    "sissy_squat": "Sissy Squat",
+    "decline_bench": "Developpe Decline (Decline Bench Press)",
+    "dumbbell_bench": "Developpe Couche Halteres",
+    "dumbbell_incline": "Developpe Incline Halteres",
+    "chest_dip": "Dips Pectoraux",
+    "push_up": "Pompes (Push-Up)",
+    "machine_chest_press": "Presse Pectorale Machine",
+    "svend_press": "Svend Press",
+    "landmine_press": "Landmine Press",
+    "chinup": "Traction Supination (Chin-Up)",
+    "close_grip_pulldown": "Tirage Vertical Prise Serree",
+    "seal_row": "Seal Row",
+    "dumbbell_ohp": "Developpe Halteres (Epaules)",
+    "arnold_press": "Arnold Press",
+    "cable_lateral_raise": "Elevations Laterales Poulie",
+    "front_raise": "Elevations Frontales",
+    "rear_delt_fly": "Oiseau Arriere (Rear Delt Fly)",
+    "lu_raise": "Lu Raise / Y-Raise",
+    "dumbbell_curl": "Curl Halteres Alternes",
+    "incline_curl": "Curl Incline",
+    "concentration_curl": "Curl Concentration",
+    "spider_curl": "Spider Curl",
+    "overhead_tricep": "Extension Triceps au-dessus de la Tete",
+    "kickback": "Kickback Triceps",
+    "close_grip_bench": "Developpe Couche Prise Serree",
+    "diamond_pushup": "Pompes Diamant",
+    "cable_overhead_tricep": "Extension Triceps Poulie Basse (Overhead)",
+    "walking_lunge": "Fente Marchee (Walking Lunge)",
+    "nordic_curl": "Nordic Curl",
+    "single_leg_rdl": "RDL Unilateral",
+    "glute_ham_raise": "GHR (Glute Ham Raise)",
+    "cable_kickback": "Kickback Fessier Poulie",
+    "glute_bridge": "Pont Fessier (Glute Bridge)",
+    "trap_bar_deadlift": "Trap Bar Deadlift",
+    "seated_calf_raise": "Mollets Assis (Seated Calf Raise)",
+    "crunch": "Crunch",
+    "cable_crunch": "Crunch Poulie Haute",
+    "hanging_leg_raise": "Releve de Jambes Suspendu",
+    "ab_wheel": "Ab Wheel (Roue Abdominale)",
+    "plank": "Planche (Gainage)",
+    "woodchop": "Woodchop Poulie",
+    "clean": "Epaule (Clean)",
+    "snatch": "Arrache (Snatch)",
+    "thruster": "Thruster",
+    "kettlebell_swing": "Kettlebell Swing",
+    "battle_rope": "Battle Rope",
     "unknown": "Exercice non identifie",
 }
 
@@ -577,6 +719,239 @@ def _score_pullup(stats: dict[str, AngleStats]) -> tuple[float, str]:
     return score, "; ".join(reasons) if reasons else "Pas de pattern pull-up"
 
 
+def _score_upright_row(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un tirage menton (upright row) — barre, haltere ou poulie."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    shoulder_abd_rom = max(
+        _rom(stats, "left_shoulder_abduction"), _rom(stats, "right_shoulder_abduction")
+    )
+    shoulder_flex_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    trunk_rom = _rom(stats, "trunk_inclination")
+    trunk_mean = _mean(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # Coudes flechissent ET montent (ROM coude significatif)
+    if elbow_rom > 25:
+        score += 0.25
+        reasons.append(f"ROM coude ({elbow_rom:.0f} deg)")
+
+    # Epaules en abduction et/ou flexion (bras montent sur les cotes)
+    shoulder_combined = max(shoulder_abd_rom, shoulder_flex_rom)
+    if shoulder_combined > 20:
+        score += 0.25
+        reasons.append(f"ROM epaule significatif ({shoulder_combined:.0f} deg)")
+
+    # CRITERE CLE : coudes ET epaules bougent ensemble (distingue du curl)
+    if elbow_rom > 20 and shoulder_combined > 15:
+        score += 0.2
+        reasons.append("Coudes + epaules actifs simultanement — typique tirage menton")
+
+    # Tronc vertical et stable
+    if trunk_mean < 25 and trunk_rom < 12:
+        score += 0.15
+        reasons.append(f"Tronc vertical stable ({trunk_mean:.0f} deg)")
+
+    # Jambes immobiles (debout)
+    if knee_rom < 10:
+        score += 0.15
+        reasons.append("Jambes immobiles")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern tirage menton"
+
+
+def _score_cable_row(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un tirage poulie basse (seated cable row)."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    shoulder_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    trunk_rom = _rom(stats, "trunk_inclination")
+    trunk_mean = _mean(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # ROM coude (traction horizontale)
+    if elbow_rom > 25:
+        score += 0.3
+        reasons.append(f"ROM coude (traction) ({elbow_rom:.0f} deg)")
+    # Epaule bouge (retraction scapulaire)
+    if shoulder_rom > 10:
+        score += 0.2
+        reasons.append(f"ROM epaule ({shoulder_rom:.0f} deg)")
+    # Tronc relativement vertical avec leger mouvement (pas autant que barbell row)
+    if trunk_mean < 35:
+        score += 0.15
+        reasons.append(f"Tronc quasi vertical ({trunk_mean:.0f} deg)")
+    if 5 < trunk_rom < 20:
+        score += 0.15
+        reasons.append(f"Leger mouvement tronc ({trunk_rom:.0f} deg)")
+    # Jambes stables (assis)
+    if knee_rom < 10:
+        score += 0.2
+        reasons.append("Jambes stables (assis)")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern cable row"
+
+
+def _score_cable_pullover(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un pullover poulie haute (straight-arm pulldown).
+
+    Pattern cle : grand ROM epaule flexion/extension, coudes quasi fixes,
+    tronc legerement penche et stable, jambes immobiles.
+    """
+    score = 0.0
+    reasons: list[str] = []
+
+    shoulder_flex_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    shoulder_abd_rom = max(
+        _rom(stats, "left_shoulder_abduction"), _rom(stats, "right_shoulder_abduction")
+    )
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    trunk_mean = _mean(stats, "trunk_inclination")
+    trunk_rom = _rom(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+
+    # CRITERE CLE : grand ROM epaule (bras montent et descendent en arc)
+    if shoulder_flex_rom > 25:
+        score += 0.3
+        reasons.append(f"Grand ROM epaule flexion ({shoulder_flex_rom:.0f} deg)")
+    elif shoulder_abd_rom > 25:
+        score += 0.25
+        reasons.append(f"Grand ROM epaule abduction ({shoulder_abd_rom:.0f} deg)")
+
+    # Coudes quasi fixes (bras tendus ou legerement flechis)
+    if elbow_rom < 20:
+        score += 0.25
+        reasons.append(f"Coudes quasi fixes ({elbow_rom:.0f} deg) — bras tendus")
+    elif elbow_rom < 30:
+        score += 0.1
+        reasons.append(f"Coudes peu mobiles ({elbow_rom:.0f} deg)")
+
+    # Tronc legerement penche et stable
+    if 5 < trunk_mean < 40 and trunk_rom < 15:
+        score += 0.2
+        reasons.append(f"Tronc stable legerement penche ({trunk_mean:.0f} deg)")
+
+    # Jambes et hanches immobiles (debout)
+    if knee_rom < 10 and hip_rom < 15:
+        score += 0.25
+        reasons.append("Jambes et hanches immobiles — debout face a la poulie")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern pullover poulie"
+
+
+def _score_pullover(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un pullover haltere (allonge sur banc)."""
+    score = 0.0
+    reasons: list[str] = []
+
+    shoulder_flex_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    trunk_mean = _mean(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+
+    # Grand ROM epaule
+    if shoulder_flex_rom > 30:
+        score += 0.3
+        reasons.append(f"Grand ROM epaule ({shoulder_flex_rom:.0f} deg)")
+    # Coudes peu mobiles
+    if elbow_rom < 25:
+        score += 0.25
+        reasons.append(f"Coudes quasi fixes ({elbow_rom:.0f} deg)")
+    # Tronc horizontal (allonge)
+    if trunk_mean > 50:
+        score += 0.25
+        reasons.append(f"Tronc horizontal ({trunk_mean:.0f} deg) — position allongee")
+    # Jambes stables
+    if knee_rom < 10:
+        score += 0.2
+        reasons.append("Jambes stables")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern pullover"
+
+
+def _score_dip(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite de dips."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    shoulder_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    trunk_rom = _rom(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    if elbow_rom > 30:
+        score += 0.3
+        reasons.append(f"ROM coude ({elbow_rom:.0f} deg)")
+    if shoulder_rom > 15:
+        score += 0.2
+        reasons.append(f"ROM epaule ({shoulder_rom:.0f} deg)")
+    if trunk_rom > 5 and trunk_rom < 25:
+        score += 0.2
+        reasons.append(f"Leger mouvement tronc ({trunk_rom:.0f} deg)")
+    if knee_rom < 10:
+        score += 0.3
+        reasons.append("Jambes immobiles (suspension)")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern dips"
+
+
+def _score_shrug(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite de shrugs."""
+    score = 0.0
+    reasons: list[str] = []
+
+    shoulder_abd_rom = max(
+        _rom(stats, "left_shoulder_abduction"), _rom(stats, "right_shoulder_abduction")
+    )
+    elbow_rom = max(
+        _rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion")
+    )
+    trunk_rom = _rom(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # Tres faible ROM partout SAUF epaules (haussement)
+    if shoulder_abd_rom > 5 and shoulder_abd_rom < 25:
+        score += 0.3
+        reasons.append(f"Petit ROM epaule ({shoulder_abd_rom:.0f} deg) — haussement")
+    if elbow_rom < 10:
+        score += 0.3
+        reasons.append(f"Coudes immobiles ({elbow_rom:.0f} deg)")
+    if trunk_rom < 8:
+        score += 0.2
+        reasons.append(f"Tronc stable ({trunk_rom:.0f} deg)")
+    if knee_rom < 8:
+        score += 0.2
+        reasons.append("Jambes immobiles")
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern shrug"
+
+
 def _score_goblet_squat(stats: dict[str, AngleStats]) -> tuple[float, str]:
     """Score la probabilite d'un goblet squat (similaire au front squat, tronc tres vertical)."""
     score = 0.0
@@ -620,6 +995,12 @@ _SCORERS: dict[Exercise, Any] = {
     Exercise.TRICEP_EXTENSION: _score_tricep_extension,
     Exercise.LATERAL_RAISE: _score_lateral_raise,
     Exercise.PULLUP: _score_pullup,
+    Exercise.UPRIGHT_ROW: _score_upright_row,
+    Exercise.CABLE_ROW: _score_cable_row,
+    Exercise.CABLE_PULLOVER: _score_cable_pullover,
+    Exercise.PULLOVER: _score_pullover,
+    Exercise.DIP: _score_dip,
+    Exercise.SHRUG: _score_shrug,
 }
 
 
@@ -672,21 +1053,27 @@ def detect_by_vision(
     mid_frame_path: str,
     api_key: str | None = None,
 ) -> tuple[Exercise, float, str]:
-    """Utilise GPT-4 Vision pour identifier l'exercice sur la frame du milieu.
+    """Utilise GPT-4o Vision pour identifier l'exercice sur la frame du milieu.
+
+    Architecture vision-first : cette fonction est le detecteur PRIMAIRE.
+    Elle doit etre precise et fiable.
 
     Args:
         mid_frame_path: Chemin vers l'image de la frame du milieu.
-        api_key: Clé API OpenAI. Si None, utilise OPENAI_API_KEY.
+        api_key: Cle API OpenAI. Si None, utilise OPENAI_API_KEY.
 
     Returns:
         Tuple (exercise, confidence, reasoning).
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     key = api_key or os.environ.get("OPENAI_API_KEY", "")
     if not key:
-        return Exercise.UNKNOWN, 0.0, "Pas de clé API OpenAI configurée."
+        return Exercise.UNKNOWN, 0.0, "Pas de cle API OpenAI configuree."
 
     if not Path(mid_frame_path).exists():
-        return Exercise.UNKNOWN, 0.0, f"Image introuvable: {mid_frame_path}"
+        return Exercise.UNKNOWN, 0.0, "Image introuvable"
 
     try:
         import openai
@@ -695,7 +1082,32 @@ def detect_by_vision(
         b64_image = _encode_image_base64(mid_frame_path)
 
         exercises_list = ", ".join(
-            [f"{e.value} ({EXERCISE_DISPLAY_NAMES[e.value]})" for e in Exercise if e != Exercise.UNKNOWN]
+            ["{} ({})".format(e.value, EXERCISE_DISPLAY_NAMES[e.value]) for e in Exercise if e != Exercise.UNKNOWN]
+        )
+
+        system_prompt = (
+            "Tu es un coach de musculation expert avec 15 ans d'experience et "
+            "des certifications NASM, ISSA, Pre-Script. Tu identifies les exercices "
+            "de musculation avec precision.\n\n"
+            "REGLES D'IDENTIFICATION :\n"
+            "- Regarde la POSITION DU CORPS, l'EQUIPEMENT utilise (barre, halteres, "
+            "poulie haute/basse, machine, poids de corps), et le PLAN DE MOUVEMENT.\n"
+            "- Un pullover poulie haute (cable_pullover/straight-arm pulldown) = debout, "
+            "bras tendus, tirant une poulie haute vers le bas en arc. NE PAS confondre "
+            "avec lat_pulldown (assis, coudes flechis) ou barbell_row.\n"
+            "- Un tirage menton (upright_row) = debout, barre/halteres/poulie monte le "
+            "long du corps, coudes montent sur les cotes.\n"
+            "- Distinguer squat (barre sur le dos) vs front_squat (barre devant) vs "
+            "goblet_squat (haltere/kettlebell contre le torse).\n"
+            "- Distinguer deadlift (depart sol) vs rdl (depart debout, jambes quasi tendues).\n"
+            "- Si la personne est DEBOUT face a une poulie avec les bras qui bougent, "
+            "c'est probablement un exercice de poulie (cable_pullover, face_pull, "
+            "cable_row, tricep_extension, cable_curl, upright_row).\n\n"
+            "Reponds UNIQUEMENT avec un JSON valide :\n"
+            '{"exercise": "<nom_exact>", "confidence": <0.0-1.0>, '
+            '"reasoning": "<explication courte>"}\n\n'
+            "Exercices possibles (utilise EXACTEMENT un de ces noms) :\n"
+            "{}".format(exercises_list)
         )
 
         response = client.chat.completions.create(
@@ -703,12 +1115,7 @@ def detect_by_vision(
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "Tu es un expert en musculation. Identifie l'exercice "
-                        "sur cette image. Réponds UNIQUEMENT avec un JSON: "
-                        '{"exercise": "<nom>", "confidence": <0.0-1.0>, "reasoning": "<explication>"}. '
-                        f"Exercices possibles: {exercises_list}."
-                    ),
+                    "content": system_prompt,
                 },
                 {
                     "role": "user",
@@ -716,45 +1123,209 @@ def detect_by_vision(
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/jpeg;base64,{b64_image}",
-                                "detail": "low",
+                                "url": "data:image/jpeg;base64,{}".format(b64_image),
+                                "detail": "high",
                             },
                         },
                         {
                             "type": "text",
-                            "text": "Quel exercice de musculation est effectué sur cette image ?",
+                            "text": (
+                                "Identifie precisement l'exercice de musculation "
+                                "sur cette image. Regarde l'equipement, la position "
+                                "du corps, et le plan de mouvement."
+                            ),
                         },
                     ],
                 },
             ],
-            max_tokens=200,
+            max_tokens=300,
             temperature=0.1,
         )
 
         import json
         content = response.choices[0].message.content or ""
-        # Extraire le JSON de la réponse
-        # Chercher le premier { et le dernier }
+        logger.info("Vision raw response: %s", content[:300])
+
+        # Extraire le JSON de la reponse
         start = content.find("{")
         end = content.rfind("}") + 1
         if start >= 0 and end > start:
             data = json.loads(content[start:end])
-            ex_name = data.get("exercise", "unknown").lower().replace(" ", "_")
-            # Mapper vers l'enum
+            ex_name = data.get("exercise", "unknown").lower().replace(" ", "_").replace("-", "_")
+
+            # Gerer les aliases courants que GPT pourrait retourner
+            _ALIASES = {
+                "straight_arm_pulldown": "cable_pullover",
+                "straight_arm_pushdown": "cable_pullover",
+                "cable_straight_arm_pulldown": "cable_pullover",
+                "pullover_poulie": "cable_pullover",
+                "pullover_poulie_haute": "cable_pullover",
+                "tirage_menton": "upright_row",
+                "rowing_barre": "barbell_row",
+                "rowing_haltere": "dumbbell_row",
+                "developpe_couche": "bench_press",
+                "developpe_incline": "incline_bench",
+                "developpe_militaire": "ohp",
+                "elevation_laterale": "lateral_raise",
+                "elevations_laterales": "lateral_raise",
+                "traction": "pullup",
+                "tirage_vertical": "lat_pulldown",
+                "tirage_poulie_basse": "cable_row",
+                "seated_cable_row": "cable_row",
+                "seated_row": "cable_row",
+                "extension_triceps": "tricep_extension",
+                "cable_tricep_extension": "tricep_extension",
+                "pushdown": "tricep_extension",
+                "tricep_pushdown": "tricep_extension",
+                "fente_bulgare": "bulgarian_split_squat",
+                "fente": "lunge",
+                "souleve_de_terre": "deadlift",
+                "hip_hinge": "rdl",
+                "romanian_deadlift": "rdl",
+                "haussement_epaules": "shrug",
+                "mollets": "calf_raise",
+                "ecarte": "chest_fly",
+                "pec_fly": "chest_fly",
+                "pec_deck": "chest_fly",
+                "butterfly": "chest_fly",
+                "vis_a_vis": "cable_crossover",
+                "cable_fly": "cable_crossover",
+                "oiseau": "reverse_fly",
+                "rear_delt_fly": "reverse_fly",
+                "rear_delt": "reverse_fly",
+                "curl_marteau": "hammer_curl",
+                "curl_pupitre": "preacher_curl",
+                "barre_au_front": "skull_crusher",
+                "lying_tricep_extension": "skull_crusher",
+                "french_press": "skull_crusher",
+                "t_bar_row": "tbar_row",
+                "t_bar": "tbar_row",
+                "hack_squat_machine": "hack_squat",
+                "step_ups": "step_up",
+                # Pectoraux
+                "decline_bench_press": "decline_bench",
+                "decline_press": "decline_bench",
+                "developpe_decline": "decline_bench",
+                "dumbbell_bench_press": "dumbbell_bench",
+                "dumbbell_press": "dumbbell_bench",
+                "developpe_couche_halteres": "dumbbell_bench",
+                "dumbbell_incline_press": "dumbbell_incline",
+                "incline_dumbbell_press": "dumbbell_incline",
+                "developpe_incline_halteres": "dumbbell_incline",
+                "chest_dips": "chest_dip",
+                "dips_pectoraux": "chest_dip",
+                "pushup": "push_up",
+                "pushups": "push_up",
+                "push_ups": "push_up",
+                "pompes": "push_up",
+                "chest_press_machine": "machine_chest_press",
+                "machine_press": "machine_chest_press",
+                "presse_pectorale": "machine_chest_press",
+                "landmine": "landmine_press",
+                # Dos
+                "chin_up": "chinup",
+                "chin_ups": "chinup",
+                "supinated_pullup": "chinup",
+                "traction_supination": "chinup",
+                "close_grip_lat_pulldown": "close_grip_pulldown",
+                "neutral_grip_pulldown": "close_grip_pulldown",
+                "tirage_prise_serree": "close_grip_pulldown",
+                "chest_supported_row": "seal_row",
+                # Épaules
+                "dumbbell_shoulder_press": "dumbbell_ohp",
+                "seated_dumbbell_press": "dumbbell_ohp",
+                "developpe_halteres": "dumbbell_ohp",
+                "cable_lateral": "cable_lateral_raise",
+                "cable_side_raise": "cable_lateral_raise",
+                "front_delt_raise": "front_raise",
+                "elevation_frontale": "front_raise",
+                "elevations_frontales": "front_raise",
+                "reverse_fly_machine": "rear_delt_fly",
+                "rear_delt_machine": "rear_delt_fly",
+                "oiseau_arriere": "rear_delt_fly",
+                "lu_raises": "lu_raise",
+                "y_raise": "lu_raise",
+                # Biceps
+                "alternating_curl": "dumbbell_curl",
+                "curl_halteres": "dumbbell_curl",
+                "incline_dumbbell_curl": "incline_curl",
+                "curl_incline": "incline_curl",
+                "curl_concentration": "concentration_curl",
+                # Triceps
+                "overhead_extension": "overhead_tricep",
+                "overhead_tricep_extension": "overhead_tricep",
+                "tricep_kickback": "kickback",
+                "kickbacks": "kickback",
+                "close_grip_press": "close_grip_bench",
+                "close_grip_bench_press": "close_grip_bench",
+                "diamond_push_up": "diamond_pushup",
+                "pompes_diamant": "diamond_pushup",
+                "cable_overhead_extension": "cable_overhead_tricep",
+                # Jambes
+                "walking_lunges": "walking_lunge",
+                "fente_marchee": "walking_lunge",
+                "nordic_ham_curl": "nordic_curl",
+                "nordics": "nordic_curl",
+                "single_leg_romanian_deadlift": "single_leg_rdl",
+                "single_leg_deadlift": "single_leg_rdl",
+                "rdl_unilateral": "single_leg_rdl",
+                "ghr": "glute_ham_raise",
+                "glute_ham": "glute_ham_raise",
+                "cable_glute_kickback": "cable_kickback",
+                "kickback_fessier": "cable_kickback",
+                "glute_bridge_barbell": "glute_bridge",
+                "pont_fessier": "glute_bridge",
+                "hex_bar_deadlift": "trap_bar_deadlift",
+                "trap_bar": "trap_bar_deadlift",
+                # Mollets
+                "seated_calf": "seated_calf_raise",
+                "mollets_assis": "seated_calf_raise",
+                "standing_calf_raise": "calf_raise",
+                # Abdos
+                "crunches": "crunch",
+                "cable_crunches": "cable_crunch",
+                "crunch_poulie": "cable_crunch",
+                "hanging_leg_raises": "hanging_leg_raise",
+                "leg_raise": "hanging_leg_raise",
+                "releve_jambes": "hanging_leg_raise",
+                "ab_rollout": "ab_wheel",
+                "roue_abdominale": "ab_wheel",
+                "gainage": "plank",
+                "planche": "plank",
+                "cable_woodchop": "woodchop",
+                "wood_chop": "woodchop",
+                # Full body
+                "power_clean": "clean",
+                "epaule": "clean",
+                "power_snatch": "snatch",
+                "arrache": "snatch",
+                "thrusters": "thruster",
+                "kb_swing": "kettlebell_swing",
+                "kettlebell_swings": "kettlebell_swing",
+                "battle_ropes": "battle_rope",
+            }
+            ex_name = _ALIASES.get(ex_name, ex_name)
+
             try:
                 exercise = Exercise(ex_name)
             except ValueError:
+                logger.warning("Vision returned unknown exercise name: %s", ex_name)
                 exercise = Exercise.UNKNOWN
-            return (
+            
+            result = (
                 exercise,
                 float(data.get("confidence", 0.5)),
                 data.get("reasoning", ""),
             )
+            logger.info("Vision parsed: %s (conf=%.2f)", exercise.value, result[1])
+            return result
 
-        return Exercise.UNKNOWN, 0.0, f"Réponse non parseable: {content}"
+        logger.warning("Vision response not parseable: %s", content[:200])
+        return Exercise.UNKNOWN, 0.0, "Reponse non parseable: {}".format(content[:100])
 
     except Exception as e:
-        return Exercise.UNKNOWN, 0.0, f"Erreur GPT-4 Vision: {e}"
+        logger.exception("Vision detection failed")
+        return Exercise.UNKNOWN, 0.0, "Erreur GPT-4 Vision: {}".format(str(e))
 
 
 def detect_exercise(
@@ -762,41 +1333,62 @@ def detect_exercise(
     mid_frame_path: str | None = None,
     use_vision_backup: bool = True,
 ) -> DetectionResult:
-    """Détecte l'exercice en combinant pattern matching et vision.
+    """Détecte l'exercice — VISION-FIRST, pattern matching en backup.
 
-    1. Détection par patterns de mouvement (ROM, angles)
-    2. Si la confiance est faible (<0.6) et qu'une image est disponible,
-       utilise GPT-4 Vision comme backup/confirmation.
+    Architecture :
+    1. GPT-4o Vision identifie l'exercice sur la frame du milieu (primaire)
+    2. Pattern matching par angles (backup si vision échoue)
+    3. Si les deux sont d'accord → haute confiance
 
     Args:
         angles: Résultat du calcul d'angles.
         mid_frame_path: Chemin vers l'image de la frame du milieu.
-        use_vision_backup: Activer la confirmation par vision.
+        use_vision_backup: Activer la vision (désactiver uniquement pour tests).
 
     Returns:
         DetectionResult avec l'exercice détecté et les métadonnées.
     """
-    result = detect_by_pattern(angles)
+    import logging
+    logger = logging.getLogger(__name__)
 
-    # TOUJOURS utiliser la vision si une image est disponible
-    # La vision est meilleure que le pattern matching pour les variantes
+    pattern_result = detect_by_pattern(angles)
+    logger.info(
+        "Pattern detection: %s (conf=%.2f) — %s",
+        pattern_result.exercise.value, pattern_result.confidence, pattern_result.reasoning,
+    )
+
+    # ── Vision-first : GPT-4o est meilleur pour identifier visuellement ──
     if use_vision_backup and mid_frame_path:
         vision_ex, vision_conf, vision_reason = detect_by_vision(mid_frame_path)
-        result.vision_exercise = vision_ex
-        result.vision_confidence = vision_conf
+        logger.info(
+            "Vision detection: %s (conf=%.2f) — %s",
+            vision_ex.value, vision_conf, vision_reason,
+        )
 
-        if vision_ex != Exercise.UNKNOWN and vision_conf > 0.5:
-            # Si pattern et vision sont d'accord → boost confiance
-            if vision_ex == result.exercise:
-                result.confidence = min(1.0, result.confidence + 0.2)
-                result.reasoning += f" | [Vision confirme: {vision_reason}]"
-            # Si vision contredit le pattern ET vision a bonne confiance → vision gagne
-            elif vision_conf > 0.6:
-                result.exercise = vision_ex
-                result.confidence = vision_conf
-                result.reasoning = f"[Vision override] {vision_reason} (pattern disait: {result.exercise.value})"
-                result.display_name = EXERCISE_DISPLAY_NAMES.get(
-                    vision_ex.value, vision_ex.value
+        if vision_ex != Exercise.UNKNOWN and vision_conf >= 0.4:
+            # Vision a identifié quelque chose
+            if vision_ex == pattern_result.exercise:
+                # Accord vision + pattern → haute confiance
+                return DetectionResult(
+                    exercise=vision_ex,
+                    confidence=min(1.0, vision_conf + 0.2),
+                    reasoning=f"[Vision + Pattern d'accord] {vision_reason}",
+                    vision_exercise=vision_ex,
+                    vision_confidence=vision_conf,
+                )
+            else:
+                # Désaccord → vision gagne (elle est plus fiable pour l'identification)
+                logger.info(
+                    "Vision override: %s -> %s",
+                    pattern_result.exercise.value, vision_ex.value,
+                )
+                return DetectionResult(
+                    exercise=vision_ex,
+                    confidence=vision_conf,
+                    reasoning=f"[Vision] {vision_reason} (pattern suggerait: {pattern_result.exercise.value})",
+                    vision_exercise=vision_ex,
+                    vision_confidence=vision_conf,
                 )
 
-    return result
+    # ── Fallback : pattern matching seul (pas d'image ou vision a échoué) ──
+    return pattern_result

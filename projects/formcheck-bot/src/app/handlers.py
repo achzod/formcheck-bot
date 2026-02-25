@@ -22,8 +22,10 @@ from app.report_server import get_report_url, save_report
 
 logger = logging.getLogger(__name__)
 
-# Track active analyses to prevent spam (phone -> True if analysis running)
-_active_analyses: dict[str, bool] = {}
+# Track active analyses to prevent spam (phone -> timestamp when started)
+# Auto-expires after 5 minutes to prevent deadlocks
+_active_analyses: dict[str, float] = {}
+_ANALYSIS_TIMEOUT = 300  # 5 minutes max per analysis
 
 # Etats du flow morpho : phone -> etat
 # Etats possibles : "waiting_front", "waiting_side", "waiting_back"
@@ -127,7 +129,8 @@ async def handle_video(user: db.User, data: dict) -> None:
         return
     user = user_fresh
 
-    if not await db.has_credits(user):
+    from app.config import settings as app_settings
+    if not app_settings.test_mode and not await db.has_credits(user):
         await handle_no_credits(user)
         return
 
@@ -142,11 +145,13 @@ async def handle_video(user: db.User, data: dict) -> None:
             "et avoir des analyses personnalisees.",
         )
 
-    # Rate limit — one analysis at a time per user
-    if _active_analyses.get(phone):
+    # Rate limit — one analysis at a time per user (with auto-expiry)
+    import time
+    active_since = _active_analyses.get(phone, 0)
+    if active_since and (time.time() - active_since) < _ANALYSIS_TIMEOUT:
         await wa.send_text(phone, msg.RATE_LIMIT)
         return
-    _active_analyses[phone] = True
+    _active_analyses[phone] = time.time()
 
     # Acknowledge
     await wa.send_text(phone, msg.VIDEO_RECEIVED)
@@ -223,8 +228,10 @@ async def _run_analysis(
             report=result.report.report_text,
         )
 
-        # Decrement credit AFTER successful analysis
-        await db.decrement_credit(user_id)
+        # Decrement credit AFTER successful analysis (skip in test mode)
+        from app.config import settings as app_settings
+        if not app_settings.test_mode:
+            await db.decrement_credit(user_id)
 
         # Generate HTML report
         from app.config import settings
