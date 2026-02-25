@@ -1,10 +1,10 @@
 """Templates de messages WhatsApp en francais — branding ACHZOD.
 
 Regles :
-- Pas d'emojis dans les rapports d'analyse
-- Emojis OK dans les messages conversationnels (welcome, menu, etc.)
-- Ton pro mais accessible
-- C'est Achzod seul (pas "nous", pas "notre equipe")
+1. Pas d'emojis nulle part
+2. Ton pro mais accessible
+3. C'est Achzod seul (pas "nous", pas "notre equipe", pas "on")
+4. Pas de tirets comme puces (numeros ou phrases)
 """
 
 # ── MESSAGE DE BIENVENUE ────────────────────────────────────────────────────
@@ -14,11 +14,11 @@ Regles :
 WELCOME = (
     "Bienvenue sur *FORMCHECK by ACHZOD* — Analyse biomecanique experte.\n\n"
     "Envoie-moi une video de ton exercice et tu recois :\n"
-    "- Score de forme detaille /100\n"
-    "- Analyse rep par rep (tempo, ROM, fatigue)\n"
-    "- Corrections prioritaires avec explications\n"
-    "- Exercices correctifs personnalises\n"
-    "- Rapport complet avec images annotees\n\n"
+    "1. Score de forme detaille /100\n"
+    "2. Analyse rep par rep (tempo, ROM, fatigue)\n"
+    "3. Corrections prioritaires avec explications\n"
+    "4. Exercices correctifs personnalises\n"
+    "5. Rapport complet avec images annotees\n\n"
     "--- --- ---\n\n"
     "*AVANT DE FILMER — Les 5 regles essentielles :*\n\n"
     "1. *Profil (lateral)* — C'est le meilleur angle pour 90% des exos\n"
@@ -38,26 +38,26 @@ FILMING_GUIDE = (
     "*GUIDE DE TOURNAGE — Comment bien filmer*\n\n"
     "*ANGLE DE CAMERA PAR EXERCICE :*\n\n"
     "*Squat / Front Squat / Goblet Squat :*\n"
-    "- De *profil* pour l'angle du tronc, profondeur, genou vs orteils\n"
-    "- De *face* en complement pour la symetrie et le valgus du genou\n"
-    "- Hauteur camera : *au niveau de la hanche*\n\n"
+    "De *profil* pour l'angle du tronc, profondeur, genou vs orteils.\n"
+    "De *face* en complement pour la symetrie et le valgus du genou.\n"
+    "Hauteur camera : *au niveau de la hanche*.\n\n"
     "*Deadlift / RDL / Sumo :*\n"
-    "- De *profil* obligatoire — position du dos, hip hinge, trajectoire barre\n"
-    "- Hauteur camera : *au sol ou legerement au-dessus*\n\n"
+    "De *profil* obligatoire — position du dos, hip hinge, trajectoire barre.\n"
+    "Hauteur camera : *au sol ou legerement au-dessus*.\n\n"
     "*Bench Press / Developpe Incline :*\n"
-    "- De *profil* a hauteur du banc\n"
-    "- On voit le trajet de la barre, l'angle des coudes, l'arche\n\n"
+    "De *profil* a hauteur du banc.\n"
+    "Tu vois le trajet de la barre, l'angle des coudes, l'arche.\n\n"
     "*Developpe Militaire (OHP) :*\n"
-    "- De *profil* — on verifie l'inclinaison du tronc et le lockout\n"
-    "- Camera a hauteur de la taille\n\n"
+    "De *profil* — tu verifies l'inclinaison du tronc et le lockout.\n"
+    "Camera a hauteur de la taille.\n\n"
     "*Curl / Extensions / Isolations :*\n"
-    "- De *profil* pour voir l'amplitude complete\n"
-    "- Bien cadrer le bras entier (epaule a main)\n\n"
+    "De *profil* pour voir l'amplitude complete.\n"
+    "Bien cadrer le bras entier (epaule a main).\n\n"
     "*Hip Thrust :*\n"
-    "- De *profil* a hauteur du banc ou legerement en-dessous\n\n"
+    "De *profil* a hauteur du banc ou legerement en-dessous.\n\n"
     "*Fentes / Bulgarian Split Squat :*\n"
-    "- De *profil* ou en diagonale 45 degres\n"
-    "- Camera a hauteur de la hanche\n\n"
+    "De *profil* ou en diagonale 45 degres.\n"
+    "Camera a hauteur de la hanche.\n\n"
     "--- --- ---\n\n"
     "*REGLES GENERALES :*\n\n"
     "1. *Support fixe* — Pose ton tel contre un poids, un sac, ou utilise un mini-trepied\n"
@@ -75,19 +75,19 @@ FILMING_GUIDE = (
 
 MORPHO_WELCOME = (
     "*PROFIL MORPHOLOGIQUE*\n\n"
-    "Avant de lancer ta premiere analyse, on va creer ton "
+    "Avant de lancer ta premiere analyse, je vais creer ton "
     "profil morpho. 2 minutes, 3 photos, et ensuite toutes tes "
     "analyses seront calibrees sur TES proportions.\n\n"
     "Ce que ca change concretement :\n"
-    "- Les seuils d'angles sont adaptes a tes segments (femurs, torse, bras)\n"
-    "- Les recommandations de stance et de prise sont personnalisees\n"
-    "- Tu recois un bilan postural complet\n"
-    "- Le score reflete ta technique RELATIVE a ta morphologie\n\n"
+    "1. Les seuils d'angles sont adaptes a tes segments (femurs, torse, bras)\n"
+    "2. Les recommandations de stance et de prise sont personnalisees\n"
+    "3. Tu recois un bilan postural complet\n"
+    "4. Le score reflete ta technique RELATIVE a ta morphologie\n\n"
     "J'ai besoin de 3 photos debout :\n"
     "1. De *face*\n"
     "2. De *profil* (cote)\n"
     "3. De *dos*\n\n"
-    "On commence ? Envoie ta photo de *face*.\n\n"
+    "Envoie ta photo de *face* pour commencer.\n\n"
     "Tape *skip* si tu veux passer direct a l'analyse video "
     "(les seuils seront generiques)."
 )
@@ -206,8 +206,8 @@ FOLLOWUP_REFILM = (
 FOLLOWUP_PROGRESS = (
     "C'est ta {count}e analyse de *{exercise}*.\n\n"
     "Progression :\n"
-    "- Premiere analyse : {first_score}/100\n"
-    "- Aujourd'hui : {current_score}/100\n"
+    "Premiere analyse : {first_score}/100\n"
+    "Aujourd'hui : {current_score}/100\n"
     "{trend_message}"
 )
 
@@ -281,14 +281,14 @@ MENU_TEXT = (
     "*FORMCHECK by ACHZOD*\n\n"
     "*Envoie une video* — Analyse biomecanique complete\n\n"
     "*Commandes :*\n"
-    "- *menu* — Ce message\n"
-    "- *guide* — Comment bien filmer (par exercice)\n"
-    "- *credits* — Tes analyses restantes\n"
-    "- *forfaits* — Les offres\n\n"
+    "1. *menu* — Ce message\n"
+    "2. *guide* — Comment bien filmer (par exercice)\n"
+    "3. *credits* — Tes analyses restantes\n"
+    "4. *forfaits* — Les offres\n\n"
     "*Forfaits :*\n"
-    "- Starter — 5 analyses — 29,99 EUR\n"
-    "- Pro — 20 analyses — 59,99 EUR\n"
-    "- Illimite — 1 an — 99,99 EUR\n\n"
+    "1. Starter — 5 analyses — 29,99 EUR\n"
+    "2. Pro — 20 analyses — 59,99 EUR\n"
+    "3. Illimite — 1 an — 99,99 EUR\n\n"
     "70+ exercices supportes.\n"
     "Filme-toi de profil, corps entier visible, camera fixe."
 )
@@ -445,24 +445,24 @@ def get_refilm_tips(exercise: str, issues: list[str]) -> str:
     for issue in issues:
         issue_lower = issue.lower()
         if "sombre" in issue_lower or "luminosite" in issue_lower:
-            tips_list.append("- Eclairage : place-toi face a la source de lumiere, evite le contre-jour")
+            tips_list.append("Eclairage : place-toi face a la source de lumiere, evite le contre-jour")
         elif "resolution" in issue_lower or "basse" in issue_lower:
-            tips_list.append("- Resolution : filme en 1080p minimum dans les reglages de ta camera")
+            tips_list.append("Resolution : filme en 1080p minimum dans les reglages de ta camera")
         elif "occlusion" in issue_lower or "visible" in issue_lower:
-            tips_list.append("- Cadrage : recule de 2-3m, assure-toi que ton corps entier est visible")
+            tips_list.append("Cadrage : recule de 2-3m, assure-toi que ton corps entier est visible")
         elif "camera" in issue_lower or "bouge" in issue_lower:
-            tips_list.append("- Stabilite : pose ton tel sur un support fixe (poids, sac, trepied)")
+            tips_list.append("Stabilite : pose ton tel sur un support fixe (poids, sac, trepied)")
         elif "lateral" in issue_lower or "angle" in issue_lower:
             primary = ex_tips.get("primary_angle", "de profil")
-            tips_list.append(f"- Angle : filme {primary} pour cet exercice")
+            tips_list.append("Angle : filme " + primary + " pour cet exercice")
 
     if not tips_list:
-        tips_list.append("- Filme de profil, corps entier visible, camera fixe, bon eclairage")
+        tips_list.append("Filme de profil, corps entier visible, camera fixe, bon eclairage")
 
     if ex_tips.get("tips"):
-        tips_list.append(f"- Specifique a l'exercice : {ex_tips['tips']}")
+        tips_list.append("Specifique a l'exercice : " + ex_tips["tips"])
 
-    return "\n".join(tips_list)
+    return "\n".join(str(i) + ". " + tip for i, tip in enumerate(tips_list, 1))
 
 
 def get_progress_message(
@@ -474,14 +474,14 @@ def get_progress_message(
     """Genere un message de progression pour les clients recurrents."""
     diff = current_score - first_score
     if diff > 10:
-        trend = f"Progression de +{diff} points. Continue comme ca."
+        trend = "Progression de +" + str(diff) + " points. Continue comme ca."
     elif diff > 0:
-        trend = f"Legere amelioration (+{diff}). Les exercices correctifs font effet."
+        trend = "Legere amelioration (+" + str(diff) + "). Les exercices correctifs font effet."
     elif diff == 0:
         trend = "Score stable. Concentre-toi sur les corrections prioritaires."
     else:
         trend = (
-            f"Score en baisse ({diff}). Ca peut etre la fatigue ou une charge plus lourde. "
+            "Score en baisse (" + str(diff) + "). Ca peut etre la fatigue ou une charge plus lourde. "
             "Verifie les corrections du dernier rapport."
         )
 
@@ -502,34 +502,34 @@ def get_quality_suggestions(errors: list[str]) -> str:
         error_lower = error.lower()
         if "sombre" in error_lower or "luminosite" in error_lower:
             suggestions.append(
-                "- Eclairage : filme face a une fenetre ou sous un bon eclairage. "
+                "Eclairage : filme face a une fenetre ou sous un bon eclairage. "
                 "Evite le contre-jour (lumiere derriere toi)."
             )
         elif "courte" in error_lower or "duree" in error_lower:
             suggestions.append(
-                "- Duree : filme au moins 3 repetitions completes. "
+                "Duree : filme au moins 3 repetitions completes. "
                 "Lance la camera avant de commencer et arrete apres."
             )
         elif "longue" in error_lower:
             suggestions.append(
-                "- Duree : envoie seulement ta serie (10s a 1min30), "
+                "Duree : envoie seulement ta serie (10s a 1min30), "
                 "pas toute la seance."
             )
         elif "resolution" in error_lower:
             suggestions.append(
-                "- Resolution : verifie que ta camera est reglee en 1080p minimum. "
+                "Resolution : verifie que ta camera est reglee en 1080p minimum. "
                 "Parametres > Camera > Resolution video."
             )
         elif "personne" in error_lower or "detecter" in error_lower:
             suggestions.append(
-                "- Cadrage : recule de 2-3 metres, assure-toi que ton corps entier "
+                "Cadrage : recule de 2-3 metres, assure-toi que ton corps entier "
                 "est visible de la tete aux pieds. Porte des vetements ajustes."
             )
 
     if not suggestions:
         suggestions.append(
-            "- Profil, corps entier visible, camera fixe, bon eclairage, "
+            "Profil, corps entier visible, camera fixe, bon eclairage, "
             "3 a 8 reps completes."
         )
 
-    return "\n".join(suggestions)
+    return "\n".join(str(i) + ". " + s for i, s in enumerate(suggestions, 1))
