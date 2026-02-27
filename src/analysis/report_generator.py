@@ -23,7 +23,7 @@ from analysis.exercise_detector import (
 )
 from analysis.rep_segmenter import RepSegmentation
 from analysis.confidence import AnalysisConfidence
-from analysis.exercise_knowledge import format_kb_for_prompt
+# format_kb_for_prompt removed — using get_kb_prompt_section locally
 
 
 @dataclass
