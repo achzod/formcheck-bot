@@ -1565,15 +1565,20 @@ def _encode_image_base64(image_path: str) -> str:
 def detect_by_vision(
     mid_frame_path: str,
     api_key: str | None = None,
+    start_frame_path: str | None = None,
+    end_frame_path: str | None = None,
 ) -> tuple[Exercise, float, str]:
-    """Utilise GPT-4o Vision pour identifier l'exercice sur la frame du milieu.
+    """Utilise GPT-4o Vision pour identifier l'exercice sur 1 a 3 frames.
 
     Architecture vision-first : cette fonction est le detecteur PRIMAIRE.
-    Elle doit etre precise et fiable.
+    Envoie jusqu'a 3 frames (debut, milieu, fin) pour une detection plus
+    fiable, surtout sur les exercices ambigus.
 
     Args:
-        mid_frame_path: Chemin vers l'image de la frame du milieu.
+        mid_frame_path: Chemin vers l'image de la frame du milieu (obligatoire).
         api_key: Cle API OpenAI. Si None, utilise OPENAI_API_KEY.
+        start_frame_path: Chemin vers la frame de debut (optionnel).
+        end_frame_path: Chemin vers la frame de fin (optionnel).
 
     Returns:
         Tuple (exercise, confidence, reasoning).
@@ -1592,7 +1597,17 @@ def detect_by_vision(
         import openai
 
         client = openai.OpenAI(api_key=key)
-        b64_image = _encode_image_base64(mid_frame_path)
+
+        # Encode toutes les frames disponibles
+        frame_paths = []
+        if start_frame_path and Path(start_frame_path).exists():
+            frame_paths.append(start_frame_path)
+        frame_paths.append(mid_frame_path)
+        if end_frame_path and Path(end_frame_path).exists():
+            frame_paths.append(end_frame_path)
+
+        b64_images = [_encode_image_base64(p) for p in frame_paths]
+        num_frames = len(b64_images)
 
         exercises_list = ", ".join(
             ["{} ({})".format(e.value, EXERCISE_DISPLAY_NAMES[e.value]) for e in Exercise if e != Exercise.UNKNOWN]
@@ -1633,19 +1648,24 @@ def detect_by_vision(
                 {
                     "role": "user",
                     "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": "data:image/jpeg;base64,{}".format(b64_image),
-                                "detail": "high",
-                            },
-                        },
+                        *[
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": "data:image/jpeg;base64,{}".format(b64),
+                                    "detail": "high",
+                                },
+                            }
+                            for b64 in b64_images
+                        ],
                         {
                             "type": "text",
                             "text": (
-                                "Identifie precisement l'exercice de musculation "
-                                "sur cette image. Regarde l'equipement, la position "
-                                "du corps, et le plan de mouvement."
+                                "Voici {} frame(s) extraites d'une meme serie "
+                                "(debut, milieu, fin si disponibles). "
+                                "Identifie precisement l'exercice de musculation. "
+                                "Regarde l'equipement, la position du corps, "
+                                "et le plan de mouvement.".format(num_frames)
                             ),
                         },
                     ],
@@ -1845,11 +1865,13 @@ def detect_exercise(
     angles: AngleResult,
     mid_frame_path: str | None = None,
     use_vision_backup: bool = True,
+    start_frame_path: str | None = None,
+    end_frame_path: str | None = None,
 ) -> DetectionResult:
     """Détecte l'exercice — VISION-FIRST, pattern matching en backup.
 
     Architecture :
-    1. GPT-4o Vision identifie l'exercice sur la frame du milieu (primaire)
+    1. GPT-4o Vision identifie l'exercice sur 3 frames (primaire)
     2. Pattern matching par angles (backup si vision échoue)
     3. Si les deux sont d'accord → haute confiance
 
@@ -1857,6 +1879,8 @@ def detect_exercise(
         angles: Résultat du calcul d'angles.
         mid_frame_path: Chemin vers l'image de la frame du milieu.
         use_vision_backup: Activer la vision (désactiver uniquement pour tests).
+        start_frame_path: Chemin vers la frame de debut (optionnel).
+        end_frame_path: Chemin vers la frame de fin (optionnel).
 
     Returns:
         DetectionResult avec l'exercice détecté et les métadonnées.
@@ -1872,7 +1896,11 @@ def detect_exercise(
 
     # ── Vision-first : GPT-4o est meilleur pour identifier visuellement ──
     if use_vision_backup and mid_frame_path:
-        vision_ex, vision_conf, vision_reason = detect_by_vision(mid_frame_path)
+        vision_ex, vision_conf, vision_reason = detect_by_vision(
+            mid_frame_path,
+            start_frame_path=start_frame_path,
+            end_frame_path=end_frame_path,
+        )
         logger.info(
             "Vision detection: %s (conf=%.2f) — %s",
             vision_ex.value, vision_conf, vision_reason,

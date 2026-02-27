@@ -227,13 +227,24 @@ def run_pipeline(
     logger.info("Étape 2/%d : Extraction des landmarks de pose...", TOTAL_STEPS)
     t0 = time.monotonic()
     try:
+        # Calcul adaptatif de sample_every_n basé sur le FPS réel
+        import cv2
+        _cap = cv2.VideoCapture(str(video))
+        _fps = _cap.get(cv2.CAP_PROP_FPS) or 30.0
+        _cap.release()
+        adaptive_sample_n = max(1, round(_fps / 10))
+        logger.info(
+            "  FPS vidéo: %.1f → sample_every_n adaptatif: %d",
+            _fps, adaptive_sample_n,
+        )
+
         extraction = extract_pose(
             video_path=str(video),
             output_dir=str(out_dir),
             model_complexity=cfg.model_complexity,
             min_detection_confidence=cfg.min_detection_confidence,
             min_tracking_confidence=cfg.min_tracking_confidence,
-            sample_every_n=cfg.sample_every_n,
+            sample_every_n=adaptive_sample_n,
         )
         result.extraction = extraction
         result.timings["extraction"] = time.monotonic() - t0
@@ -296,10 +307,14 @@ def run_pipeline(
     t0 = time.monotonic()
     try:
         mid_frame_path = extraction.key_frame_images.get("mid")
+        start_frame_path = extraction.key_frame_images.get("start")
+        end_frame_path = extraction.key_frame_images.get("end")
         detection = detect_exercise(
             angles=angles,
             mid_frame_path=mid_frame_path,
             use_vision_backup=cfg.use_vision_backup,
+            start_frame_path=start_frame_path,
+            end_frame_path=end_frame_path,
         )
         result.detection = detection
         result.timings["detection"] = time.monotonic() - t0
