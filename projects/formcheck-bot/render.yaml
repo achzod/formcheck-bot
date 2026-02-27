@@ -27,3 +27,5 @@ services:
         value: "false"
       - key: DATABASE_URL
         value: "sqlite+aiosqlite:///./formcheck.db"
+      - key: RENDER_API_KEY
+        sync: false

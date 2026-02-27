@@ -226,11 +226,29 @@ async def _run_analysis(
 ) -> None:
     """Run the full CV pipeline async and send results via WhatsApp."""
     try:
+        # Extraire une frame preview AVANT le pipeline (pour fallback GPT-4o garanti)
+        preview_frame_path = None
+        try:
+            import cv2
+            _cap = cv2.VideoCapture(video_path)
+            _total = int(_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            _cap.set(cv2.CAP_PROP_POS_FRAMES, _total // 2)
+            _ret, _frame = _cap.read()
+            _cap.release()
+            if _ret and _frame is not None:
+                preview_frame_path = video_path + "_preview.jpg"
+                cv2.imwrite(preview_frame_path, _frame)
+        except Exception:
+            logger.warning("Could not extract preview frame")
+
         # Charger le profil morpho depuis la DB si disponible
         morpho_data = await db.get_morpho_profile_dict(user_id)
 
         # Progress callback — envoie des messages WhatsApp pendant l'analyse
+        # IMPORTANT: le callback est appelé depuis un thread pool (run_in_executor)
+        # On doit capturer le loop ici (contexte async) et utiliser call_soon_threadsafe
         import time as _time
+        _main_loop = asyncio.get_running_loop()
         _last_progress_ts = [0.0]  # mutable pour closure
         _PROGRESS_EMOJIS = {
             1: "🔍", 2: "🦴", 3: "📏", 4: "📐",
@@ -253,12 +271,12 @@ async def _run_analysis(
             emoji = _PROGRESS_EMOJIS.get(step, "⚙️")
             short = _PROGRESS_SHORT.get(step, desc)
             progress_msg = "{} {} ({}/{})".format(emoji, short, step, total)
-            # Fire-and-forget (non-blocking)
-            import asyncio
+            # Thread-safe: schedule the coroutine on the main event loop
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.ensure_future(wa.send_text(phone, progress_msg))
+                _main_loop.call_soon_threadsafe(
+                    asyncio.ensure_future,
+                    wa.send_text(phone, progress_msg),
+                )
             except Exception:
                 pass
 
@@ -276,10 +294,26 @@ async def _run_analysis(
                 "Pipeline failed for analysis_id=%s errors=%s",
                 analysis_id, result.errors,
             )
+            # Log pour debug endpoint
+            try:
+                from app.debug_log import log_error
+                log_error("pipeline_failed", str(result.errors), {
+                    "analysis_id": analysis_id,
+                    "phone": phone,
+                    "video_path": video_path,
+                    "timings": str(result.timings),
+                })
+            except Exception:
+                pass
             # Fallback : analyse visuelle GPT-4o même si MediaPipe a failli
             fallback_sent = False
             try:
-                mid_frame = result.extraction.key_frame_images.get("mid") if result.extraction else None
+                # Chercher la meilleure frame disponible : extraction > preview
+                mid_frame = None
+                if result.extraction:
+                    mid_frame = result.extraction.key_frame_images.get("mid")
+                if not mid_frame or not Path(mid_frame).exists():
+                    mid_frame = preview_frame_path
                 if mid_frame and Path(mid_frame).exists():
                     import openai, base64, os as _os
                     _key = _os.environ.get("OPENAI_API_KEY", "")
@@ -313,6 +347,13 @@ async def _run_analysis(
             if not fallback_sent:
                 await wa.send_text(phone, msg.ERROR_ANALYSIS_FAILED)
             cleanup_video(video_path)
+            # Cleanup preview frame
+            if preview_frame_path:
+                try:
+                    Path(preview_frame_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            _active_analyses.pop(phone, None)
             return
 
         # Update DB
@@ -381,8 +422,16 @@ async def _run_analysis(
         # Cleanup temp video
         cleanup_video(video_path)
 
-    except Exception:
+    except Exception as exc:
         logger.exception("Analysis failed for analysis_id=%s", analysis_id)
+        try:
+            from app.debug_log import log_error as _log_err
+            _log_err("analysis_exception", str(exc), {
+                "analysis_id": analysis_id,
+                "phone": phone,
+            })
+        except Exception:
+            pass
         await wa.send_text(phone, msg.ERROR_GENERIC)
     finally:
         # Always release the rate limit lock

@@ -232,10 +232,15 @@ def run_pipeline(
         _cap = cv2.VideoCapture(str(video))
         _fps = _cap.get(cv2.CAP_PROP_FPS) or 30.0
         _cap.release()
+        _total_frames = int(_cap.get(cv2.CAP_PROP_FRAME_COUNT))
         adaptive_sample_n = max(1, round(_fps / 10))
+        # Limiter à max 600 frames analysées pour éviter OOM sur Render (512MB)
+        max_frames_target = 600
+        if _total_frames > 0 and _total_frames / adaptive_sample_n > max_frames_target:
+            adaptive_sample_n = max(adaptive_sample_n, _total_frames // max_frames_target)
         logger.info(
-            "  FPS vidéo: %.1f → sample_every_n adaptatif: %d",
-            _fps, adaptive_sample_n,
+            "  FPS vidéo: %.1f → sample_every_n adaptatif: %d (total frames: %d)",
+            _fps, adaptive_sample_n, _total_frames,
         )
 
         extraction = extract_pose(

@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Remettre a False pour reactiver le paywall Stripe
     test_mode_free: bool = True
 
+    # Render API key (aussi utilise pour auth du /debug/errors endpoint)
+    render_api_key: str = ""
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 
 from app.config import settings
 from app.database import init_db
+from app.debug_log import log_error, get_errors
 from app.handlers import handle_incoming_message, handle_payment_success
 from app.media_handler import get_media_path
 from app.stripe_handler import PLANS, construct_webhook_event, handle_checkout_completed
@@ -45,6 +46,26 @@ async def startup() -> None:
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "formcheck"}
+
+
+# ── Debug endpoint (last errors + system info) ──────────────────────────
+
+@app.get("/debug/errors")
+async def debug_errors(token: str = "") -> dict:
+    """Return last errors for debugging. Protected by simple token."""
+    if token != settings.render_api_key:
+        raise HTTPException(status_code=403, detail="Invalid token")
+    import sys
+    return {
+        "errors": get_errors(),
+        "python": sys.version,
+        "settings": {
+            "test_mode": settings.test_mode,
+            "test_mode_free": settings.test_mode_free,
+            "debug": settings.debug,
+            "base_url": settings.base_url,
+        },
+    }
 
 
 # ── Media serving (annotated frames) ────────────────────────────────────
@@ -120,8 +141,12 @@ async def _safe_handle(data: dict) -> None:
     """Handle message in background with error protection."""
     try:
         await handle_incoming_message(data)
-    except Exception:
+    except Exception as exc:
         logger.exception("Error handling WhatsApp message from %s", data.get("from", "unknown"))
+        log_error("safe_handle_exception", str(exc), {
+            "phone": data.get("from", "unknown"),
+            "type": data.get("type", "?"),
+        })
         # Try to send error message to user
         try:
             from app.whatsapp import send_text

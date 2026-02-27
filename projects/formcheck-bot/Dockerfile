@@ -13,6 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./
 COPY BIOMECHANICS_KNOWLEDGE.md .
 
+# Supprimer les .pyc pour eviter des caches stale
+RUN find . -name "*.pyc" -delete && find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+
 RUN mkdir -p media/videos media/annotated
 
 ENV PYTHONPATH=/app
