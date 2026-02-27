@@ -2,21 +2,34 @@
 
 from __future__ import annotations
 
+import sys
+print(f"[STARTUP] Python {sys.version}", flush=True)
+print("[STARTUP] Starting imports...", flush=True)
+
 import logging
 
 import stripe
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
+print("[STARTUP] FastAPI imports OK", flush=True)
 
 from app.config import settings
+print("[STARTUP] config OK", flush=True)
 from app.database import init_db
+print("[STARTUP] database OK", flush=True)
 from app.debug_log import log_error, get_errors
+print("[STARTUP] debug_log OK", flush=True)
 from app.handlers import handle_incoming_message, handle_payment_success
+print("[STARTUP] handlers OK", flush=True)
 from app.media_handler import get_media_path
+print("[STARTUP] media_handler OK", flush=True)
 from app.stripe_handler import PLANS, construct_webhook_event, handle_checkout_completed
+print("[STARTUP] stripe_handler OK", flush=True)
 from app.report_server import router as report_router
+print("[STARTUP] report_server OK", flush=True)
 from app.whatsapp import parse_incoming
+print("[STARTUP] All imports OK", flush=True)
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
