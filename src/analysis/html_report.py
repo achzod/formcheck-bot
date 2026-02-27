@@ -910,6 +910,15 @@ def _build_morpho_section(morpho: dict) -> str:
             )
         recs_html = "\n".join(rec_items)
 
+    # Build recs section outside the f-string to avoid nested f-string issues (Python 3.11)
+    recs_section = ""
+    if recs_html:
+        recs_section = '''
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #1a1e28">
+            <div style="color:#8888aa;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Recommandations personnalisees</div>
+            ''' + recs_html + '''
+        </div>'''
+
     return f'''
     <div class="card fade-in" style="animation-delay:0.42s">
         <div class="card-header">
@@ -967,12 +976,7 @@ def _build_morpho_section(morpho: dict) -> str:
         </div>
 
         <!-- Recommandations -->
-        {"" if not recs_html else f'''
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #1a1e28">
-            <div style="color:#8888aa;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Recommandations personnalisees</div>
-            {recs_html}
-        </div>
-        '''}
+        {recs_section}
     </div>'''
 
 
