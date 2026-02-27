@@ -301,14 +301,12 @@ ERROR_GENERIC = (
 )
 
 ERROR_ANALYSIS_FAILED = (
-    "L'analyse n'a pas abouti.\n\n"
-    "Verifie ces points :\n"
-    "1. Ton corps est visible en entier (tete aux pieds)\n"
-    "2. Tu es filme de profil ou de face (pas en diagonale)\n"
-    "3. La lumiere est suffisante (pas de contre-jour)\n"
-    "4. La camera est fixe (pas de mouvement)\n"
-    "5. Tu fais au moins 2-3 reps completes\n\n"
-    "Tape *guide* pour les conseils de tournage par exercice."
+    "L'analyse n'a pas pu etre completee sur cette video.\n\n"
+    "Ca arrive quand :\n"
+    "- Plusieurs personnes dans le cadre (spotters, partenaires)\n"
+    "- Camera trop loin ou en diagonale\n"
+    "- Eclairage insuffisant\n\n"
+    "Essaie de renvoyer la video. Si ca persiste, tape *guide*."
 )
 
 ERROR_VIDEO_QUALITY = (

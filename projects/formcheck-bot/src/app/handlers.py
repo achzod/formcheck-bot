@@ -276,7 +276,42 @@ async def _run_analysis(
                 "Pipeline failed for analysis_id=%s errors=%s",
                 analysis_id, result.errors,
             )
-            await wa.send_text(phone, msg.ERROR_ANALYSIS_FAILED)
+            # Fallback : analyse visuelle GPT-4o même si MediaPipe a failli
+            fallback_sent = False
+            try:
+                mid_frame = result.extraction.key_frame_images.get("mid") if result.extraction else None
+                if mid_frame and Path(mid_frame).exists():
+                    import openai, base64, os as _os
+                    _key = _os.environ.get("OPENAI_API_KEY", "")
+                    if _key:
+                        _client = openai.OpenAI(api_key=_key)
+                        with open(mid_frame, "rb") as _f:
+                            _b64 = base64.b64encode(_f.read()).decode()
+                        _resp = _client.chat.completions.create(
+                            model="gpt-4o",
+                            messages=[{
+                                "role": "user",
+                                "content": [
+                                    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,{}".format(_b64), "detail": "high"}},
+                                    {"type": "text", "text": (
+                                        "Tu es un coach expert. Analyse cette video de musculation. "
+                                        "Dis en 3-4 phrases : 1) l'exercice effectue, "
+                                        "2) les points positifs, 3) les corrections principales. "
+                                        "Reponds en francais, ton direct de coach."
+                                    )},
+                                ],
+                            }],
+                            max_tokens=300,
+                        )
+                        _feedback = _resp.choices[0].message.content or ""
+                        if _feedback:
+                            await wa.send_text(phone, "Analyse rapide (mode secours) :\n\n" + _feedback)
+                            fallback_sent = True
+            except Exception:
+                logger.exception("Fallback GPT-4o vision failed")
+
+            if not fallback_sent:
+                await wa.send_text(phone, msg.ERROR_ANALYSIS_FAILED)
             cleanup_video(video_path)
             return
 
