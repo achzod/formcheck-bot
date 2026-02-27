@@ -27,12 +27,8 @@ logger = logging.getLogger(__name__)
 _active_analyses: dict[str, float] = {}
 _ANALYSIS_TIMEOUT = 300  # 5 minutes max per analysis
 
-# Etats du flow morpho : phone -> etat
-# Etats possibles : "waiting_front", "waiting_side", "waiting_back"
-_morpho_states: dict[str, str] = {}
-
-# Photos morpho temporaires : phone -> {"front": path, "side": path, "back": path}
-_morpho_photos: dict[str, dict[str, str]] = {}
+# Morpho flow states are now persisted in DB (morpho_flow_state table).
+# Legacy in-memory dicts removed — use db.get_morpho_flow_state() etc.
 
 # Labels humains pour les frames annotées
 _FRAME_LABELS: dict[str, str] = {
@@ -47,31 +43,51 @@ async def handle_incoming_message(data: dict) -> None:
     phone: str = data["from"]
     name: str | None = data.get("name")
 
+    if not phone:
+        logger.warning("No phone number in message data")
+        return
+
     # Ensure user exists
-    user, is_new = await db.get_or_create_user(phone, name)
+    try:
+        user, is_new = await db.get_or_create_user(phone, name)
+    except Exception:
+        logger.exception("Failed to get/create user for %s", phone)
+        await wa.send_text(phone, msg.ERROR_GENERIC)
+        return
+
     if is_new:
         await wa.send_text(phone, msg.WELCOME)
         # Proposer le profil morpho au nouveau client
         await wa.send_text(phone, msg.MORPHO_WELCOME)
-        _morpho_states[phone] = "waiting_front"
+        await db.set_morpho_flow_state(phone, "waiting_front")
         return
 
     msg_type: str = data["type"]
 
-    # Si le client est dans le flow morpho
-    if phone in _morpho_states:
+    # Si le client est dans le flow morpho (persisté en DB)
+    morpho_flow = await db.get_morpho_flow_state(phone)
+    if morpho_flow:
         if msg_type == "text":
             text = data.get("text", "").strip().lower()
             if text == "skip":
-                _morpho_states.pop(phone, None)
-                _morpho_photos.pop(phone, None)
+                await db.delete_morpho_flow_state(phone)
                 await wa.send_text(phone, msg.MORPHO_SKIPPED)
+                return
+            # Allow "menu", "aide" etc. even during morpho flow
+            if text in ("aide", "help", "?", "menu", "credits", "crédits", "solde", "forfaits", "plans"):
+                await db.delete_morpho_flow_state(phone)
+                await handle_text(user, data)
                 return
         if msg_type == "image":
             await handle_morpho_photo(user, data)
             return
+        if msg_type == "video":
+            # User sent video during morpho flow — cancel morpho, process video
+            await db.delete_morpho_flow_state(phone)
+            await handle_video(user, data)
+            return
         # Texte non-skip pendant le flow morpho → rappeler les instructions
-        state = _morpho_states[phone]
+        state = morpho_flow.state
         if state == "waiting_front":
             await wa.send_text(phone, msg.MORPHO_INSTRUCTIONS_FRONT)
         elif state == "waiting_side":
@@ -100,6 +116,10 @@ async def handle_text(user: db.User, data: dict) -> None:
     text = data.get("text", "").strip().lower()
     phone = user.phone
 
+    if not text:
+        await wa.send_text(phone, msg.HELP_TEXT)
+        return
+
     if text in ("aide", "help", "?", "menu"):
         await wa.send_text(phone, msg.MENU_TEXT)
     elif text in ("guide", "tournage", "filmer", "comment filmer"):
@@ -112,9 +132,15 @@ async def handle_text(user: db.User, data: dict) -> None:
         await _start_morpho_flow(user)
     elif text in ("morpho reset", "reset morpho"):
         # Forcer un nouveau profil morpho
-        _morpho_photos.pop(phone, None)
+        await db.delete_morpho_flow_state(phone)
         await wa.send_text(phone, msg.MORPHO_INSTRUCTIONS_FRONT)
-        _morpho_states[phone] = "waiting_front"
+        await db.set_morpho_flow_state(phone, "waiting_front")
+    elif text in ("salut", "hello", "bonjour", "yo", "hey", "hi", "coucou", "slt"):
+        await wa.send_text(
+            phone,
+            "Yo ! Envoie-moi une *video* de ton exercice pour une analyse biomecanique.\n"
+            "Tape *menu* pour voir toutes les options.",
+        )
     else:
         await wa.send_text(phone, msg.HELP_TEXT)
 
@@ -130,7 +156,7 @@ async def handle_video(user: db.User, data: dict) -> None:
     user = user_fresh
 
     from app.config import settings as app_settings
-    if not app_settings.test_mode and not await db.has_credits(user):
+    if not app_settings.test_mode and not app_settings.test_mode_free and not await db.has_credits(user):
         await handle_no_credits(user)
         return
 
@@ -200,14 +226,66 @@ async def _run_analysis(
 ) -> None:
     """Run the full CV pipeline async and send results via WhatsApp."""
     try:
+        # Extraire une frame preview AVANT le pipeline (pour fallback GPT-4o garanti)
+        preview_frame_path = None
+        try:
+            import cv2
+            _cap = cv2.VideoCapture(video_path)
+            _total = int(_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            _cap.set(cv2.CAP_PROP_POS_FRAMES, _total // 2)
+            _ret, _frame = _cap.read()
+            _cap.release()
+            if _ret and _frame is not None:
+                preview_frame_path = video_path + "_preview.jpg"
+                cv2.imwrite(preview_frame_path, _frame)
+        except Exception:
+            logger.warning("Could not extract preview frame")
+
         # Charger le profil morpho depuis la DB si disponible
         morpho_data = await db.get_morpho_profile_dict(user_id)
+
+        # Progress callback — envoie des messages WhatsApp pendant l'analyse
+        # IMPORTANT: le callback est appelé depuis un thread pool (run_in_executor)
+        # On doit capturer le loop ici (contexte async) et utiliser call_soon_threadsafe
+        import time as _time
+        _main_loop = asyncio.get_running_loop()
+        _last_progress_ts = [0.0]  # mutable pour closure
+        _PROGRESS_EMOJIS = {
+            1: "🔍", 2: "🦴", 3: "📏", 4: "📐",
+            5: "🎯", 6: "🔄", 7: "💪", 8: "📊",
+            9: "✅", 10: "✍️", 11: "🖼️",
+        }
+        _PROGRESS_SHORT = {
+            1: "Validation", 2: "Extraction", 3: "Lissage",
+            4: "Angles", 5: "Détection", 6: "Reps",
+            7: "Biomécanique", 8: "Morpho", 9: "Confiance",
+            10: "Rapport", 11: "Annotation",
+        }
+
+        def _progress_cb(step: int, total: int, desc: str) -> None:
+            now = _time.time()
+            # Throttle: 1 message max toutes les 10 secondes
+            if now - _last_progress_ts[0] < 10.0 and step != total:
+                return
+            _last_progress_ts[0] = now
+            emoji = _PROGRESS_EMOJIS.get(step, "⚙️")
+            short = _PROGRESS_SHORT.get(step, desc)
+            progress_msg = "{} {} ({}/{})".format(emoji, short, step, total)
+            # Thread-safe: schedule the coroutine on the main event loop
+            try:
+                _main_loop.call_soon_threadsafe(
+                    asyncio.ensure_future,
+                    wa.send_text(phone, progress_msg),
+                )
+            except Exception:
+                pass
 
         # Run pipeline in thread pool (CPU-bound)
         config = PipelineConfig(
             save_annotated_frames=True,
             save_json=True,
             morpho_profile=morpho_data,
+            progress_callback=_progress_cb,
         )
         result: PipelineResult = await run_pipeline_async(video_path, config)
 
@@ -216,8 +294,66 @@ async def _run_analysis(
                 "Pipeline failed for analysis_id=%s errors=%s",
                 analysis_id, result.errors,
             )
-            await wa.send_text(phone, msg.ERROR_ANALYSIS_FAILED)
+            # Log pour debug endpoint
+            try:
+                from app.debug_log import log_error
+                log_error("pipeline_failed", str(result.errors), {
+                    "analysis_id": analysis_id,
+                    "phone": phone,
+                    "video_path": video_path,
+                    "timings": str(result.timings),
+                })
+            except Exception:
+                pass
+            # Fallback : analyse visuelle GPT-4o même si MediaPipe a failli
+            fallback_sent = False
+            try:
+                # Chercher la meilleure frame disponible : extraction > preview
+                mid_frame = None
+                if result.extraction:
+                    mid_frame = result.extraction.key_frame_images.get("mid")
+                if not mid_frame or not Path(mid_frame).exists():
+                    mid_frame = preview_frame_path
+                if mid_frame and Path(mid_frame).exists():
+                    import openai, base64, os as _os
+                    _key = _os.environ.get("OPENAI_API_KEY", "")
+                    if _key:
+                        _client = openai.OpenAI(api_key=_key)
+                        with open(mid_frame, "rb") as _f:
+                            _b64 = base64.b64encode(_f.read()).decode()
+                        _resp = _client.chat.completions.create(
+                            model="gpt-4o",
+                            messages=[{
+                                "role": "user",
+                                "content": [
+                                    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,{}".format(_b64), "detail": "high"}},
+                                    {"type": "text", "text": (
+                                        "Tu es un coach expert. Analyse cette video de musculation. "
+                                        "Dis en 3-4 phrases : 1) l'exercice effectue, "
+                                        "2) les points positifs, 3) les corrections principales. "
+                                        "Reponds en francais, ton direct de coach."
+                                    )},
+                                ],
+                            }],
+                            max_tokens=300,
+                        )
+                        _feedback = _resp.choices[0].message.content or ""
+                        if _feedback:
+                            await wa.send_text(phone, "Analyse rapide (mode secours) :\n\n" + _feedback)
+                            fallback_sent = True
+            except Exception:
+                logger.exception("Fallback GPT-4o vision failed")
+
+            if not fallback_sent:
+                await wa.send_text(phone, msg.ERROR_ANALYSIS_FAILED)
             cleanup_video(video_path)
+            # Cleanup preview frame
+            if preview_frame_path:
+                try:
+                    Path(preview_frame_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            _active_analyses.pop(phone, None)
             return
 
         # Update DB
@@ -228,9 +364,9 @@ async def _run_analysis(
             report=result.report.report_text,
         )
 
-        # Decrement credit AFTER successful analysis (skip in test mode)
+        # Decrement credit AFTER successful analysis (skip in test/free mode)
         from app.config import settings as app_settings
-        if not app_settings.test_mode:
+        if not app_settings.test_mode and not app_settings.test_mode_free:
             await db.decrement_credit(user_id)
 
         # Generate HTML report
@@ -286,8 +422,16 @@ async def _run_analysis(
         # Cleanup temp video
         cleanup_video(video_path)
 
-    except Exception:
+    except Exception as exc:
         logger.exception("Analysis failed for analysis_id=%s", analysis_id)
+        try:
+            from app.debug_log import log_error as _log_err
+            _log_err("analysis_exception", str(exc), {
+                "analysis_id": analysis_id,
+                "phone": phone,
+            })
+        except Exception:
+            pass
         await wa.send_text(phone, msg.ERROR_GENERIC)
     finally:
         # Always release the rate limit lock
@@ -302,15 +446,16 @@ async def _start_morpho_flow(user: db.User) -> None:
         await wa.send_text(phone, msg.MORPHO_ALREADY_EXISTS)
         return
     await wa.send_text(phone, msg.MORPHO_INSTRUCTIONS_FRONT)
-    _morpho_states[phone] = "waiting_front"
+    await db.set_morpho_flow_state(phone, "waiting_front")
 
 
 async def handle_morpho_photo(user: db.User, data: dict) -> None:
-    """Recoit une photo pour le profil morphologique."""
+    """Recoit une photo pour le profil morphologique (etat persiste en DB)."""
     phone = user.phone
-    state = _morpho_states.get(phone)
-    if not state:
+    flow = await db.get_morpho_flow_state(phone)
+    if not flow:
         return
+    state = flow.state
 
     # Telecharger l'image
     media_url: str = data.get("media_url", "")
@@ -329,14 +474,10 @@ async def handle_morpho_photo(user: db.User, data: dict) -> None:
     media_dir = Path("media/morpho")
     media_dir.mkdir(parents=True, exist_ok=True)
 
-    if phone not in _morpho_photos:
-        _morpho_photos[phone] = {}
-
     if state == "waiting_front":
-        photo_path = media_dir / f"{phone}_front.jpg"
+        photo_path = media_dir / "{}_front.jpg".format(phone)
         photo_path.write_bytes(image_bytes)
-        _morpho_photos[phone]["front"] = str(photo_path)
-        _morpho_states[phone] = "waiting_side"
+        await db.set_morpho_flow_state(phone, "waiting_side", front_path=str(photo_path))
         await wa.send_text(
             phone,
             msg.MORPHO_PHOTO_RECEIVED.format(
@@ -346,10 +487,9 @@ async def handle_morpho_photo(user: db.User, data: dict) -> None:
         await wa.send_text(phone, msg.MORPHO_INSTRUCTIONS_SIDE)
 
     elif state == "waiting_side":
-        photo_path = media_dir / f"{phone}_side.jpg"
+        photo_path = media_dir / "{}_side.jpg".format(phone)
         photo_path.write_bytes(image_bytes)
-        _morpho_photos[phone]["side"] = str(photo_path)
-        _morpho_states[phone] = "waiting_back"
+        await db.set_morpho_flow_state(phone, "waiting_back", side_path=str(photo_path))
         await wa.send_text(
             phone,
             msg.MORPHO_PHOTO_RECEIVED.format(
@@ -359,16 +499,18 @@ async def handle_morpho_photo(user: db.User, data: dict) -> None:
         await wa.send_text(phone, msg.MORPHO_INSTRUCTIONS_BACK)
 
     elif state == "waiting_back":
-        photo_path = media_dir / f"{phone}_back.jpg"
+        photo_path = media_dir / "{}_back.jpg".format(phone)
         photo_path.write_bytes(image_bytes)
-        _morpho_photos[phone]["back"] = str(photo_path)
 
-        # Toutes les photos recues → lancer l'analyse
-        _morpho_states.pop(phone, None)
+        # Toutes les photos recues → recuperer les chemins depuis la DB
+        photos = await db.get_morpho_flow_photos(phone)
+        photos["back"] = str(photo_path)
+
+        # Supprimer l'etat flow
+        await db.delete_morpho_flow_state(phone)
         await wa.send_text(phone, msg.MORPHO_ANALYZING)
 
         # Lancer l'analyse en background
-        photos = _morpho_photos.pop(phone, {})
         asyncio.create_task(
             _run_morpho_analysis(phone, user.id, photos)
         )

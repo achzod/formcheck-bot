@@ -9,3 +9,16 @@ media/
 *.avi
 *.mov
 .DS_Store
+__pycache__/
+*.pyc
+
+# Large model files (downloaded at runtime)
+src/analysis/models/
+*.task
+*.tflite
+# Python cache
+__pycache__/
+*.pyc
+# Media dirs
+src/media/
+media/

@@ -2,9 +2,7 @@ services:
   - type: web
     name: formcheck-bot
     runtime: docker
-    plan: standard
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    plan: free
     healthCheckPath: /health
     envVars:
       - key: TWILIO_ACCOUNT_SID
@@ -21,7 +19,13 @@ services:
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
+      - key: STRIPE_SUCCESS_URL
+        value: "https://formcheck.achzodcoaching.com/success"
+      - key: STRIPE_CANCEL_URL
+        value: "https://formcheck.achzodcoaching.com/cancel"
       - key: DEBUG
         value: "false"
       - key: DATABASE_URL
         value: "sqlite+aiosqlite:///./formcheck.db"
+      - key: RENDER_API_KEY
+        sync: false

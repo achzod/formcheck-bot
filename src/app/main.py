@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 
 from app.config import settings
 from app.database import init_db
+from app.debug_log import log_error, get_errors
 from app.handlers import handle_incoming_message, handle_payment_success
 from app.media_handler import get_media_path
 from app.stripe_handler import PLANS, construct_webhook_event, handle_checkout_completed
@@ -47,6 +48,38 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "service": "formcheck"}
 
 
+@app.get("/health/debug")
+async def health_debug() -> dict:
+    """Debug health with version info — no auth required."""
+    import sys
+    return {
+        "status": "ok",
+        "python": sys.version,
+        "commit": "aad8969",
+        "test_mode_free": settings.test_mode_free,
+    }
+
+
+# ── Debug endpoint (last errors + system info) ──────────────────────────
+
+@app.get("/debug/errors")
+async def debug_errors(token: str = "") -> dict:
+    """Return last errors for debugging. Protected by simple token."""
+    if token != settings.render_api_key:
+        raise HTTPException(status_code=403, detail="Invalid token")
+    import sys
+    return {
+        "errors": get_errors(),
+        "python": sys.version,
+        "settings": {
+            "test_mode": settings.test_mode,
+            "test_mode_free": settings.test_mode_free,
+            "debug": settings.debug,
+            "base_url": settings.base_url,
+        },
+    }
+
+
 # ── Media serving (annotated frames) ────────────────────────────────────
 
 
@@ -71,35 +104,68 @@ async def serve_media(filename: str) -> FileResponse:
 
 @app.post("/webhook/whatsapp")
 async def whatsapp_webhook(request: Request) -> PlainTextResponse:
-    """Receive incoming WhatsApp messages from Twilio."""
+    """Receive incoming WhatsApp messages from Twilio.
+    
+    Key design:
+    - Return 200 to Twilio in <3s to prevent retries (Twilio retries after 15s)
+    - Deduplicate using MessageSid (Twilio resends on timeout/error)
+    - All processing happens in background tasks
+    """
     form = await request.form()
     body = dict(form)
     
-    # Log for debugging (remove in production)
     if settings.debug:
         logger.debug("Twilio webhook body: %s", {k: v for k, v in body.items() if k != "Body"})
+    
+    # Deduplicate: Twilio retries with same MessageSid
+    message_sid = body.get("MessageSid", "")
+    if message_sid and message_sid in _processed_sids:
+        logger.info("Duplicate MessageSid %s — skipping", message_sid)
+        return PlainTextResponse(
+            '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+            media_type="text/xml",
+        )
+    if message_sid:
+        _processed_sids[message_sid] = True
+        # Evict old entries to prevent memory leak (keep last 500)
+        if len(_processed_sids) > 500:
+            oldest = list(_processed_sids.keys())[:-500]
+            for k in oldest:
+                _processed_sids.pop(k, None)
     
     data = parse_incoming(body)
 
     if data:
-        # Fire-and-forget: respond to Twilio IMMEDIATELY, process in background
-        # This prevents Twilio timeouts (15s limit) from killing the handler
         import asyncio
         asyncio.create_task(_safe_handle(data))
 
-    # Twilio expects a TwiML response (empty is fine for async replies)
     return PlainTextResponse(
         '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
         media_type="text/xml",
     )
 
 
+# Dedup cache: MessageSid -> True (keeps last 500)
+_processed_sids: dict[str, bool] = {}
+
+
 async def _safe_handle(data: dict) -> None:
     """Handle message in background with error protection."""
     try:
         await handle_incoming_message(data)
-    except Exception:
+    except Exception as exc:
         logger.exception("Error handling WhatsApp message from %s", data.get("from", "unknown"))
+        log_error("safe_handle_exception", str(exc), {
+            "phone": data.get("from", "unknown"),
+            "type": data.get("type", "?"),
+        })
+        # Try to send error message to user
+        try:
+            from app.whatsapp import send_text
+            from app.messages import ERROR_GENERIC
+            await send_text(data.get("from", ""), ERROR_GENERIC)
+        except Exception:
+            pass
 
 
 # ── Stripe webhook ──────────────────────────────────────────────────────

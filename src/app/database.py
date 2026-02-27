@@ -91,6 +91,17 @@ class MorphoProfileDB(Base):
     user: Mapped[User] = relationship(back_populates="morpho_profiles")
 
 
+class MorphoFlowState(Base):
+    """Etat du flow morpho en cours (persistant, survit aux restarts)."""
+    __tablename__ = "morpho_flow_state"
+
+    phone: Mapped[str] = mapped_column(String(20), primary_key=True)
+    state: Mapped[str] = mapped_column(String(30))  # waiting_front | waiting_side | waiting_back
+    front_path: Mapped[str | None] = mapped_column(Text, default=None)
+    side_path: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+
 class Payment(Base):
     __tablename__ = "payments"
 
@@ -365,3 +376,87 @@ async def get_morpho_profile_dict(user_id: int) -> dict | None:
         "analysis_quality": profile.analysis_quality,
         "photos_analyzed": profile.photos_analyzed.split(",") if profile.photos_analyzed else [],
     }
+
+
+# ── Morpho Flow State CRUD ──────────────────────────────────────────────────
+
+
+async def get_morpho_flow_state(phone: str) -> MorphoFlowState | None:
+    """Recupere l'etat du flow morpho pour un numero."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(MorphoFlowState).where(MorphoFlowState.phone == phone)
+        )
+        return result.scalar_one_or_none()
+
+
+async def set_morpho_flow_state(
+    phone: str,
+    state: str,
+    front_path: str | None = None,
+    side_path: str | None = None,
+) -> MorphoFlowState:
+    """Cree ou met a jour l'etat du flow morpho."""
+    async with async_session() as session:
+        existing = await session.execute(
+            select(MorphoFlowState).where(MorphoFlowState.phone == phone)
+        )
+        row = existing.scalar_one_or_none()
+        if row:
+            row.state = state
+            if front_path is not None:
+                row.front_path = front_path
+            if side_path is not None:
+                row.side_path = side_path
+        else:
+            row = MorphoFlowState(
+                phone=phone,
+                state=state,
+                front_path=front_path,
+                side_path=side_path,
+            )
+            session.add(row)
+        await session.commit()
+        await session.refresh(row)
+        return row
+
+
+async def delete_morpho_flow_state(phone: str) -> None:
+    """Supprime l'etat du flow morpho."""
+    async with async_session() as session:
+        existing = await session.execute(
+            select(MorphoFlowState).where(MorphoFlowState.phone == phone)
+        )
+        row = existing.scalar_one_or_none()
+        if row:
+            await session.delete(row)
+            await session.commit()
+
+
+async def get_morpho_flow_photos(phone: str) -> dict[str, str]:
+    """Recupere les chemins des photos morpho depuis l'etat DB."""
+    state = await get_morpho_flow_state(phone)
+    if not state:
+        return {}
+    photos: dict[str, str] = {}
+    if state.front_path:
+        photos["front"] = state.front_path
+    if state.side_path:
+        photos["side"] = state.side_path
+    return photos
+
+
+async def cleanup_old_morpho_states(max_age_hours: int = 2) -> int:
+    """Supprime les etats morpho plus vieux que max_age_hours. Retourne le nombre supprime."""
+    cutoff = dt.datetime.utcnow() - dt.timedelta(hours=max_age_hours)
+    async with async_session() as session:
+        result = await session.execute(
+            select(MorphoFlowState).where(MorphoFlowState.created_at < cutoff)
+        )
+        old_states = result.scalars().all()
+        count = len(old_states)
+        for state in old_states:
+            await session.delete(state)
+        if count:
+            await session.commit()
+        return count

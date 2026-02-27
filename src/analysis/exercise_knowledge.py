@@ -197,6 +197,229 @@ EXERCISE_KB: ExerciseKB = {
         "safety_notes": "Deconseille si douleur a l'epaule. Limiter l'amplitude si antecedent de luxation.",
     },
 
+    "svend_press": {
+        "muscles_primary": ["grand pectoral (faisceau sternal)"],
+        "muscles_secondary": ["deltoides anterieurs", "serratus anterior"],
+        "common_errors": [
+            "Poids trop lourd — les epaules compensent",
+            "Bras qui descendent trop bas (perte de tension pectorale)",
+            "Pas de squeeze isometrique en extension",
+            "Mouvement saccade au lieu de fluide",
+        ],
+        "corrections": [
+            "Leger (5-10 kg) — c'est un exercice de contraction, pas de force",
+            "Garde les mains au niveau du sternum pendant tout le mouvement",
+            "Squeeze les disques FORT pendant toute la rep, surtout bras tendus",
+            "Tempo lent et controle: 2 sec pousse, 2 sec squeeze, 2 sec retour",
+        ],
+        "cues": [
+            "Ecrase les disques l'un contre l'autre en permanence",
+            "Pousse droit devant toi, pas vers le bas",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [20, 90], "note": "quasi tendu en fin de mouvement"},
+        },
+        "safety_notes": "Exercice d'isolation legere. Si douleur a l'epaule, reduire l'amplitude.",
+    },
+
+    "chest_dip": {
+        "muscles_primary": ["grand pectoral (partie basse)", "deltoides anterieurs"],
+        "muscles_secondary": ["triceps brachial", "serratus anterior", "core"],
+        "common_errors": [
+            "Descente trop profonde (stress capsule anterieure de l'epaule)",
+            "Torse trop vertical (transforme en dip triceps au lieu de pec)",
+            "Epaules qui remontent vers les oreilles en position basse",
+            "Balancement du corps (kipping) pour remonter",
+            "Coudes qui partent trop sur les cotes",
+        ],
+        "corrections": [
+            "Penche le torse a 30-45 deg en avant pour cibler les pectoraux",
+            "Descends jusqu'a ce que les bras soient paralleles au sol, pas plus",
+            "Depression scapulaire: epaules basses en PERMANENCE",
+            "Mouvement strict sans balancement — controle excentrique 2-3 sec",
+            "Coudes legerement ecartes (30-45 deg) pour activer les pectoraux",
+        ],
+        "cues": [
+            "Penche-toi vers l'avant, regard vers le sol",
+            "Epaules dans les poches arriere",
+            "Ecrase les barres vers l'interieur (activation pectorale)",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [70, 110]},
+            "trunk_inclination": {"optimal": [30, 50], "note": "penche en avant pour les pecs"},
+        },
+        "safety_notes": "Deconseille si douleur a l'epaule ou instabilite anterieure. Limiter l'amplitude en bas si antecedent de luxation.",
+    },
+
+    "decline_bench": {
+        "muscles_primary": ["grand pectoral (faisceau sternal inferieur)"],
+        "muscles_secondary": ["triceps brachial", "deltoides anterieurs"],
+        "common_errors": [
+            "Descendre la barre trop haut sur la poitrine (vers le cou)",
+            "Rebond sur la poitrine au lieu d'un tempo controle",
+            "Omoplates non retractees (epaules en protraction)",
+            "Arc excessif du dos qui annule l'angle de declinaison",
+            "Pieds mal cales — glissement sur le banc",
+        ],
+        "corrections": [
+            "Descends la barre vers le bas des pectoraux (ligne des tetons ou plus bas)",
+            "Controle la descente 2-3 sec, pause legere en bas",
+            "Retracte et abaisse les omoplates AVANT de decrocher la barre",
+            "Arche naturelle du dos, pas excessive — l'inclinaison du banc fait le travail",
+            "Pieds bien cales dans les supports, fessiers colles au banc",
+        ],
+        "cues": [
+            "Casse la barre en deux (rotation externe)",
+            "Omoplates serrees, poitrine haute",
+            "Pousse vers le plafond, pas vers tes pieds",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [80, 120]},
+            "shoulder_abduction": {"optimal": [45, 75], "note": "angle coude-torse"},
+        },
+        "safety_notes": "Toujours un spotter ou des safety pins. La position declinee rend le rerack plus difficile. Ne pas rester longtemps la tete en bas si hypertension.",
+    },
+
+    "dumbbell_incline": {
+        "muscles_primary": ["grand pectoral (faisceau claviculaire)"],
+        "muscles_secondary": ["deltoides anterieurs", "triceps brachial", "stabilisateurs scapulaires"],
+        "common_errors": [
+            "Banc trop incline (>45 deg) — devient un developpe epaules",
+            "Halteres qui descendent trop bas (hyperextension de l'epaule)",
+            "Rotation interne des epaules en bas du mouvement",
+            "Omoplates non retractees — epaules en protraction",
+            "Trajectoire trop ecartee (ecarte au lieu de developpe)",
+        ],
+        "corrections": [
+            "Inclinaison du banc entre 30 et 45 deg, pas plus",
+            "Descends jusqu'a l'alignement des coudes avec le torse, pas plus bas",
+            "Rotation neutre ou legere externe des poignets en bas",
+            "Retracte les omoplates AVANT de prendre les halteres",
+            "Trajectoire en arc convergent: large en bas, resserree en haut",
+        ],
+        "cues": [
+            "Pousse vers le plafond en resserrant les halteres",
+            "Omoplates collees au banc comme des timbres",
+            "Les coudes a 45 deg du torse, pas en croix",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [80, 120]},
+        },
+        "safety_notes": "Utiliser les genoux pour monter les halteres en position (kick-up). Variante plus safe que la barre pour les epaules grace a la liberte de trajectoire.",
+    },
+
+    "machine_chest_press": {
+        "muscles_primary": ["grand pectoral"],
+        "muscles_secondary": ["deltoides anterieurs", "triceps brachial"],
+        "common_errors": [
+            "Regler le siege trop haut ou trop bas (poignees pas au niveau des pecs)",
+            "Epaules qui roulent vers l'avant au lieu de rester retractees",
+            "Verrouillage agressif des coudes en extension",
+            "Utiliser l'inertie (saccades) au lieu d'un mouvement controle",
+            "Dos qui decolle du dossier",
+        ],
+        "corrections": [
+            "Regle le siege: poignees alignees avec la ligne basse des pectoraux",
+            "Retracte les omoplates AVANT de pousser — epaules collees au dossier",
+            "Extension quasi complete mais pas de verrouillage — garde une micro-flexion",
+            "Tempo controle: 2 sec pousse, 3 sec retour",
+            "Dos et fessiers colles au dossier en permanence",
+        ],
+        "cues": [
+            "Pousse avec les pectoraux, pas les epaules",
+            "Serre les omoplates dans le dossier",
+            "Controle le retour, ne laisse pas la machine te ramener",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [70, 120]},
+        },
+        "safety_notes": "Machine guidee = plus safe pour les debutants. Excellent pour finishers haute reps apres les mouvements libres. Pas de spotter necessaire.",
+    },
+
+    "pendlay_row": {
+        "muscles_primary": ["grand dorsal", "rhomboides", "trapeze moyen"],
+        "muscles_secondary": ["biceps brachial", "erecteurs spinaux", "deltoides posterieurs"],
+        "common_errors": [
+            "Dos rond sous la charge (flexion lombaire)",
+            "La barre ne repose pas au sol entre chaque rep (perd l'aspect explosif)",
+            "Trop d'extension du torse — tricher avec le momentum",
+            "Tirer vers le nombril au lieu du sternum/bas des cotes",
+            "Genoux trop tendus (manque de base stable)",
+        ],
+        "corrections": [
+            "Dos PLAT en permanence — neutre strict, zero arrondi",
+            "La barre part du sol a chaque rep — dead stop, zero stretch reflex",
+            "Le torse reste quasi parallele au sol (plus strict que le barbell row)",
+            "Tire la barre vers le bas du sternum de maniere explosive",
+            "Genoux legerement flechis pour une base solide et un dos neutre",
+        ],
+        "cues": [
+            "La barre part du sol, explose vers le sternum",
+            "Le dos est un mur horizontal — il ne bouge PAS",
+            "Serre les omoplates a chaque rep comme un etau",
+        ],
+        "key_angles": {
+            "trunk_inclination": {"optimal": [60, 80], "note": "torse quasi parallele au sol"},
+            "elbow_flexion": {"optimal_rom": [30, 110]},
+        },
+        "safety_notes": "Plus strict que le barbell row classique. Reduit la triche par design. Stop si le dos arrondit.",
+    },
+
+    "sissy_squat": {
+        "muscles_primary": ["quadriceps (rectus femoris accent)"],
+        "muscles_secondary": ["core (stabilisation)", "tibialis anterior"],
+        "common_errors": [
+            "Se pencher en avant au lieu de se pencher en arriere",
+            "Genoux qui ne depassent pas suffisamment les orteils (manque d'amplitude)",
+            "Pieds pas sur la pointe (perte d'equilibre)",
+            "Descente trop rapide sans controle (stress rotulien)",
+            "Hanches qui flechissent au lieu de rester alignees",
+        ],
+        "corrections": [
+            "Penche-toi EN ARRIERE depuis les genoux — le corps forme une ligne droite des genoux aux epaules",
+            "Les genoux avancent LOIN devant les orteils — c'est le but de l'exercice",
+            "Monte sur la pointe des pieds, tiens-toi a un support si besoin",
+            "Excentrique ultra lent (4-5 sec) — l'exercice est dur sur les tendons",
+            "Hanches en extension complete — ne casse PAS a la hanche",
+        ],
+        "cues": [
+            "Imagine que tu es une porte qui s'ouvre — le pivot est aux genoux",
+            "Corps droit des genoux aux epaules",
+            "Descends lentement, les genoux avancent",
+        ],
+        "key_angles": {
+            "knee_flexion": {"optimal_rom": [60, 130], "note": "grande amplitude pour cibler le rectus femoris"},
+        },
+        "safety_notes": "Exercice avance. Tres haute charge sur le tendon rotulien. Deconseille si douleur aux genoux. Commencer en s'aidant d'un support. Progression tres lente.",
+    },
+
+    "landmine_press": {
+        "muscles_primary": ["grand pectoral (faisceau claviculaire)", "deltoides anterieurs"],
+        "muscles_secondary": ["triceps brachial", "serratus anterior", "core"],
+        "common_errors": [
+            "Trop de cambrure lombaire pour compenser la charge",
+            "Rotation du torse au lieu d'un press propre",
+            "Coude qui part trop en lateral (stress articulaire)",
+            "Pas de controle excentrique — la barre retombe",
+        ],
+        "corrections": [
+            "Sangle abdominale engagee a fond, cotes basses",
+            "Le coude reste proche du corps a 30-45 deg d'abduction",
+            "Controle la descente 2-3 sec, pousse explosive",
+            "Position split ou genoux pour stabiliser le bassin",
+        ],
+        "cues": [
+            "Pousse en arc vers le haut, pas droit devant",
+            "Le coude glisse le long des cotes",
+            "Verrouille le core avant chaque rep",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [60, 160]},
+            "shoulder_flexion": {"optimal": [80, 130], "note": "arc naturel de la landmine"},
+        },
+        "safety_notes": "Excellent pour les epaules sensibles. Trajectoire naturelle grace a l'arc de la barre.",
+    },
+
     # ══════════════════════════════════════════════════════════════════════
     # DOS
     # ══════════════════════════════════════════════════════════════════════
@@ -448,6 +671,84 @@ EXERCISE_KB: ExerciseKB = {
         "safety_notes": "Exercice leger, 12-20 reps. Pas un mouvement de force.",
     },
 
+    "chinup": {
+        "muscles_primary": ["grand dorsal", "biceps brachial"],
+        "muscles_secondary": ["brachial", "grand rond", "rhomboides"],
+        "common_errors": [
+            "Kipping ou balancement pour finir les reps",
+            "Demi-amplitude — bras pas completement tendus en bas",
+            "Menton qui pousse en avant au lieu de monter le torse",
+            "Coudes qui partent vers l'exterieur",
+        ],
+        "corrections": [
+            "Full ROM: bras quasi tendus en bas, menton au-dessus de la barre en haut",
+            "Monte la poitrine vers la barre, pas le menton vers le ciel",
+            "Coudes drives vers le bas et DEVANT toi, pas sur les cotes",
+            "Controle la descente 2-3 sec, pas de chute libre",
+        ],
+        "cues": [
+            "Tire la barre vers ta clavicule",
+            "Serre les biceps en haut",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [20, 130]},
+        },
+        "safety_notes": "Supination met plus de stress sur les biceps que le pullup. Ajouter du lest progressivement.",
+    },
+
+    "close_grip_pulldown": {
+        "muscles_primary": ["grand dorsal", "grand rond"],
+        "muscles_secondary": ["biceps brachial", "brachial", "rhomboides"],
+        "common_errors": [
+            "Tirer avec les bras au lieu d'initier avec le dos",
+            "Se pencher trop en arriere (devient un rowing)",
+            "Lacher la contraction en haut — poids qui remonte d'un coup",
+            "Poignets qui cassent",
+        ],
+        "corrections": [
+            "Initie le mouvement en deprimant les omoplates AVANT de tirer",
+            "Legere inclinaison arriere (10-15 deg max) et fixe",
+            "Controle le retour 2-3 sec, etirement complet en haut",
+            "Poignets neutres, tire avec les coudes pas les mains",
+        ],
+        "cues": [
+            "Coudes dans les poches",
+            "Serre le dos en bas du mouvement",
+            "Etire-toi completement en haut",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [30, 150]},
+            "shoulder_extension": {"optimal": [0, 45]},
+        },
+        "safety_notes": "Prise serree met plus de stress sur les bras. Alterner avec prise large.",
+    },
+
+    "seal_row": {
+        "muscles_primary": ["grand dorsal", "rhomboides", "trapeze moyen"],
+        "muscles_secondary": ["biceps brachial", "deltoides posterieurs", "infraspinatus"],
+        "common_errors": [
+            "Tricher avec le momentum (soulever le torse du banc)",
+            "Tirer trop haut et perdre la retraction scapulaire",
+            "Amplitude incomplete en bas (pas d'etirement)",
+            "Prise trop serree ou trop large pour le ciblage voulu",
+        ],
+        "corrections": [
+            "Le torse reste COLLE au banc a chaque rep — zero triche possible",
+            "Tire les coudes vers les hanches, squeeze les omoplates 1 sec",
+            "Laisse les bras s'etendre completement en bas a chaque rep",
+            "Prise a largeur d'epaules pour un ciblage equilibre dos/rhomboides",
+        ],
+        "cues": [
+            "Ventre colle au banc en permanence",
+            "Tire les coudes, pas les mains",
+            "Squeeze les omoplates comme si tu tenais un crayon entre elles",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [30, 120]},
+        },
+        "safety_notes": "Le banc sureleve elimine toute triche lombaire. Exercice ideal pour isoler le dos.",
+    },
+
     # ══════════════════════════════════════════════════════════════════════
     # EPAULES
     # ══════════════════════════════════════════════════════════════════════
@@ -589,6 +890,111 @@ EXERCISE_KB: ExerciseKB = {
         "safety_notes": "Charge moderee. La rotation ajoute du stress a l'epaule.",
     },
 
+    "dumbbell_ohp": {
+        "muscles_primary": ["deltoides anterieurs", "deltoides lateraux"],
+        "muscles_secondary": ["triceps brachial", "trapeze superieur", "serratus anterior"],
+        "common_errors": [
+            "Cambrure lombaire excessive pour compenser la charge",
+            "Halteres qui partent trop en avant (pas d'alignement)",
+            "Coudes qui descendent trop bas (stress sur la coiffe)",
+            "Verrouillage brutal des coudes en haut",
+        ],
+        "corrections": [
+            "Cotes basses, sangle engagee — ZERO cambrure",
+            "Halteres alignees au-dessus des epaules en haut, pas devant",
+            "Descends les coudes a hauteur d'epaule (90 deg), pas plus",
+            "Extension complete mais fluide, sans claquer les coudes",
+        ],
+        "cues": [
+            "Pousse droit vers le plafond",
+            "Serre les abdos comme si tu allais prendre un coup",
+            "Les halteres se rapprochent en haut",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [80, 170]},
+            "shoulder_abduction": {"optimal": [80, 100]},
+        },
+        "safety_notes": "Debout demande plus de core que assis. Si cambrure, passer assis ou reduire la charge.",
+    },
+
+    "cable_lateral_raise": {
+        "muscles_primary": ["deltoides lateraux"],
+        "muscles_secondary": ["trapeze superieur", "supraspinatus"],
+        "common_errors": [
+            "Tirer avec le trapeze (hausser les epaules)",
+            "Balancer le corps pour monter la charge",
+            "Bras trop tendus (stress coude)",
+            "Monter au-dessus de 90 deg (trapeze prend le relais)",
+        ],
+        "corrections": [
+            "Epaules BASSES en permanence — deprime les omoplates",
+            "Corps fixe, seul le bras bouge. S'accrocher a un support si besoin",
+            "Legere flexion du coude (15-20 deg) et fixe",
+            "Monte jusqu'a l'horizontale, pas plus haut",
+        ],
+        "cues": [
+            "Verse la bouteille d'eau (petit doigt plus haut)",
+            "Epaule basse, coude monte",
+        ],
+        "key_angles": {
+            "shoulder_abduction": {"optimal_rom": [0, 90]},
+        },
+        "safety_notes": "Cable = tension constante. Leger (5-12 kg). Ideal en finisher haute reps.",
+    },
+
+    "rear_delt_fly": {
+        "muscles_primary": ["deltoides posterieurs"],
+        "muscles_secondary": ["rhomboides", "trapeze moyen", "infraspinatus"],
+        "common_errors": [
+            "Utiliser le momentum au lieu d'isoler le deltoide posterieur",
+            "Bras trop tendus (coudes verrouilles = stress articulaire)",
+            "Trop de retraction scapulaire (rhomboides volent le travail)",
+            "Torse qui bouge au lieu de rester fixe",
+        ],
+        "corrections": [
+            "Leger et controle — c'est de l'isolation, pas de la force",
+            "Legere flexion du coude (20-30 deg) fixe pendant tout le mouvement",
+            "Focus sur le deltoide post: ouvre les bras en arc, pas en tirant les omoplates",
+            "Penche a 45-60 deg et FIXE le torse, ou utiliser un banc incline",
+        ],
+        "cues": [
+            "Ouvre les bras en eventail",
+            "Les coudes montent, pas les mains",
+        ],
+        "key_angles": {
+            "shoulder_abduction": {"optimal_rom": [0, 90]},
+            "trunk_inclination": {"optimal": [45, 70]},
+        },
+        "safety_notes": "Ne pas forcer l'amplitude. Si douleur posterieure d'epaule, verifier la mobilite.",
+    },
+
+    "lu_raise": {
+        "muscles_primary": ["deltoides lateraux", "deltoides anterieurs"],
+        "muscles_secondary": ["trapeze superieur", "supraspinatus"],
+        "common_errors": [
+            "Charge trop lourde — mouvement degrade des la premiere rep",
+            "Pas de distinction entre les deux phases (lateral puis overhead)",
+            "Coudes qui tombent pendant la phase overhead",
+            "Cambrure pour compenser en haut du mouvement",
+        ],
+        "corrections": [
+            "Tres leger (2-5 kg) — c'est un exercice de qualite articulaire",
+            "Phase 1: lateral raise jusqu'a 90 deg. Phase 2: rotation vers le haut",
+            "Les coudes restent a hauteur d'epaule pendant la rotation",
+            "Core engage, zero cambrure, mouvement lent et controle",
+        ],
+        "cues": [
+            "Monte lateral, puis tourne vers le ciel",
+            "Les coudes sont le pivot, ils ne bougent pas",
+            "Lent a la montee, lent a la descente",
+        ],
+        "key_angles": {
+            "shoulder_abduction": {"optimal_rom": [0, 90], "note": "phase laterale"},
+            "shoulder_flexion": {"optimal_rom": [90, 180], "note": "phase overhead"},
+        },
+        "safety_notes": "Exercice avance de mobilite/force. Deconseille si instabilite d'epaule. Toujours tres leger.",
+    },
+
     # ══════════════════════════════════════════════════════════════════════
     # BICEPS
     # ══════════════════════════════════════════════════════════════════════
@@ -679,6 +1085,106 @@ EXERCISE_KB: ExerciseKB = {
         "safety_notes": "Ideal pour les finishers grace a la tension constante.",
     },
 
+    "dumbbell_curl": {
+        "muscles_primary": ["biceps brachial"],
+        "muscles_secondary": ["brachial", "brachioradial"],
+        "common_errors": [
+            "Balancement du corps pour monter la charge (cheat curl involontaire)",
+            "Coudes qui avancent devant le torse",
+            "Supination absente (poignets en neutre tout le mouvement)",
+            "Descente trop rapide sans controle excentrique",
+        ],
+        "corrections": [
+            "Coudes COLLES au corps, seuls les avant-bras bougent",
+            "Commencer en neutre en bas, supiner progressivement en montant",
+            "Excentrique 3 sec, concentrique 1-2 sec",
+            "Si le corps bouge, la charge est trop lourde — baisse",
+        ],
+        "cues": [
+            "Tourne les petits doigts vers toi en haut",
+            "Les coudes sont cloues a tes cotes",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [20, 140]},
+        },
+        "safety_notes": "Charge raisonnable. Le biceps est un petit muscle, pas besoin de charger comme un squat.",
+    },
+
+    "incline_curl": {
+        "muscles_primary": ["biceps brachial (longue portion)"],
+        "muscles_secondary": ["brachial"],
+        "common_errors": [
+            "Banc pas assez incline (perte de l'etirement de la longue portion)",
+            "Coudes qui avancent pendant la flexion",
+            "Epaules qui roulent en avant",
+            "Charge trop lourde — triche avec le momentum",
+        ],
+        "corrections": [
+            "Banc a 45-60 deg d'inclinaison pour etirer la longue portion",
+            "Coudes fixes, pointent vers le sol TOUT le mouvement",
+            "Epaules retractees, dos colle au banc",
+            "Leger — l'etirement rend l'exercice plus dur a charge egale",
+        ],
+        "cues": [
+            "Laisse les bras pendre verticalement, puis monte",
+            "Les coudes ne bougent pas, ils pointent vers le sol",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [10, 130]},
+        },
+        "safety_notes": "Position d'etirement intense sur la longue portion. Ne pas forcer en bas si douleur bicipitale.",
+    },
+
+    "concentration_curl": {
+        "muscles_primary": ["biceps brachial (courte portion)"],
+        "muscles_secondary": ["brachial"],
+        "common_errors": [
+            "Utiliser l'epaule pour lever la charge",
+            "Coude qui glisse sur la cuisse",
+            "Mouvement trop rapide sans squeeze en haut",
+            "Torse qui se redresse pour tricher",
+        ],
+        "corrections": [
+            "Le coude est verrouille DANS la face interne de la cuisse — fixe",
+            "Seul l'avant-bras bouge, tout le reste est une statue",
+            "Squeeze 2 sec en haut a chaque rep",
+            "Penche-toi vers l'avant, le torse ne bouge plus",
+        ],
+        "cues": [
+            "Le coude est plante dans la cuisse",
+            "Squeeze le biceps comme une orange en haut",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [20, 140]},
+        },
+        "safety_notes": "Exercice d'isolation pure. Leger et controle. Parfait pour la connexion muscle-cerveau.",
+    },
+
+    "spider_curl": {
+        "muscles_primary": ["biceps brachial (courte portion)"],
+        "muscles_secondary": ["brachial"],
+        "common_errors": [
+            "Coudes qui reculent pendant la flexion",
+            "Balancement des bras (momentum)",
+            "Pas d'etirement complet en bas",
+            "Banc trop incline ou pas assez (mauvais angle)",
+        ],
+        "corrections": [
+            "Poitrine collee au banc incline (45 deg), bras pendants devant",
+            "Les coudes pointent droit vers le sol et ne bougent PAS",
+            "Full extension en bas, squeeze en haut",
+            "La gravite fait le travail — zero momentum possible si bien execute",
+        ],
+        "cues": [
+            "Les bras pendent dans le vide, seuls les avant-bras montent",
+            "Squeeze en haut, etire en bas",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [15, 140]},
+        },
+        "safety_notes": "Position anti-triche par design. Ideal pour les gens qui cheat curl tout le temps.",
+    },
+
     # ══════════════════════════════════════════════════════════════════════
     # TRICEPS
     # ══════════════════════════════════════════════════════════════════════
@@ -743,6 +1249,108 @@ EXERCISE_KB: ExerciseKB = {
             "elbow_flexion": {"optimal_rom": [30, 130]},
         },
         "safety_notes": "Exercice leger d'isolation. Pas un mouvement de force.",
+    },
+
+    "overhead_tricep": {
+        "muscles_primary": ["triceps brachial (longue portion)"],
+        "muscles_secondary": ["anconeus"],
+        "common_errors": [
+            "Coudes qui s'ecartent lateralement",
+            "Cambrure lombaire quand la charge monte au-dessus de la tete",
+            "Amplitude incomplete — pas d'etirement en bas",
+            "Mouvement saccade avec le momentum",
+        ],
+        "corrections": [
+            "Coudes serres, pointes vers le plafond en PERMANENCE",
+            "Core engage, cotes basses — le dos ne cambre pas",
+            "Descends jusqu'a l'etirement complet de la longue portion (derriere la tete)",
+            "Tempo controle: 2-3 sec excentrique, extension explosive",
+        ],
+        "cues": [
+            "Les coudes pointent le plafond et ne bougent pas",
+            "Etire bien derriere la tete puis explose en haut",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [30, 140]},
+        },
+        "safety_notes": "Position overhead = stress sur les epaules. Si douleur, passer a une variante neutre.",
+    },
+
+    "close_grip_bench": {
+        "muscles_primary": ["triceps brachial", "grand pectoral (faisceau sternal)"],
+        "muscles_secondary": ["deltoides anterieurs"],
+        "common_errors": [
+            "Prise trop serree (poignets en souffrance, instable)",
+            "Coudes qui s'ecartent comme un bench classique",
+            "Barre qui descend trop haut sur la poitrine",
+            "Pas de retraction scapulaire",
+        ],
+        "corrections": [
+            "Prise a largeur d'epaules — pas besoin de plus serre",
+            "Coudes COLLES au corps, 20-30 deg d'abduction max",
+            "La barre descend vers le bas de la poitrine / sternum",
+            "Meme setup que le bench: omoplates retractees, pieds ancres",
+        ],
+        "cues": [
+            "Coudes le long du corps",
+            "Pousse la barre vers le plafond, pas vers tes pieds",
+            "C'est un bench avec les coudes rentres",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [70, 160]},
+            "shoulder_abduction": {"optimal": [15, 35], "note": "coudes proches du corps"},
+        },
+        "safety_notes": "Memes regles de securite que le bench press. Spotter ou safety pins obligatoires.",
+    },
+
+    "diamond_pushup": {
+        "muscles_primary": ["triceps brachial"],
+        "muscles_secondary": ["grand pectoral", "deltoides anterieurs", "core"],
+        "common_errors": [
+            "Mains trop ecartees (devient un pushup normal)",
+            "Hanches qui s'affaissent (pont inverse)",
+            "Coudes qui partent sur les cotes au lieu de rester serres",
+            "Amplitude incomplete",
+        ],
+        "corrections": [
+            "Index et pouces se touchent pour former un losange sous la poitrine",
+            "Corps gainee de la tete aux pieds — les fesses ne montent pas, ne descendent pas",
+            "Coudes glissent le long du torse, pas en croix",
+            "Descends jusqu'a ce que la poitrine touche les mains",
+        ],
+        "cues": [
+            "Forme un diamant avec tes mains",
+            "Coudes le long du corps, pas en aile de poulet",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [60, 140]},
+        },
+        "safety_notes": "Exercice poids de corps. Si trop dur, commencer sur les genoux.",
+    },
+
+    "cable_overhead_tricep": {
+        "muscles_primary": ["triceps brachial (longue portion)"],
+        "muscles_secondary": ["anconeus", "core"],
+        "common_errors": [
+            "Coudes qui s'ecartent sous la charge du cable",
+            "Se pencher trop en avant (le dos travaille)",
+            "Pas d'etirement complet derriere la tete",
+            "Cambrure lombaire",
+        ],
+        "corrections": [
+            "Coudes fixes a cote de la tete, serres",
+            "Position split stable, torse incline a 30-45 deg et FIXE",
+            "Laisse le cable etirer les triceps a fond derriere la tete",
+            "Sangle abdominale engagee, zero cambrure",
+        ],
+        "cues": [
+            "Les coudes sont des charnieres fixes",
+            "Etire bien derriere, pousse fort devant",
+        ],
+        "key_angles": {
+            "elbow_flexion": {"optimal_rom": [20, 140]},
+        },
+        "safety_notes": "Le cable offre une tension constante. Ideal pour la longue portion en etirement.",
     },
 
     # ══════════════════════════════════════════════════════════════════════
@@ -932,6 +1540,36 @@ EXERCISE_KB: ExerciseKB = {
         "safety_notes": "Exercice ideal pour apprendre le squat. Leger.",
     },
 
+    "walking_lunge": {
+        "muscles_primary": ["quadriceps", "fessiers"],
+        "muscles_secondary": ["ischio-jambiers", "adducteurs", "core"],
+        "common_errors": [
+            "Genou avant qui depasse largement les orteils a chaque pas",
+            "Pas trop court (le genou arriere ne descend pas assez)",
+            "Torse penche en avant (perte d'equilibre)",
+            "Genou arriere qui tape violemment le sol",
+            "Valgus du genou avant (genou qui rentre vers l'interieur)",
+        ],
+        "corrections": [
+            "Grand pas: le tibia avant reste quasi vertical",
+            "Le genou arriere descend a 2-3 cm du sol, controle",
+            "Torse droit, regard devant, epaules au-dessus des hanches",
+            "Pousse avec le talon du pied avant pour avancer",
+            "Le genou avant suit la direction du pied — pas de valgus",
+        ],
+        "cues": [
+            "Grand pas, genou arriere frole le sol",
+            "Pousse avec le talon avant pour te relever",
+            "Torse droit comme un piquet",
+        ],
+        "key_angles": {
+            "knee_flexion_front": {"optimal": [80, 100], "note": "genou avant a ~90 deg"},
+            "knee_flexion_rear": {"optimal_rom": [80, 120]},
+            "trunk_inclination": {"optimal": [0, 15], "note": "quasi vertical"},
+        },
+        "safety_notes": "Demande de l'equilibre. Commencer sans charge. Attention au valgus du genou.",
+    },
+
     # ══════════════════════════════════════════════════════════════════════
     # ISCHIO-JAMBIERS
     # ══════════════════════════════════════════════════════════════════════
@@ -1056,6 +1694,117 @@ EXERCISE_KB: ExerciseKB = {
         "safety_notes": "Exercice avance. Maitriser le RDL avant. Charge legere.",
     },
 
+    "nordic_curl": {
+        "muscles_primary": ["ischio-jambiers (excentrique)"],
+        "muscles_secondary": ["gastrocnemiens", "fessiers"],
+        "common_errors": [
+            "Casser a la hanche au lieu de descendre avec le corps droit",
+            "Descente non controlee (chute libre)",
+            "Pas d'utilisation des ischio pour freiner la descente",
+            "Se relever avec les bras au lieu des ischio",
+        ],
+        "corrections": [
+            "Corps DROIT de la tete aux genoux — une seule ligne rigide",
+            "Descends le plus lentement possible en freinant avec les ischio",
+            "Utilise les mains pour te rattraper en bas, puis remonte avec les ischio",
+            "Commence avec des excentriques seulement si tu ne peux pas remonter",
+        ],
+        "cues": [
+            "Ton corps est une planche — ne casse pas a la hanche",
+            "Freine la descente le plus longtemps possible",
+        ],
+        "key_angles": {
+            "knee_flexion": {"optimal_rom": [10, 90]},
+        },
+        "safety_notes": "Risque de blessure aux ischio si progression trop rapide. Commencer par des excentriques lentes.",
+    },
+
+    "single_leg_rdl": {
+        "muscles_primary": ["ischio-jambiers", "fessiers"],
+        "muscles_secondary": ["erecteurs spinaux", "stabilisateurs de hanche"],
+        "common_errors": [
+            "Hanche qui s'ouvre (rotation du bassin)",
+            "Dos rond parce que la mobilite manque",
+            "Genou d'appui qui verrouille completement",
+            "Perte d'equilibre a chaque rep",
+            "Pas assez de hip hinge (descente insuffisante)",
+        ],
+        "corrections": [
+            "Les deux hanches restent PARALLELES au sol — pas de rotation",
+            "Dos plat: arrete la descente avant que le dos arrondisse",
+            "Legere flexion du genou d'appui (10-20 deg) et fixe",
+            "Regard fixe sur un point au sol a 2m devant toi",
+            "La jambe arriere monte EN MEME TEMPS que le torse descend — contrepoids",
+        ],
+        "cues": [
+            "Tu es une balancoire: la jambe arriere monte quand le torse descend",
+            "Hanches paralleles au sol en permanence",
+            "Pousse les fesses vers le mur derriere",
+        ],
+        "key_angles": {
+            "hip_flexion": {"optimal_rom": [30, 90]},
+            "knee_flexion": {"optimal": [10, 25], "note": "jambe d'appui quasi tendue"},
+        },
+        "safety_notes": "Exercice d'equilibre et de stabilite. Commencer sans charge. Maitriser le RDL bilateral d'abord.",
+    },
+
+    "glute_ham_raise": {
+        "muscles_primary": ["ischio-jambiers", "fessiers"],
+        "muscles_secondary": ["erecteurs spinaux", "gastrocnemiens"],
+        "common_errors": [
+            "Extension lombaire au lieu de l'extension de hanche",
+            "Pas de squeeze des fessiers en position haute",
+            "Descente trop rapide (phase excentrique negligee)",
+            "Utiliser les bras pour se relever",
+        ],
+        "corrections": [
+            "Le mouvement commence par l'extension de hanche (fessiers) PUIS extension du genou (ischio)",
+            "Squeeze les fessiers 1-2 sec en position haute, corps aligne",
+            "Controle la descente 3 sec minimum — c'est la ou l'hypertrophie se fait",
+            "Les bras sont croises sur la poitrine ou derriere la tete",
+        ],
+        "cues": [
+            "Fesses d'abord, puis deplie les genoux",
+            "Controle la descente, ne tombe pas",
+            "Corps droit en haut, squeeze les fesses",
+        ],
+        "key_angles": {
+            "hip_flexion": {"optimal_rom": [0, 90]},
+            "knee_flexion": {"optimal_rom": [20, 90]},
+        },
+        "safety_notes": "Exercice avance. Utiliser l'assistance (bande elastique) si necessaire au debut.",
+    },
+
+    "trap_bar_deadlift": {
+        "muscles_primary": ["quadriceps", "fessiers", "ischio-jambiers"],
+        "muscles_secondary": ["erecteurs spinaux", "trapeze", "core"],
+        "common_errors": [
+            "Dos rond (meme probleme que le deadlift conventionnel)",
+            "Hanches trop hautes au depart (stiff-leg involontaire)",
+            "Tirer avec les bras au lieu de pousser le sol",
+            "Hyperextension en haut",
+            "Se pencher en avant au lieu de rester centre dans la barre",
+        ],
+        "corrections": [
+            "Poitrine haute, dos plat, omoplates engagees avant de tirer",
+            "Hanches entre les genoux et les epaules — position mi-squat mi-deadlift",
+            "POUSSE le sol avec les pieds, ne tire pas la barre",
+            "En haut: debout droit, hanches verrouillees, pas de cambrure",
+            "Centre de gravite au milieu de la trap bar, pas devant",
+        ],
+        "cues": [
+            "Pousse le sol, ne tire pas la barre",
+            "Reste au centre de la barre",
+            "Poitrine haute, dos plat",
+        ],
+        "key_angles": {
+            "hip_flexion": {"optimal_rom": [40, 90]},
+            "knee_flexion": {"optimal_rom": [60, 110]},
+            "trunk_inclination": {"optimal": [20, 50], "note": "plus vertical qu'un deadlift classique"},
+        },
+        "safety_notes": "Plus safe que le deadlift conventionnel (charge centree). Excellent pour debutants en deadlift.",
+    },
+
     # ══════════════════════════════════════════════════════════════════════
     # FESSIERS
     # ══════════════════════════════════════════════════════════════════════
@@ -1125,6 +1874,31 @@ EXERCISE_KB: ExerciseKB = {
         "safety_notes": "Commencer sans charge pour maitriser l'equilibre.",
     },
 
+    "cable_kickback": {
+        "muscles_primary": ["fessiers (grand gluteal)"],
+        "muscles_secondary": ["ischio-jambiers"],
+        "common_errors": [
+            "Cambrure lombaire pour donner plus d'amplitude",
+            "Mouvement trop rapide sans contraction en haut",
+            "La hanche s'ouvre (rotation externe pour tricher)",
+            "Charge trop lourde — tout le corps compense",
+        ],
+        "corrections": [
+            "Sangle abdominale engagee, dos NEUTRE en permanence",
+            "Squeeze le fessier 1-2 sec en extension complete",
+            "La hanche reste parallele au sol, zero rotation",
+            "Leger — c'est de l'isolation, 12-20 reps",
+        ],
+        "cues": [
+            "Pousse le talon vers le mur derriere",
+            "Squeeze la fesse en haut comme si tu serrais une piece",
+        ],
+        "key_angles": {
+            "hip_extension": {"optimal_rom": [0, 30], "note": "pas besoin de grande amplitude"},
+        },
+        "safety_notes": "Exercice d'isolation. La charge ne devrait jamais forcer une compensation lombaire.",
+    },
+
     # ══════════════════════════════════════════════════════════════════════
     # MOLLETS
     # ══════════════════════════════════════════════════════════════════════
@@ -1145,6 +1919,29 @@ EXERCISE_KB: ExerciseKB = {
         "cues": ["Monte sur la pointe le plus haut possible", "Etire-toi completement en bas"],
         "key_angles": {},
         "safety_notes": "Les mollets repondent aux hautes reps (15-25) et au tempo lent.",
+    },
+
+    "seated_calf_raise": {
+        "muscles_primary": ["soleaire"],
+        "muscles_secondary": ["gastrocnemiens (reduit car genoux flechis)"],
+        "common_errors": [
+            "Rebond en bas au lieu d'un etirement controle",
+            "Amplitude incomplete (demi-reps chroniques)",
+            "Charge sur la pointe des pieds au lieu de l'avant-pied",
+            "Tempo trop rapide sans contraction en haut",
+        ],
+        "corrections": [
+            "Pause 2 sec en etirement COMPLET en bas, pause 1 sec en contraction en haut",
+            "Full ROM a chaque rep — etirement max en bas, montee max en haut",
+            "Avant-pieds sur la plateforme, talons dans le vide",
+            "Tempo lent: 2 sec montee, 1 sec squeeze, 3 sec descente",
+        ],
+        "cues": [
+            "Etire-toi completement en bas, monte le plus haut possible",
+            "Lent et controle — les mollets repondent au temps sous tension",
+        ],
+        "key_angles": {},
+        "safety_notes": "Genoux flechis = soleaire cible. Hautes reps (15-30). Complement indispensable du calf raise debout.",
     },
 
     # ══════════════════════════════════════════════════════════════════════
@@ -1201,6 +1998,84 @@ EXERCISE_KB: ExerciseKB = {
         "cues": ["Rapproche les cotes du bassin", "Les bras ne bougent pas"],
         "key_angles": {},
         "safety_notes": "Bonne option pour charger les abdos progressivement.",
+    },
+
+    "ab_wheel": {
+        "muscles_primary": ["rectus abdominis", "obliques"],
+        "muscles_secondary": ["grand dorsal", "deltoides", "hip flexors"],
+        "common_errors": [
+            "Cambrure lombaire en extension (le bas du dos lache)",
+            "Hanches qui descendent en premier au lieu du torse",
+            "Amplitude trop grande pour le niveau (s'effondrer en extension)",
+            "Retour en tirant avec les bras au lieu des abdos",
+        ],
+        "corrections": [
+            "PPT (bassin en retroversion) AVANT de commencer a rouler",
+            "Le mouvement part des epaules: les bras s'eloignent en avant",
+            "Commence avec une amplitude reduite, progresse sur des semaines",
+            "Pour revenir: contracte les abdos pour ramener la roue, pas les bras",
+        ],
+        "cues": [
+            "Rentre le nombril vers la colonne en permanence",
+            "Pousse le sol loin de toi puis ramene-le avec les abdos",
+            "Si le dos cambre, tu es alle trop loin",
+        ],
+        "key_angles": {
+            "hip_flexion": {"optimal_rom": [30, 170], "note": "de flechis a quasi aligne"},
+            "shoulder_flexion": {"optimal_rom": [90, 180]},
+        },
+        "safety_notes": "Exercice avance. Maitriser le dead bug et le plank avant. Stop si douleur lombaire.",
+    },
+
+    "plank": {
+        "muscles_primary": ["rectus abdominis", "transverse abdominis"],
+        "muscles_secondary": ["obliques", "erecteurs spinaux", "deltoides", "fessiers"],
+        "common_errors": [
+            "Hanches trop hautes (en tente)",
+            "Hanches qui s'affaissent (cambrure lombaire)",
+            "Tete qui pend ou qui regarde devant",
+            "Respiration bloquee",
+        ],
+        "corrections": [
+            "Corps aligne de la tete aux talons — UNE SEULE LIGNE",
+            "Serre les fessiers ET les abdos en meme temps",
+            "Tete dans le prolongement de la colonne — regard vers le sol",
+            "Respirer normalement en maintenant le gainage",
+        ],
+        "cues": [
+            "Imagine une planche rigide de la tete aux pieds",
+            "Serre les fesses et rentre le ventre",
+        ],
+        "key_angles": {
+            "trunk_alignment": {"optimal": [170, 180], "note": "corps quasi rectiligne"},
+        },
+        "safety_notes": "Si douleur lombaire, les hanches sont probablement trop basses. Commencer par des series courtes (20-30 sec).",
+    },
+
+    "woodchop": {
+        "muscles_primary": ["obliques", "rectus abdominis"],
+        "muscles_secondary": ["deltoides", "core", "fessiers", "quadriceps"],
+        "common_errors": [
+            "Tirer avec les bras au lieu de tourner avec le tronc",
+            "Pieds qui ne pivotent pas (torsion lombaire forcee)",
+            "Mouvement trop rapide sans controle",
+            "Flexion lombaire au lieu de rotation",
+        ],
+        "corrections": [
+            "Le mouvement vient de la ROTATION du tronc, les bras suivent",
+            "Les pieds et les hanches pivotent avec le mouvement — pas de torsion forcee",
+            "Controle le mouvement dans les deux sens, surtout le retour",
+            "Le tronc tourne, il ne flechit pas — reste grand",
+        ],
+        "cues": [
+            "Tourne le torse, les bras sont juste des leviers",
+            "Les pieds suivent la rotation",
+            "Explose en rotation, controle le retour",
+        ],
+        "key_angles": {
+            "trunk_rotation": {"optimal_rom": [0, 60], "note": "rotation controlee"},
+        },
+        "safety_notes": "Ne pas forcer la rotation si manque de mobilite thoracique. Commencer leger au cable.",
     },
 
     # ══════════════════════════════════════════════════════════════════════
@@ -1267,6 +2142,61 @@ EXERCISE_KB: ExerciseKB = {
         "cues": ["Explose du squat directement dans le press", "Un mouvement fluide"],
         "key_angles": {},
         "safety_notes": "Cardio intense. Bien maitriser front squat et OHP separement.",
+    },
+
+    "snatch": {
+        "muscles_primary": ["quadriceps", "fessiers", "deltoides", "trapeze"],
+        "muscles_secondary": ["ischio-jambiers", "erecteurs spinaux", "triceps", "core"],
+        "common_errors": [
+            "Tirer avec les bras trop tot (pas de triple extension)",
+            "Dos rond au premier pull",
+            "Reception bras pas verrouilles overhead",
+            "Barre qui part en avant au lieu de rester proche du corps",
+            "Pas de squat de reception (starfish au lieu de OHS)",
+        ],
+        "corrections": [
+            "Premier pull = deadlift lent. Deuxieme pull = explosion des hanches. Troisieme pull = se tirer SOUS la barre",
+            "Dos plat, poitrine haute, epaules au-dessus de la barre au depart",
+            "Reception avec les bras VERROUILLES, barre au-dessus du centre de gravite",
+            "La barre reste proche: elle frole le torse pendant le pull",
+            "Se tirer sous la barre en position overhead squat",
+        ],
+        "cues": [
+            "Pousse le sol, puis EXPLOSE des hanches",
+            "Tire-toi sous la barre, ne la tire pas vers le haut",
+            "Bras verrouilles en reception, pieds a plat",
+        ],
+        "key_angles": {
+            "hip_flexion": {"optimal_rom": [30, 170]},
+            "knee_flexion": {"optimal_rom": [60, 170]},
+        },
+        "safety_notes": "Exercice TRES technique. Coaching obligatoire. Apprendre les progressions (muscle snatch, power snatch, hang snatch) avant le full snatch.",
+    },
+
+    "battle_rope": {
+        "muscles_primary": ["deltoides", "core"],
+        "muscles_secondary": ["biceps brachial", "avant-bras", "fessiers", "quadriceps"],
+        "common_errors": [
+            "Bouger avec les epaules seulement (pas d'implication du corps)",
+            "Dos rond et epaules voutees",
+            "Amplitude trop petite (ondes qui ne voyagent pas)",
+            "Rester debout jambes tendues",
+        ],
+        "corrections": [
+            "Le mouvement vient des hanches et du core, pas juste des bras",
+            "Position athletique: genoux flechis, dos neutre, poitrine haute",
+            "Grandes ondes puissantes qui voyagent jusqu'au point d'ancrage",
+            "Quart de squat, pieds largeur d'epaules, centre de gravite bas",
+        ],
+        "cues": [
+            "Reste bas, bouge fort",
+            "Les ondes doivent toucher le point d'ancrage",
+            "Tout le corps travaille, pas juste les bras",
+        ],
+        "key_angles": {
+            "knee_flexion": {"optimal": [20, 40], "note": "position athletique flechie"},
+        },
+        "safety_notes": "Exercice cardio intense. Commencer par des intervalles courts (20 sec ON / 40 sec OFF).",
     },
 }
 

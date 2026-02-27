@@ -177,7 +177,20 @@ def extract_pose(
             detection_result = landmarker.detect_for_video(mp_image, timestamp_ms)
 
             if detection_result.pose_landmarks and len(detection_result.pose_landmarks) > 0:
+                # Multi-person: choisir la personne avec le plus grand bounding box
+                # (plus grande surface = probablement le lifter, pas un spotter)
                 lms = detection_result.pose_landmarks[0]
+                if len(detection_result.pose_landmarks) > 1:
+                    best_idx = 0
+                    best_area = 0.0
+                    for p_idx, p_lms in enumerate(detection_result.pose_landmarks):
+                        xs = [p_lms[i].x for i in range(min(len(p_lms), 33))]
+                        ys = [p_lms[i].y for i in range(min(len(p_lms), 33))]
+                        area = (max(xs) - min(xs)) * (max(ys) - min(ys))
+                        if area > best_area:
+                            best_area = area
+                            best_idx = p_idx
+                    lms = detection_result.pose_landmarks[best_idx]
                 landmarks = [
                     _landmark_to_dict(lms[i], LANDMARK_NAMES[i])
                     for i in range(min(len(lms), len(LANDMARK_NAMES)))

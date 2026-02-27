@@ -19,18 +19,6 @@ from typing import Any
 from analysis.report_generator import Report
 
 
-def _morpho_recs_block(recs_html: str) -> str:
-    """Helper to avoid nested f-strings (Python 3.11 compat)."""
-    if not recs_html:
-        return ""
-    return (
-        '<div style="margin-top:16px;padding-top:14px;border-top:1px solid #151530">'
-        '<div style="color:#8888aa;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Recommandations personnalisees</div>'
-        f'{recs_html}'
-        '</div>'
-    )
-
-
 def _img_to_base64(image_path: str) -> str:
     """Encode une image en data URI base64."""
     data = Path(image_path).read_bytes()
@@ -65,7 +53,7 @@ def _score_label(score: int) -> str:
 def _bar_color(category: str) -> str:
     colors = {
         "securite": "#ff3366",
-        "efficacite": "#00d4ff",
+        "efficacite": "#06b6d4",
         "controle": "#ff6b35",
         "symetrie": "#00ff88",
     }
@@ -73,7 +61,7 @@ def _bar_color(category: str) -> str:
     for key, color in colors.items():
         if key in norm:
             return color
-    return "#00d4ff"
+    return "#06b6d4"
 
 
 # Titres de sections attendus du rapport LLM
@@ -152,8 +140,16 @@ def _format_report_html(report_text: str) -> str:
             section_count += 1
             icon = _get_section_icon(stripped)
             icon_html = f'<span style="margin-right:8px;vertical-align:middle;opacity:0.8">{icon}</span>' if icon else ""
+            # Section accent class
+            section_cls = "report-section fade-in"
+            if "CORRECTIONS" in upper:
+                section_cls += " section-corrections"
+            elif "CORRECTIFS" in upper or "CORRECTIF" in upper:
+                section_cls += " section-correctifs"
+            elif "POSITIF" in upper or "RESUME" in upper or "BIOMECANIQUE" in upper:
+                section_cls += " section-positive"
             html_parts.append(
-                f'<div class="report-section fade-in" style="animation-delay:{section_count * 0.05}s">'
+                f'<div class="{section_cls}" style="animation-delay:{section_count * 0.05}s">'
                 f'<div class="section-header">{icon_html}{stripped}</div>'
                 f'<div class="section-body">'
             )
@@ -245,18 +241,21 @@ def generate_html_report(
     gauge_offset = gauge_circumference * (1 - gauge_pct / 100)
 
     gauge_svg = f'''
-    <svg viewBox="0 0 120 120" style="width:180px;height:180px;margin:0 auto;display:block">
-        <circle cx="60" cy="60" r="54" fill="none" stroke="#1a1a2e" stroke-width="8"/>
-        <circle cx="60" cy="60" r="54" fill="none" stroke="{score_col}" stroke-width="8"
-            stroke-linecap="round" stroke-dasharray="{gauge_circumference}"
-            stroke-dashoffset="{gauge_offset}"
-            transform="rotate(-90 60 60)"
-            style="transition:stroke-dashoffset 1.5s ease-out"/>
-        <text x="60" y="55" text-anchor="middle" fill="{score_col}"
-            font-size="28" font-weight="900" font-family="Inter,system-ui,sans-serif">{score}</text>
-        <text x="60" y="72" text-anchor="middle" fill="#8888aa"
-            font-size="10" font-family="Inter,system-ui,sans-serif">/100</text>
-    </svg>'''
+    <div style="position:relative;width:200px;height:200px;margin:0 auto">
+        <div style="position:absolute;inset:0;border-radius:50%;box-shadow:0 0 40px {score_col}20,0 0 80px {score_col}10;pointer-events:none"></div>
+        <svg viewBox="0 0 120 120" style="width:200px;height:200px;display:block">
+            <circle cx="60" cy="60" r="54" fill="none" stroke="#1e2028" stroke-width="8"/>
+            <circle cx="60" cy="60" r="54" fill="none" stroke="{score_col}" stroke-width="8"
+                stroke-linecap="round" stroke-dasharray="{gauge_circumference}"
+                stroke-dashoffset="{gauge_offset}"
+                transform="rotate(-90 60 60)"
+                style="transition:stroke-dashoffset 1.5s ease-out;filter:drop-shadow(0 0 6px {score_col}80)"/>
+            <text x="60" y="53" text-anchor="middle" fill="{score_col}"
+                font-size="30" font-weight="900" font-family="Inter,system-ui,sans-serif">{score}</text>
+            <text x="60" y="70" text-anchor="middle" fill="#8888aa"
+                font-size="10" font-family="Inter,system-ui,sans-serif">/100</text>
+        </svg>
+    </div>'''
 
     # ── Sub-score gauges ──────────────────────────────────────────────────
     breakdown_html = ""
@@ -279,30 +278,18 @@ def generate_html_report(
             pct = min(100, int(val / max_val * 100)) if max_val else 0
             color = _bar_color(key)
 
-            # Mini gauge SVG
-            mini_circ = 2 * 3.14159 * 20  # r=20
-            mini_offset = mini_circ * (1 - pct / 100)
-
             gauges.append(f'''
             <div class="sub-gauge">
-                <svg viewBox="0 0 50 50" style="width:56px;height:56px">
-                    <circle cx="25" cy="25" r="20" fill="none" stroke="#1a1a2e" stroke-width="4"/>
-                    <circle cx="25" cy="25" r="20" fill="none" stroke="{color}" stroke-width="4"
-                        stroke-linecap="round" stroke-dasharray="{mini_circ}"
-                        stroke-dashoffset="{mini_offset}"
-                        transform="rotate(-90 25 25)"
-                        style="transition:stroke-dashoffset 1.2s ease-out"/>
-                    <text x="25" y="28" text-anchor="middle" fill="{color}"
-                        font-size="11" font-weight="700" font-family="Inter,system-ui,sans-serif">{val}</text>
-                </svg>
                 <div class="sub-gauge-info">
-                    <div class="sub-gauge-label">{label}</div>
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+                        <div class="sub-gauge-label">{label}</div>
+                        <div style="color:{color};font-weight:700;font-size:0.95em">{val}<span style="color:#6868aa;font-weight:400;font-size:0.85em">/{max_val}</span> <span style="color:#8888aa;font-size:0.8em">{pct}%</span></div>
+                    </div>
                     <div class="sub-gauge-bar">
-                        <div class="sub-gauge-fill" style="width:{pct}%;background:{color}"></div>
+                        <div class="sub-gauge-fill" style="width:{pct}%;background:linear-gradient(90deg,{color},{color}cc)"></div>
                     </div>
                     <div class="sub-gauge-desc">{description}</div>
                 </div>
-                <div class="sub-gauge-max">/{max_val}</div>
             </div>''')
 
         breakdown_html = f'''
@@ -363,15 +350,18 @@ def generate_html_report(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=5.0">
 <title>FORMCHECK — {html.escape(exercise_name)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 /* ── Reset & Base ─────────────────────────────────────────── */
 *{{margin:0;padding:0;box-sizing:border-box}}
 html{{scroll-behavior:smooth}}
 body{{
-    background:#08081a;
+    background:#0a0a0f;
     color:#d0d0e0;
-    font-family:Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
-    line-height:1.65;
+    font-family:'Inter',system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
+    line-height:1.7;
     -webkit-font-smoothing:antialiased;
     -moz-osx-font-smoothing:grayscale
 }}
@@ -395,7 +385,7 @@ body{{
 .header{{
     text-align:center;
     padding:40px 0 28px;
-    border-bottom:1px solid #1a1a2e;
+    border-bottom:1px solid #1e2028;
     position:relative
 }}
 .header::before{{
@@ -403,15 +393,15 @@ body{{
     position:absolute;
     top:0;left:50%;transform:translateX(-50%);
     width:200px;height:2px;
-    background:linear-gradient(90deg,transparent,#00d4ff,transparent);
+    background:linear-gradient(90deg,transparent,#06b6d4,transparent);
     border-radius:1px
 }}
 .brand-label{{
     font-size:0.75em;letter-spacing:5px;color:#6868aa;
     text-transform:uppercase;margin-bottom:10px
 }}
-.brand-name{{font-size:2em;font-weight:800;margin-bottom:2px}}
-.brand-name .fc{{color:#00d4ff}}
+.brand-name{{font-size:2em;font-weight:800;margin-bottom:2px;letter-spacing:2px}}
+.brand-name .fc{{color:#06b6d4}}
 .brand-name .ch{{color:#fff}}
 .brand-by{{color:#6868aa;font-size:0.78em;letter-spacing:3px;margin-bottom:24px}}
 .exercise-name{{font-size:1.35em;color:#fff;font-weight:700;margin-bottom:16px}}
@@ -420,8 +410,8 @@ body{{
 
 /* ── Cards ────────────────────────────────────────────────── */
 .card{{
-    background:#0e0e24;
-    border:1px solid #1a1a2e;
+    background:#12141a;
+    border:1px solid #1e2028;
     border-radius:16px;
     padding:24px;
     margin:20px 0;
@@ -429,13 +419,13 @@ body{{
 }}
 .card-header{{
     font-size:0.95em;
-    color:#00d4ff;
+    color:#06b6d4;
     text-transform:uppercase;
     letter-spacing:2.5px;
     font-weight:700;
     padding-bottom:14px;
     margin-bottom:16px;
-    border-bottom:1px solid #151530
+    border-bottom:1px solid #1a1e28
 }}
 
 /* ── Sub-gauges ───────────────────────────────────────────── */
@@ -444,19 +434,18 @@ body{{
     align-items:center;
     gap:14px;
     padding:12px 0;
-    border-bottom:1px solid #12122a
+    border-bottom:1px solid #1e2028
 }}
 .sub-gauge:last-child{{border-bottom:none}}
 .sub-gauge-info{{flex:1;min-width:0}}
-.sub-gauge-label{{color:#e0e0f0;font-weight:600;font-size:0.9em;margin-bottom:6px}}
+.sub-gauge-label{{color:#e0e0f0;font-weight:600;font-size:0.9em}}
 .sub-gauge-bar{{
-    height:6px;background:#151530;border-radius:3px;overflow:hidden;margin-bottom:4px
+    height:8px;background:#1a1e28;border-radius:4px;overflow:hidden;margin-bottom:4px
 }}
 .sub-gauge-fill{{
-    height:100%;border-radius:3px;transition:width 1s ease-out
+    height:100%;border-radius:4px;transition:width 1s ease-out
 }}
 .sub-gauge-desc{{color:#6868aa;font-size:0.75em}}
-.sub-gauge-max{{color:#6868aa;font-size:0.85em;font-weight:600;min-width:30px;text-align:right}}
 
 /* ── Frames ───────────────────────────────────────────────── */
 .frames-grid{{
@@ -465,7 +454,7 @@ body{{
     gap:16px
 }}
 .frame-item img{{
-    width:100%;border-radius:12px;border:2px solid #1a1a2e;
+    width:100%;border-radius:12px;border:2px solid #1e2028;
     transition:transform 0.2s;cursor:pointer
 }}
 .frame-item img:hover{{transform:scale(1.02)}}
@@ -476,20 +465,24 @@ body{{
 /* ── Report sections ──────────────────────────────────────── */
 .report-section{{
     margin:20px 0;
-    background:#0e0e24;
-    border:1px solid #1a1a2e;
+    background:#12141a;
+    border:1px solid #1e2028;
+    border-left:3px solid #06b6d4;
     border-radius:16px;
     overflow:hidden
 }}
+.report-section.section-positive{{border-left-color:#06b6d4}}
+.report-section.section-corrections{{border-left-color:#ff6b35}}
+.report-section.section-correctifs{{border-left-color:#00ff88}}
 .section-header{{
     font-size:0.92em;
-    color:#00d4ff;
+    color:#06b6d4;
     text-transform:uppercase;
     letter-spacing:2px;
     font-weight:700;
     padding:18px 24px;
-    background:#0a0a20;
-    border-bottom:1px solid #151530;
+    background:#0f1016;
+    border-bottom:1px solid #1a1e28;
     display:flex;
     align-items:center
 }}
@@ -501,9 +494,9 @@ body{{
 
 /* ── Report text elements ─────────────────────────────────── */
 .report-p{{margin:4px 0;line-height:1.7;color:#c8c8e0}}
-.score-line{{color:#00d4ff;font-size:1.05em;font-weight:700;margin:6px 0}}
+.score-line{{color:#06b6d4;font-size:1.05em;font-weight:700;margin:6px 0}}
 .score-cat{{margin:8px 0;color:#e0e0f0;font-weight:600}}
-.sub-label{{color:#00d4ff;font-weight:600;font-size:0.9em;margin:10px 0 2px}}
+.sub-label{{color:#06b6d4;font-weight:600;font-size:0.9em;margin:10px 0 2px}}
 .sub-content{{margin:2px 0 10px 0;color:#c8c8e0;line-height:1.7}}
 .numbered-item{{
     display:flex;
@@ -512,8 +505,8 @@ body{{
     align-items:flex-start
 }}
 .item-num{{
-    background:#1a1a3a;
-    color:#00d4ff;
+    background:#1a1e2e;
+    color:#06b6d4;
     width:28px;height:28px;
     border-radius:50%;
     display:flex;align-items:center;justify-content:center;
@@ -545,7 +538,7 @@ body{{
 /* ── Angle chart (canvas placeholder for inline SVG) ──────── */
 .angle-chart{{
     width:100%;height:160px;
-    background:#0a0a1a;
+    background:#0e1014;
     border-radius:12px;
     padding:12px;
     margin:12px 0;
@@ -553,18 +546,18 @@ body{{
     position:relative
 }}
 .chart-line{{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}}
-.chart-grid{{stroke:#151530;stroke-width:0.5}}
+.chart-grid{{stroke:#1a1e28;stroke-width:0.5}}
 
 /* ── Footer ───────────────────────────────────────────────── */
 .footer{{
     text-align:center;
     padding:32px 0 24px;
-    border-top:1px solid #1a1a2e;
+    border-top:1px solid #1e2028;
     margin-top:32px
 }}
-.footer-brand{{color:#00d4ff;font-weight:700;font-size:0.92em}}
+.footer-brand{{color:#06b6d4;font-weight:700;font-size:0.92em}}
 .footer-sub{{color:#6868aa;font-size:0.78em;margin-top:4px}}
-.footer-link{{color:#00d4ff;text-decoration:none}}
+.footer-link{{color:#06b6d4;text-decoration:none}}
 .footer-link:hover{{text-decoration:underline}}
 
 /* ── Confidence badge ─────────────────────────────────────── */
@@ -582,24 +575,24 @@ body{{
 
 /* ── Morpho profile ──────────────────────────────────────── */
 .morpho-ratio{{
-    background:#0a0a1a;border-radius:8px;padding:8px 10px;
+    background:#0e1014;border-radius:8px;padding:8px 10px;
     text-align:center
 }}
 .morpho-ratio-label{{color:#8888aa;font-size:0.72em;margin-bottom:2px}}
 .morpho-ratio-val{{color:#e0e0f0;font-weight:700;font-size:1.05em}}
 .morpho-tag{{
-    background:#1a1a3a;color:#00d4ff;padding:3px 10px;border-radius:12px;
+    background:#1a1e2e;color:#06b6d4;padding:3px 10px;border-radius:12px;
     font-size:0.78em;font-weight:600
 }}
 .morpho-posture-item{{
     padding:6px 12px;margin:4px 0;font-size:0.88em;color:#e0e0f0;
-    border-radius:4px;background:#0a0a1a
+    border-radius:4px;background:#0e1014
 }}
 .morpho-rec{{
     display:flex;gap:10px;align-items:flex-start;margin:8px 0
 }}
 .morpho-rec-num{{
-    background:#1a1a3a;color:#00d4ff;width:22px;height:22px;
+    background:#1a1e2e;color:#06b6d4;width:22px;height:22px;
     border-radius:50%;display:flex;align-items:center;justify-content:center;
     font-weight:700;font-size:0.75em;flex-shrink:0;margin-top:2px
 }}
@@ -645,8 +638,10 @@ body{{
 <!-- Footer -->
 <div class="footer fade-in" style="animation-delay:0.5s">
     <div class="footer-brand">FORMCHECK by ACHZOD</div>
-    <div class="footer-sub">Analyse biomecanique experte — 11 certifications</div>
-    <div class="footer-sub" style="margin-top:8px">
+    <div class="footer-sub" style="margin-top:6px">
+        <a href="https://achzodcoaching.com" class="footer-link">achzodcoaching.com</a>
+    </div>
+    <div class="footer-sub" style="margin-top:4px">
         Instagram <a href="https://instagram.com/achzod" class="footer-link">@achzod</a>
     </div>
     <div class="footer-sub" style="margin-top:12px;font-size:0.7em;color:#444">
@@ -694,6 +689,7 @@ def _build_angle_chart(pipeline_result: Any) -> str:
         "bulgarian_split_squat": ("left_knee_flexion", "Genou"),
         "lunge": ("left_knee_flexion", "Genou"),
         "sumo_deadlift": ("left_hip_flexion", "Hanche"),
+        "leg_press": ("left_knee_flexion", "Genou"),
         "dumbbell_row": ("left_elbow_flexion", "Coude"),
         "incline_bench": ("left_elbow_flexion", "Coude"),
         "face_pull": ("left_elbow_flexion", "Coude"),
@@ -703,63 +699,6 @@ def _build_angle_chart(pipeline_result: Any) -> str:
         "dip": ("left_elbow_flexion", "Coude"),
         "shrug": ("left_shoulder_abduction", "Epaule"),
         "calf_raise": ("left_knee_flexion", "Cheville"),
-        "hack_squat": ("left_knee_flexion", "Genou"),
-        "pendlay_row": ("left_elbow_flexion", "Coude"),
-        "tbar_row": ("left_elbow_flexion", "Coude"),
-        "chest_fly": ("left_shoulder_flexion", "Epaule"),
-        "cable_crossover": ("left_shoulder_flexion", "Epaule"),
-        "reverse_fly": ("left_shoulder_abduction", "Epaule"),
-        "hammer_curl": ("left_elbow_flexion", "Coude"),
-        "preacher_curl": ("left_elbow_flexion", "Coude"),
-        "skull_crusher": ("left_elbow_flexion", "Coude"),
-        "good_morning": ("left_hip_flexion", "Hanche"),
-        "step_up": ("left_knee_flexion", "Genou"),
-        "sissy_squat": ("left_knee_flexion", "Genou"),
-        "decline_bench": ("left_elbow_flexion", "Coude"),
-        "dumbbell_bench": ("left_elbow_flexion", "Coude"),
-        "dumbbell_incline": ("left_elbow_flexion", "Coude"),
-        "chest_dip": ("left_elbow_flexion", "Coude"),
-        "push_up": ("left_elbow_flexion", "Coude"),
-        "machine_chest_press": ("left_elbow_flexion", "Coude"),
-        "svend_press": ("left_elbow_flexion", "Coude"),
-        "landmine_press": ("left_elbow_flexion", "Coude"),
-        "chinup": ("left_elbow_flexion", "Coude"),
-        "close_grip_pulldown": ("left_elbow_flexion", "Coude"),
-        "seal_row": ("left_elbow_flexion", "Coude"),
-        "dumbbell_ohp": ("left_elbow_flexion", "Coude"),
-        "arnold_press": ("left_elbow_flexion", "Coude"),
-        "cable_lateral_raise": ("left_shoulder_abduction", "Epaule"),
-        "front_raise": ("left_shoulder_flexion", "Epaule"),
-        "rear_delt_fly": ("left_shoulder_abduction", "Epaule"),
-        "lu_raise": ("left_shoulder_abduction", "Epaule"),
-        "dumbbell_curl": ("left_elbow_flexion", "Coude"),
-        "incline_curl": ("left_elbow_flexion", "Coude"),
-        "concentration_curl": ("left_elbow_flexion", "Coude"),
-        "spider_curl": ("left_elbow_flexion", "Coude"),
-        "overhead_tricep": ("left_elbow_flexion", "Coude"),
-        "kickback": ("left_elbow_flexion", "Coude"),
-        "close_grip_bench": ("left_elbow_flexion", "Coude"),
-        "diamond_pushup": ("left_elbow_flexion", "Coude"),
-        "cable_overhead_tricep": ("left_elbow_flexion", "Coude"),
-        "walking_lunge": ("left_knee_flexion", "Genou"),
-        "nordic_curl": ("left_knee_flexion", "Genou"),
-        "single_leg_rdl": ("left_hip_flexion", "Hanche"),
-        "glute_ham_raise": ("left_knee_flexion", "Genou"),
-        "cable_kickback": ("left_hip_flexion", "Hanche"),
-        "glute_bridge": ("left_hip_flexion", "Hanche"),
-        "trap_bar_deadlift": ("left_hip_flexion", "Hanche"),
-        "seated_calf_raise": ("left_knee_flexion", "Cheville"),
-        "crunch": ("left_hip_flexion", "Hanche"),
-        "cable_crunch": ("left_hip_flexion", "Hanche"),
-        "hanging_leg_raise": ("left_hip_flexion", "Hanche"),
-        "ab_wheel": ("left_shoulder_flexion", "Epaule"),
-        "plank": ("left_hip_flexion", "Hanche"),
-        "woodchop": ("left_shoulder_flexion", "Epaule"),
-        "clean": ("left_hip_flexion", "Hanche"),
-        "snatch": ("left_hip_flexion", "Hanche"),
-        "thruster": ("left_knee_flexion", "Genou"),
-        "kettlebell_swing": ("left_hip_flexion", "Hanche"),
-        "battle_rope": ("left_shoulder_flexion", "Epaule"),
     }
 
     attr, label = angle_attrs.get(exercise, ("left_knee_flexion", "Angle principal"))
@@ -823,13 +762,13 @@ def _build_angle_chart(pipeline_result: Any) -> str:
             <svg viewBox="0 0 {chart_w} {chart_h}" preserveAspectRatio="none" style="width:100%;height:100%">
                 <defs>
                     <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.3"/>
-                        <stop offset="100%" stop-color="#00d4ff" stop-opacity="0.02"/>
+                        <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.3"/>
+                        <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.02"/>
                     </linearGradient>
                 </defs>
                 {grid_lines}
                 <path d="{area_d}" fill="url(#areaGrad)"/>
-                <path d="{path_d}" class="chart-line" stroke="#00d4ff"/>
+                <path d="{path_d}" class="chart-line" stroke="#06b6d4"/>
                 <circle cx="{min_x:.1f}" cy="{min_y:.1f}" r="4" fill="#ff3366"/>
                 <text x="{min_x:.1f}" y="{min_y - 8:.1f}" text-anchor="middle" fill="#ff3366" font-size="9" font-weight="700">{min(values):.0f}deg</text>
                 <circle cx="{max_x:.1f}" cy="{max_y:.1f}" r="4" fill="#00ff88"/>
@@ -857,7 +796,7 @@ def _build_morpho_section(morpho: dict) -> str:
         if val < low:
             return "#ff6b35"
         elif val > high:
-            return "#00d4ff"
+            return "#06b6d4"
         return "#00ff88"
 
     ftr_col = _ratio_color(ftr, 0.95, 1.1)
@@ -894,11 +833,11 @@ def _build_morpho_section(morpho: dict) -> str:
     silhouette_svg = f'''
     <svg viewBox="0 0 200 {int(ankle_y + 30)}" style="width:140px;height:auto;margin:0 auto;display:block">
         <!-- Tete -->
-        <circle cx="{cx}" cy="{head_y}" r="12" fill="none" stroke="#00d4ff" stroke-width="1.5"/>
+        <circle cx="{cx}" cy="{head_y}" r="12" fill="none" stroke="#06b6d4" stroke-width="1.5"/>
         <!-- Torse -->
-        <line x1="{cx}" y1="{head_y + 12}" x2="{cx}" y2="{hip_y}" stroke="#00d4ff" stroke-width="2"/>
+        <line x1="{cx}" y1="{head_y + 12}" x2="{cx}" y2="{hip_y}" stroke="#06b6d4" stroke-width="2"/>
         <!-- Epaules -->
-        <line x1="{cx - s_w/2}" y1="{shoulder_y}" x2="{cx + s_w/2}" y2="{shoulder_y}" stroke="#00d4ff" stroke-width="2"/>
+        <line x1="{cx - s_w/2}" y1="{shoulder_y}" x2="{cx + s_w/2}" y2="{shoulder_y}" stroke="#06b6d4" stroke-width="2"/>
         <!-- Bras G (upper arm + forearm) -->
         <line x1="{cx - s_w/2}" y1="{shoulder_y}" x2="{cx - s_w/2 - 6}" y2="{shoulder_y + t_h * 0.55}" stroke="#6868aa" stroke-width="1.5"/>
         <line x1="{cx - s_w/2 - 6}" y1="{shoulder_y + t_h * 0.55}" x2="{cx - s_w/2 - 2}" y2="{hip_y + 5}" stroke="#6868aa" stroke-width="1.5"/>
@@ -908,7 +847,7 @@ def _build_morpho_section(morpho: dict) -> str:
         <line x1="{cx + s_w/2 + 6}" y1="{shoulder_y + t_h * 0.55}" x2="{cx + s_w/2 + 2}" y2="{hip_y + 5}" stroke="#6868aa" stroke-width="1.5"/>
         <circle cx="{cx + s_w/2 + 6}" cy="{shoulder_y + t_h * 0.55}" r="2" fill="#6868aa"/>
         <!-- Hanches -->
-        <line x1="{cx - h_w/2}" y1="{hip_y}" x2="{cx + h_w/2}" y2="{hip_y}" stroke="#00d4ff" stroke-width="2"/>
+        <line x1="{cx - h_w/2}" y1="{hip_y}" x2="{cx + h_w/2}" y2="{hip_y}" stroke="#06b6d4" stroke-width="2"/>
         <!-- Femur G -->
         <line x1="{cx - h_w/2}" y1="{hip_y}" x2="{cx - h_w/3}" y2="{knee_y}" stroke="#ff6b35" stroke-width="2"/>
         <!-- Femur D -->
@@ -918,10 +857,10 @@ def _build_morpho_section(morpho: dict) -> str:
         <!-- Tibia D -->
         <line x1="{cx + h_w/3}" y1="{knee_y}" x2="{cx + h_w/4}" y2="{ankle_y}" stroke="#00ff88" stroke-width="2"/>
         <!-- Joints -->
-        <circle cx="{cx - s_w/2}" cy="{shoulder_y}" r="2.5" fill="#00d4ff" opacity="0.7"/>
-        <circle cx="{cx + s_w/2}" cy="{shoulder_y}" r="2.5" fill="#00d4ff" opacity="0.7"/>
-        <circle cx="{cx - h_w/2}" cy="{hip_y}" r="2.5" fill="#00d4ff" opacity="0.7"/>
-        <circle cx="{cx + h_w/2}" cy="{hip_y}" r="2.5" fill="#00d4ff" opacity="0.7"/>
+        <circle cx="{cx - s_w/2}" cy="{shoulder_y}" r="2.5" fill="#06b6d4" opacity="0.7"/>
+        <circle cx="{cx + s_w/2}" cy="{shoulder_y}" r="2.5" fill="#06b6d4" opacity="0.7"/>
+        <circle cx="{cx - h_w/2}" cy="{hip_y}" r="2.5" fill="#06b6d4" opacity="0.7"/>
+        <circle cx="{cx + h_w/2}" cy="{hip_y}" r="2.5" fill="#06b6d4" opacity="0.7"/>
         <circle cx="{cx - h_w/3}" cy="{knee_y}" r="2.5" fill="#ff6b35" opacity="0.7"/>
         <circle cx="{cx + h_w/3}" cy="{knee_y}" r="2.5" fill="#ff6b35" opacity="0.7"/>
         <circle cx="{cx - h_w/4}" cy="{ankle_y}" r="2.5" fill="#00ff88" opacity="0.7"/>
@@ -931,9 +870,9 @@ def _build_morpho_section(morpho: dict) -> str:
         <text x="12" y="{(hip_y + knee_y) / 2}" fill="#8888aa" font-size="8" font-family="Inter,system-ui">Femur</text>
         <text x="12" y="{(knee_y + ankle_y) / 2}" fill="#8888aa" font-size="8" font-family="Inter,system-ui">Tibia</text>
         <!-- Largeur epaules -->
-        <text x="{cx}" y="{shoulder_y - 6}" text-anchor="middle" fill="#00d4ff" font-size="7" font-family="Inter,system-ui">{shoulder_w:.3f}</text>
+        <text x="{cx}" y="{shoulder_y - 6}" text-anchor="middle" fill="#06b6d4" font-size="7" font-family="Inter,system-ui">{shoulder_w:.3f}</text>
         <!-- Largeur hanches -->
-        <text x="{cx}" y="{hip_y + 12}" text-anchor="middle" fill="#00d4ff" font-size="7" font-family="Inter,system-ui">{hip_w:.3f}</text>
+        <text x="{cx}" y="{hip_y + 12}" text-anchor="middle" fill="#06b6d4" font-size="7" font-family="Inter,system-ui">{hip_w:.3f}</text>
     </svg>'''
 
     # Posture
@@ -1022,13 +961,18 @@ def _build_morpho_section(morpho: dict) -> str:
         </div>
 
         <!-- Posture -->
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #151530">
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #1a1e28">
             <div style="color:#8888aa;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Bilan postural</div>
             {posture_html}
         </div>
 
         <!-- Recommandations -->
-        {_morpho_recs_block(recs_html)}
+        {"" if not recs_html else f'''
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #1a1e28">
+            <div style="color:#8888aa;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Recommandations personnalisees</div>
+            {recs_html}
+        </div>
+        '''}
     </div>'''
 
 
@@ -1053,7 +997,7 @@ def _build_reps_timeline(reps: Any) -> str:
         if r.tempo_ratio >= 1.5:
             color = "#00ff88"  # bon controle excentrique
         elif r.tempo_ratio >= 0.8:
-            color = "#00d4ff"  # equilibre
+            color = "#06b6d4"  # equilibre
         else:
             color = "#ff6b35"  # concentrique dominant
 
@@ -1082,7 +1026,7 @@ def _build_reps_timeline(reps: Any) -> str:
         </div>
         <div style="display:flex;gap:16px;font-size:0.72em;color:#6868aa;flex-wrap:wrap">
             <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#00ff88;margin-right:4px"></span>Bon controle excentrique</div>
-            <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#00d4ff;margin-right:4px"></span>Tempo equilibre</div>
+            <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#06b6d4;margin-right:4px"></span>Tempo equilibre</div>
             <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#ff6b35;margin-right:4px"></span>Concentrique dominant</div>
         </div>
     </div>'''

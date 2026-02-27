@@ -4,9 +4,7 @@ Analyse les ROM (Range of Motion) et les variations d'angles articulaires
 pour classifier l'exercice. Utilise GPT-4 Vision comme backup/confirmation
 sur la frame du milieu.
 
-Exercices supportés :
-- squat, deadlift, bench_press, ohp (overhead press),
-  barbell_row, hip_thrust, curl, lateral_raise
+Couvre 91 exercices via pattern matching + GPT-4o Vision.
 """
 
 from __future__ import annotations
@@ -964,43 +962,558 @@ def _score_goblet_squat(stats: dict[str, AngleStats]) -> tuple[float, str]:
 
     if knee_rom > 30:
         score += 0.25
-        reasons.append(f"ROM genou ({knee_rom:.0f} deg)")
+        reasons.append("ROM genou ({:.0f} deg)".format(knee_rom))
     if hip_rom > 30:
         score += 0.25
-        reasons.append(f"ROM hanche ({hip_rom:.0f} deg)")
+        reasons.append("ROM hanche ({:.0f} deg)".format(hip_rom))
     if trunk_mean < 20:
         score += 0.3
-        reasons.append(f"Tronc tres vertical ({trunk_mean:.0f} deg) — typique goblet squat")
+        reasons.append("Tronc tres vertical ({:.0f} deg) -- typique goblet squat".format(trunk_mean))
     if elbow_rom < 15:
         score += 0.2
-        reasons.append(f"Coudes stables ({elbow_rom:.0f} deg) — charge contre le torse")
+        reasons.append("Coudes stables ({:.0f} deg) -- charge contre le torse".format(elbow_rom))
 
     return score, "; ".join(reasons) if reasons else "Pas de pattern goblet squat"
 
 
-# Mapping exercice → fonction de scoring
+def _score_sumo_deadlift(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un sumo deadlift."""
+    score = 0.0
+    reasons: list[str] = []
+
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    trunk_rom = _rom(stats, "trunk_inclination")
+    trunk_mean = _mean(stats, "trunk_inclination")
+
+    # Sumo = plus de ROM genou que conventionnel, tronc plus vertical
+    if hip_rom > 25:
+        score += 0.25
+        reasons.append("ROM hanche ({:.0f} deg)".format(hip_rom))
+    if knee_rom > 20:
+        score += 0.25
+        reasons.append("ROM genou ({:.0f} deg) -- plus que conventionnel".format(knee_rom))
+    if trunk_rom > 15:
+        score += 0.2
+        reasons.append("ROM tronc ({:.0f} deg)".format(trunk_rom))
+    # Tronc plus vertical que conventionnel
+    if trunk_mean < 45:
+        score += 0.15
+        reasons.append("Tronc plus vertical ({:.0f} deg)".format(trunk_mean))
+    if trunk_mean > 20:
+        score += 0.15
+        reasons.append("Inclinaison significative ({:.0f} deg)".format(trunk_mean))
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern sumo deadlift"
+
+
+def _score_leg_press(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un leg press."""
+    score = 0.0
+    reasons: list[str] = []
+
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+    trunk_rom = _rom(stats, "trunk_inclination")
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+
+    # Grand ROM genou, tronc fixe (assis dans la machine)
+    if knee_rom > 30:
+        score += 0.3
+        reasons.append("Grand ROM genou ({:.0f} deg)".format(knee_rom))
+    if hip_rom > 15:
+        score += 0.2
+        reasons.append("ROM hanche ({:.0f} deg)".format(hip_rom))
+    if trunk_rom < 10:
+        score += 0.25
+        reasons.append("Tronc fixe ({:.0f} deg) -- assis".format(trunk_rom))
+    if elbow_rom < 10:
+        score += 0.25
+        reasons.append("Bras immobiles ({:.0f} deg)".format(elbow_rom))
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern leg press"
+
+
+def _score_leg_extension(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un leg extension."""
+    score = 0.0
+    reasons: list[str] = []
+
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+    trunk_rom = _rom(stats, "trunk_inclination")
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+
+    # Grand ROM genou, rien d'autre ne bouge
+    if knee_rom > 30:
+        score += 0.35
+        reasons.append("Grand ROM genou ({:.0f} deg)".format(knee_rom))
+    if hip_rom < 10:
+        score += 0.25
+        reasons.append("Hanches fixes ({:.0f} deg)".format(hip_rom))
+    if trunk_rom < 8:
+        score += 0.2
+        reasons.append("Tronc fixe ({:.0f} deg)".format(trunk_rom))
+    if elbow_rom < 10:
+        score += 0.2
+        reasons.append("Bras immobiles ({:.0f} deg)".format(elbow_rom))
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern leg extension"
+
+
+def _score_leg_curl(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un leg curl."""
+    score = 0.0
+    reasons: list[str] = []
+
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+    trunk_rom = _rom(stats, "trunk_inclination")
+    trunk_mean = _mean(stats, "trunk_inclination")
+
+    # Grand ROM genou, hanches fixes, tronc horizontal (allonge)
+    if knee_rom > 25:
+        score += 0.3
+        reasons.append("Grand ROM genou ({:.0f} deg)".format(knee_rom))
+    if hip_rom < 15:
+        score += 0.25
+        reasons.append("Hanches stables ({:.0f} deg)".format(hip_rom))
+    if trunk_rom < 10:
+        score += 0.2
+        reasons.append("Tronc fixe ({:.0f} deg)".format(trunk_rom))
+    if trunk_mean > 50:
+        score += 0.25
+        reasons.append("Tronc horizontal ({:.0f} deg) -- allonge".format(trunk_mean))
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern leg curl"
+
+
+def _score_lat_pulldown(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un lat pulldown."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+    shoulder_abd_rom = max(_rom(stats, "left_shoulder_abduction"), _rom(stats, "right_shoulder_abduction"))
+    trunk_rom = _rom(stats, "trunk_inclination")
+    trunk_mean = _mean(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # Grand ROM coude, epaule en adduction, tronc quasi vertical, assis
+    if elbow_rom > 30:
+        score += 0.3
+        reasons.append("ROM coude ({:.0f} deg)".format(elbow_rom))
+    if shoulder_abd_rom > 15:
+        score += 0.2
+        reasons.append("ROM epaule ({:.0f} deg)".format(shoulder_abd_rom))
+    # Tronc quasi vertical avec leger recul
+    if trunk_mean < 30:
+        score += 0.15
+        reasons.append("Tronc quasi vertical ({:.0f} deg)".format(trunk_mean))
+    if trunk_rom < 15:
+        score += 0.15
+        reasons.append("Tronc stable ({:.0f} deg)".format(trunk_rom))
+    if knee_rom < 10:
+        score += 0.2
+        reasons.append("Jambes stables (assis)".format())
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern lat pulldown"
+
+
+def _score_incline_bench(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un incline bench press."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+    shoulder_rom = max(_rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion"))
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+    trunk_mean = _mean(stats, "trunk_inclination")
+
+    if elbow_rom > 30:
+        score += 0.3
+        reasons.append("ROM coude ({:.0f} deg)".format(elbow_rom))
+    if shoulder_rom > 15:
+        score += 0.2
+        reasons.append("ROM epaule ({:.0f} deg)".format(shoulder_rom))
+    if knee_rom < 15 and hip_rom < 15:
+        score += 0.25
+        reasons.append("Jambes immobiles")
+    # Incline = tronc a ~30-60 deg (entre horizontal et vertical)
+    if 20 < trunk_mean < 60:
+        score += 0.25
+        reasons.append("Tronc incline ({:.0f} deg) -- banc incline".format(trunk_mean))
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern incline bench"
+
+
+def _score_hack_squat(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un hack squat."""
+    score = 0.0
+    reasons: list[str] = []
+
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+    trunk_rom = _rom(stats, "trunk_inclination")
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+
+    if knee_rom > 30:
+        score += 0.3
+        reasons.append("Grand ROM genou ({:.0f} deg)".format(knee_rom))
+    if hip_rom > 15:
+        score += 0.2
+        reasons.append("ROM hanche ({:.0f} deg)".format(hip_rom))
+    if trunk_rom < 15:
+        score += 0.25
+        reasons.append("Tronc stable ({:.0f} deg) -- guidage machine".format(trunk_rom))
+    if elbow_rom < 10:
+        score += 0.25
+        reasons.append("Bras immobiles (poignees machine)".format())
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern hack squat"
+
+
+def _score_good_morning(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un good morning."""
+    score = 0.0
+    reasons: list[str] = []
+
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    trunk_rom = _rom(stats, "trunk_inclination")
+    trunk_max = _max(stats, "trunk_inclination")
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+
+    # Hip hinge avec barre sur le dos: grand ROM hanche+tronc, faible genou, bras fixes
+    if hip_rom > 25:
+        score += 0.3
+        reasons.append("Grand ROM hanche ({:.0f} deg)".format(hip_rom))
+    if knee_rom < 20:
+        score += 0.2
+        reasons.append("Faible ROM genou ({:.0f} deg)".format(knee_rom))
+    if trunk_rom > 20:
+        score += 0.25
+        reasons.append("ROM tronc ({:.0f} deg) -- hip hinge".format(trunk_rom))
+    if elbow_rom < 10:
+        score += 0.25
+        reasons.append("Bras fixes (barre sur le dos)".format())
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern good morning"
+
+
+def _score_hammer_curl(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un hammer curl (similaire au curl mais check epaule)."""
+    # Pattern identique au curl — la differentiation est visuelle (prise neutre)
+    return _score_curl(stats)
+
+
+def _score_chest_fly(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un chest fly / ecarte."""
+    score = 0.0
+    reasons: list[str] = []
+
+    shoulder_abd_rom = max(
+        _rom(stats, "left_shoulder_abduction"), _rom(stats, "right_shoulder_abduction")
+    )
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+    trunk_mean = _mean(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # Grand ROM abduction epaule, coudes quasi fixes, allonge
+    if shoulder_abd_rom > 20:
+        score += 0.3
+        reasons.append("ROM abduction epaule ({:.0f} deg)".format(shoulder_abd_rom))
+    if elbow_rom < 20:
+        score += 0.25
+        reasons.append("Coudes quasi fixes ({:.0f} deg)".format(elbow_rom))
+    if trunk_mean > 50:
+        score += 0.25
+        reasons.append("Tronc horizontal ({:.0f} deg) -- allonge".format(trunk_mean))
+    if knee_rom < 10:
+        score += 0.2
+        reasons.append("Jambes immobiles".format())
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern chest fly"
+
+
+def _score_reverse_fly(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un reverse fly / oiseau."""
+    score = 0.0
+    reasons: list[str] = []
+
+    shoulder_abd_rom = max(
+        _rom(stats, "left_shoulder_abduction"), _rom(stats, "right_shoulder_abduction")
+    )
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+    trunk_mean = _mean(stats, "trunk_inclination")
+    trunk_rom = _rom(stats, "trunk_inclination")
+
+    # ROM abduction epaule, coudes fixes, tronc penche et fixe
+    if shoulder_abd_rom > 15:
+        score += 0.3
+        reasons.append("ROM abduction epaule ({:.0f} deg)".format(shoulder_abd_rom))
+    if elbow_rom < 15:
+        score += 0.25
+        reasons.append("Coudes fixes ({:.0f} deg)".format(elbow_rom))
+    if trunk_mean > 30 and trunk_rom < 10:
+        score += 0.25
+        reasons.append("Tronc penche et stable ({:.0f} deg)".format(trunk_mean))
+    if trunk_rom < 10:
+        score += 0.2
+        reasons.append("Tronc fixe ({:.0f} deg)".format(trunk_rom))
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern reverse fly"
+
+
+def _score_face_pull(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un face pull."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+    shoulder_abd_rom = max(
+        _rom(stats, "left_shoulder_abduction"), _rom(stats, "right_shoulder_abduction")
+    )
+    trunk_mean = _mean(stats, "trunk_inclination")
+    trunk_rom = _rom(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    if elbow_rom > 15:
+        score += 0.25
+        reasons.append("ROM coude ({:.0f} deg)".format(elbow_rom))
+    if shoulder_abd_rom > 15:
+        score += 0.25
+        reasons.append("ROM abduction epaule ({:.0f} deg)".format(shoulder_abd_rom))
+    if trunk_mean < 20 and trunk_rom < 10:
+        score += 0.25
+        reasons.append("Tronc vertical stable ({:.0f} deg)".format(trunk_mean))
+    if knee_rom < 10:
+        score += 0.25
+        reasons.append("Jambes immobiles".format())
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern face pull"
+
+
+def _score_front_raise(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un front raise."""
+    score = 0.0
+    reasons: list[str] = []
+
+    shoulder_flex_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+    trunk_rom = _rom(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # Grand ROM flexion epaule, coudes quasi fixes, tronc stable
+    if shoulder_flex_rom > 30:
+        score += 0.35
+        reasons.append("Grand ROM flexion epaule ({:.0f} deg)".format(shoulder_flex_rom))
+    if elbow_rom < 15:
+        score += 0.25
+        reasons.append("Coudes quasi fixes ({:.0f} deg)".format(elbow_rom))
+    if trunk_rom < 10:
+        score += 0.2
+        reasons.append("Tronc stable ({:.0f} deg)".format(trunk_rom))
+    if knee_rom < 10:
+        score += 0.2
+        reasons.append("Jambes immobiles".format())
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern front raise"
+
+
+def _score_kettlebell_swing(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un kettlebell swing."""
+    score = 0.0
+    reasons: list[str] = []
+
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    shoulder_flex_rom = max(
+        _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
+    )
+    trunk_rom = _rom(stats, "trunk_inclination")
+
+    # Hip hinge + bras qui montent en avant
+    if hip_rom > 25:
+        score += 0.3
+        reasons.append("Grand ROM hanche ({:.0f} deg) -- hip hinge".format(hip_rom))
+    if shoulder_flex_rom > 30:
+        score += 0.3
+        reasons.append("Grand ROM flexion epaule ({:.0f} deg) -- bras montent".format(shoulder_flex_rom))
+    if trunk_rom > 20:
+        score += 0.2
+        reasons.append("ROM tronc ({:.0f} deg)".format(trunk_rom))
+    if knee_rom < 30:
+        score += 0.2
+        reasons.append("ROM genou modere ({:.0f} deg) -- pas un squat".format(knee_rom))
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern kettlebell swing"
+
+
+def _score_push_up(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite de push-ups."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+    trunk_mean = _mean(stats, "trunk_inclination")
+    trunk_rom = _rom(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # ROM coude, tronc quasi horizontal et stable, pas de mouvement des jambes
+    if elbow_rom > 30:
+        score += 0.3
+        reasons.append("ROM coude ({:.0f} deg)".format(elbow_rom))
+    if trunk_rom < 15 and trunk_mean > 40:
+        score += 0.25
+        reasons.append("Tronc horizontal stable ({:.0f} deg)".format(trunk_mean))
+    elif trunk_rom < 20:
+        score += 0.15
+        reasons.append("Tronc stable ({:.0f} deg)".format(trunk_rom))
+    if knee_rom < 10:
+        score += 0.25
+        reasons.append("Jambes immobiles -- gainage".format())
+    # Differentier du bench: tronc horizontal dynamique vs bench allonge passif
+    if 30 < trunk_mean < 70:
+        score += 0.2
+        reasons.append("Position prone inclinee".format())
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern push-up"
+
+
+def _score_skull_crusher(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un skull crusher."""
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+    shoulder_rom = max(_rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion"))
+    trunk_mean = _mean(stats, "trunk_inclination")
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+
+    # Grand ROM coude, epaule fixe, allonge
+    if elbow_rom > 35:
+        score += 0.35
+        reasons.append("Grand ROM coude ({:.0f} deg)".format(elbow_rom))
+    if shoulder_rom < 15:
+        score += 0.25
+        reasons.append("Epaules fixes ({:.0f} deg)".format(shoulder_rom))
+    if trunk_mean > 60:
+        score += 0.2
+        reasons.append("Tronc horizontal ({:.0f} deg) -- allonge".format(trunk_mean))
+    if knee_rom < 10:
+        score += 0.2
+        reasons.append("Jambes stables".format())
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern skull crusher"
+
+
+def _score_preacher_curl(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un preacher curl."""
+    # Pattern similaire au curl mais avec tronc penche
+    score = 0.0
+    reasons: list[str] = []
+
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+    shoulder_rom = max(_rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion"))
+    trunk_mean = _mean(stats, "trunk_inclination")
+    trunk_rom = _rom(stats, "trunk_inclination")
+
+    if elbow_rom > 35:
+        score += 0.35
+        reasons.append("Grand ROM coude ({:.0f} deg)".format(elbow_rom))
+    if shoulder_rom < 15:
+        score += 0.2
+        reasons.append("Epaules fixes ({:.0f} deg) -- appui pupitre".format(shoulder_rom))
+    if trunk_rom < 10:
+        score += 0.2
+        reasons.append("Tronc fixe ({:.0f} deg)".format(trunk_rom))
+    # Tronc penche en avant (pupitre)
+    if 15 < trunk_mean < 50:
+        score += 0.25
+        reasons.append("Tronc penche ({:.0f} deg) -- pupitre".format(trunk_mean))
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern preacher curl"
+
+
+def _score_glute_bridge(stats: dict[str, AngleStats]) -> tuple[float, str]:
+    """Score la probabilite d'un glute bridge."""
+    score = 0.0
+    reasons: list[str] = []
+
+    hip_rom = max(_rom(stats, "left_hip_flexion"), _rom(stats, "right_hip_flexion"))
+    knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
+    trunk_mean = _mean(stats, "trunk_inclination")
+    elbow_rom = max(_rom(stats, "left_elbow_flexion"), _rom(stats, "right_elbow_flexion"))
+
+    if hip_rom > 15:
+        score += 0.3
+        reasons.append("ROM hanche ({:.0f} deg)".format(hip_rom))
+    if knee_rom < 15:
+        score += 0.25
+        reasons.append("Genou stable ({:.0f} deg)".format(knee_rom))
+    if trunk_mean > 50:
+        score += 0.25
+        reasons.append("Position allongee ({:.0f} deg)".format(trunk_mean))
+    if elbow_rom < 10:
+        score += 0.2
+        reasons.append("Bras immobiles".format())
+
+    return score, "; ".join(reasons) if reasons else "Pas de pattern glute bridge"
+
+
+# Mapping exercice -> fonction de scoring
 _SCORERS: dict[Exercise, Any] = {
+    # Knee-dominant
     Exercise.BULGARIAN_SPLIT_SQUAT: _score_bulgarian_split_squat,
     Exercise.LUNGE: _score_lunge,
     Exercise.FRONT_SQUAT: _score_front_squat,
     Exercise.GOBLET_SQUAT: _score_goblet_squat,
     Exercise.SQUAT: _score_squat,
+    Exercise.HACK_SQUAT: _score_hack_squat,
+    Exercise.LEG_PRESS: _score_leg_press,
+    Exercise.LEG_EXTENSION: _score_leg_extension,
+    Exercise.LEG_CURL: _score_leg_curl,
+    # Hip-dominant
     Exercise.RDL: _score_rdl,
     Exercise.DEADLIFT: _score_deadlift,
-    Exercise.BENCH_PRESS: _score_bench_press,
-    Exercise.OHP: _score_ohp,
-    Exercise.BARBELL_ROW: _score_barbell_row,
+    Exercise.SUMO_DEADLIFT: _score_sumo_deadlift,
     Exercise.HIP_THRUST: _score_hip_thrust,
-    Exercise.CURL: _score_curl,
-    Exercise.TRICEP_EXTENSION: _score_tricep_extension,
-    Exercise.LATERAL_RAISE: _score_lateral_raise,
+    Exercise.GOOD_MORNING: _score_good_morning,
+    Exercise.GLUTE_BRIDGE: _score_glute_bridge,
+    Exercise.KETTLEBELL_SWING: _score_kettlebell_swing,
+    # Pressing
+    Exercise.BENCH_PRESS: _score_bench_press,
+    Exercise.INCLINE_BENCH: _score_incline_bench,
+    Exercise.OHP: _score_ohp,
+    Exercise.PUSH_UP: _score_push_up,
+    Exercise.DIP: _score_dip,
+    # Pulling
+    Exercise.BARBELL_ROW: _score_barbell_row,
     Exercise.PULLUP: _score_pullup,
-    Exercise.UPRIGHT_ROW: _score_upright_row,
+    Exercise.LAT_PULLDOWN: _score_lat_pulldown,
     Exercise.CABLE_ROW: _score_cable_row,
     Exercise.CABLE_PULLOVER: _score_cable_pullover,
     Exercise.PULLOVER: _score_pullover,
-    Exercise.DIP: _score_dip,
+    # Curls
+    Exercise.CURL: _score_curl,
+    Exercise.HAMMER_CURL: _score_hammer_curl,
+    Exercise.PREACHER_CURL: _score_preacher_curl,
+    # Triceps
+    Exercise.TRICEP_EXTENSION: _score_tricep_extension,
+    Exercise.SKULL_CRUSHER: _score_skull_crusher,
+    # Shoulders
+    Exercise.LATERAL_RAISE: _score_lateral_raise,
+    Exercise.FRONT_RAISE: _score_front_raise,
+    Exercise.FACE_PULL: _score_face_pull,
+    Exercise.REVERSE_FLY: _score_reverse_fly,
+    Exercise.UPRIGHT_ROW: _score_upright_row,
     Exercise.SHRUG: _score_shrug,
+    # Chest isolation
+    Exercise.CHEST_FLY: _score_chest_fly,
 }
 
 
@@ -1026,12 +1539,12 @@ def detect_by_pattern(angles: AngleResult) -> DetectionResult:
     scores.sort(key=lambda x: x[1], reverse=True)
     best = scores[0]
 
-    # Seuil minimum de confiance
-    if best[1] < 0.3:
+    # Seuil minimum de confiance — abaissé à 0.25 pour réduire les faux "unknown"
+    if best[1] < 0.25:
         return DetectionResult(
             exercise=Exercise.UNKNOWN,
             confidence=best[1],
-            reasoning=f"Score trop faible ({best[1]:.2f}). Meilleur candidat: {best[0].value}. {best[2]}",
+            reasoning="Score trop faible ({:.2f}). Meilleur candidat: {}. {}".format(best[1], best[0].value, best[2]),
         )
 
     return DetectionResult(
@@ -1052,15 +1565,20 @@ def _encode_image_base64(image_path: str) -> str:
 def detect_by_vision(
     mid_frame_path: str,
     api_key: str | None = None,
+    start_frame_path: str | None = None,
+    end_frame_path: str | None = None,
 ) -> tuple[Exercise, float, str]:
-    """Utilise GPT-4o Vision pour identifier l'exercice sur la frame du milieu.
+    """Utilise GPT-4o Vision pour identifier l'exercice sur 1 a 3 frames.
 
     Architecture vision-first : cette fonction est le detecteur PRIMAIRE.
-    Elle doit etre precise et fiable.
+    Envoie jusqu'a 3 frames (debut, milieu, fin) pour une detection plus
+    fiable, surtout sur les exercices ambigus.
 
     Args:
-        mid_frame_path: Chemin vers l'image de la frame du milieu.
+        mid_frame_path: Chemin vers l'image de la frame du milieu (obligatoire).
         api_key: Cle API OpenAI. Si None, utilise OPENAI_API_KEY.
+        start_frame_path: Chemin vers la frame de debut (optionnel).
+        end_frame_path: Chemin vers la frame de fin (optionnel).
 
     Returns:
         Tuple (exercise, confidence, reasoning).
@@ -1079,7 +1597,17 @@ def detect_by_vision(
         import openai
 
         client = openai.OpenAI(api_key=key)
-        b64_image = _encode_image_base64(mid_frame_path)
+
+        # Encode toutes les frames disponibles
+        frame_paths = []
+        if start_frame_path and Path(start_frame_path).exists():
+            frame_paths.append(start_frame_path)
+        frame_paths.append(mid_frame_path)
+        if end_frame_path and Path(end_frame_path).exists():
+            frame_paths.append(end_frame_path)
+
+        b64_images = [_encode_image_base64(p) for p in frame_paths]
+        num_frames = len(b64_images)
 
         exercises_list = ", ".join(
             ["{} ({})".format(e.value, EXERCISE_DISPLAY_NAMES[e.value]) for e in Exercise if e != Exercise.UNKNOWN]
@@ -1120,19 +1648,24 @@ def detect_by_vision(
                 {
                     "role": "user",
                     "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": "data:image/jpeg;base64,{}".format(b64_image),
-                                "detail": "high",
-                            },
-                        },
+                        *[
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": "data:image/jpeg;base64,{}".format(b64),
+                                    "detail": "high",
+                                },
+                            }
+                            for b64 in b64_images
+                        ],
                         {
                             "type": "text",
                             "text": (
-                                "Identifie precisement l'exercice de musculation "
-                                "sur cette image. Regarde l'equipement, la position "
-                                "du corps, et le plan de mouvement."
+                                "Voici {} frame(s) extraites d'une meme serie "
+                                "(debut, milieu, fin si disponibles). "
+                                "Identifie precisement l'exercice de musculation. "
+                                "Regarde l'equipement, la position du corps, "
+                                "et le plan de mouvement.".format(num_frames)
                             ),
                         },
                     ],
@@ -1332,11 +1865,13 @@ def detect_exercise(
     angles: AngleResult,
     mid_frame_path: str | None = None,
     use_vision_backup: bool = True,
+    start_frame_path: str | None = None,
+    end_frame_path: str | None = None,
 ) -> DetectionResult:
     """Détecte l'exercice — VISION-FIRST, pattern matching en backup.
 
     Architecture :
-    1. GPT-4o Vision identifie l'exercice sur la frame du milieu (primaire)
+    1. GPT-4o Vision identifie l'exercice sur 3 frames (primaire)
     2. Pattern matching par angles (backup si vision échoue)
     3. Si les deux sont d'accord → haute confiance
 
@@ -1344,6 +1879,8 @@ def detect_exercise(
         angles: Résultat du calcul d'angles.
         mid_frame_path: Chemin vers l'image de la frame du milieu.
         use_vision_backup: Activer la vision (désactiver uniquement pour tests).
+        start_frame_path: Chemin vers la frame de debut (optionnel).
+        end_frame_path: Chemin vers la frame de fin (optionnel).
 
     Returns:
         DetectionResult avec l'exercice détecté et les métadonnées.
@@ -1359,7 +1896,11 @@ def detect_exercise(
 
     # ── Vision-first : GPT-4o est meilleur pour identifier visuellement ──
     if use_vision_backup and mid_frame_path:
-        vision_ex, vision_conf, vision_reason = detect_by_vision(mid_frame_path)
+        vision_ex, vision_conf, vision_reason = detect_by_vision(
+            mid_frame_path,
+            start_frame_path=start_frame_path,
+            end_frame_path=end_frame_path,
+        )
         logger.info(
             "Vision detection: %s (conf=%.2f) — %s",
             vision_ex.value, vision_conf, vision_reason,
@@ -1372,7 +1913,7 @@ def detect_exercise(
                 return DetectionResult(
                     exercise=vision_ex,
                     confidence=min(1.0, vision_conf + 0.2),
-                    reasoning=f"[Vision + Pattern d'accord] {vision_reason}",
+                    reasoning="[Vision + Pattern d'accord] {}".format(vision_reason),
                     vision_exercise=vision_ex,
                     vision_confidence=vision_conf,
                 )
@@ -1385,7 +1926,7 @@ def detect_exercise(
                 return DetectionResult(
                     exercise=vision_ex,
                     confidence=vision_conf,
-                    reasoning=f"[Vision] {vision_reason} (pattern suggerait: {pattern_result.exercise.value})",
+                    reasoning="[Vision] {} (pattern suggerait: {})".format(vision_reason, pattern_result.exercise.value),
                     vision_exercise=vision_ex,
                     vision_confidence=vision_conf,
                 )
