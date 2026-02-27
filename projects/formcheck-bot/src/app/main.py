@@ -48,6 +48,18 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "service": "formcheck"}
 
 
+@app.get("/health/debug")
+async def health_debug() -> dict:
+    """Debug health with version info — no auth required."""
+    import sys
+    return {
+        "status": "ok",
+        "python": sys.version,
+        "commit": "aad8969",
+        "test_mode_free": settings.test_mode_free,
+    }
+
+
 # ── Debug endpoint (last errors + system info) ──────────────────────────
 
 @app.get("/debug/errors")
