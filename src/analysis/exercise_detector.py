@@ -126,6 +126,8 @@ def _get_candidate_exercises(
         "squat", "deadlift", "bench_press", "ohp", "barbell_row",
         "curl", "lat_pulldown", "hip_thrust", "rdl", "dumbbell_row",
         "lateral_raise", "tricep_extension", "pullup", "dip",
+        "leg_curl", "leg_extension", "leg_press", "cable_row",
+        "overhead_tricep", "face_pull",
     ]
     for ex in _ALWAYS_INCLUDE:
         if ex not in candidates:
@@ -1826,6 +1828,17 @@ def detect_by_vision(
             "- Distinguer sumo_deadlift (pieds tres ecartes, mains entre les jambes, "
             "torse se redresse) vs barbell_row (pieds largeur epaules, buste penche fixe, "
             "bras tirent vers le ventre).\n"
+            "- DISTINGUER leg_curl vs leg_extension : "
+            "LEG EXTENSION = assis, pad sur les CHEVILLES/TIBIAS, jambes TENDENT vers l'avant "
+            "(genoux passent de flechis a tendus). "
+            "LEG CURL = couche ou assis, pad sur les CHEVILLES/MOLLETS, jambes FLECHISSENT "
+            "(talons montent vers les fessiers). "
+            "Si les talons montent vers les fesses = LEG CURL. "
+            "Si les pieds montent vers l'avant = LEG EXTENSION.\n"
+            "- ATTENTION MULTI-PERSONNES : dans un gym, il peut y avoir PLUSIEURS personnes "
+            "visibles. Identifie la personne qui FAIT L'EXERCICE (celle qui bouge sur une "
+            "machine, avec une barre, etc.), PAS les personnes debout autour qui regardent "
+            "ou passent derriere.\n"
             "- Si la personne est DEBOUT face a une poulie avec les bras qui bougent, "
             "c'est probablement un exercice de poulie (cable_pullover, face_pull, "
             "cable_row, tricep_extension, cable_curl, upright_row).\n"

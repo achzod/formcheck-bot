@@ -211,6 +211,8 @@ def extract_pose(
     with vision.PoseLandmarker.create_from_options(options) as landmarker:
         frame_idx = 0
         _prev_center: tuple[float, float] | None = None
+        _prev_landmarks: list[Any] | None = None
+        _motion_scores: dict[int, float] = {}  # person_idx → cumulative motion
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -232,18 +234,22 @@ def extract_pose(
                 lms = detection_result.pose_landmarks[0]
                 if len(detection_result.pose_landmarks) > 1:
                     best_idx = 0
-                    if _prev_center is not None:
-                        # Pick person whose center is closest to previous tracked center
-                        best_dist = float("inf")
+                    if _prev_center is not None and _prev_landmarks is not None:
+                        # Pick person whose landmarks are closest to previous AND
+                        # accumulate motion score for each person
+                        best_score = float("inf")
                         for p_idx, p_lms in enumerate(detection_result.pose_landmarks):
                             cx = float(np.mean([p_lms[i].x for i in range(min(len(p_lms), 33))]))
                             cy = float(np.mean([p_lms[i].y for i in range(min(len(p_lms), 33))]))
                             dist = (cx - _prev_center[0]) ** 2 + (cy - _prev_center[1]) ** 2
-                            if dist < best_dist:
-                                best_dist = dist
+                            if dist < best_score:
+                                best_score = dist
                                 best_idx = p_idx
+                    elif _motion_scores and frame_idx > 30:
+                        # After 30 frames, pick person with MOST motion (the one exercising)
+                        best_idx = max(_motion_scores, key=_motion_scores.get)
                     else:
-                        # First frame: pick largest bounding box (most likely the lifter)
+                        # First frames: pick largest bounding box
                         best_area = 0.0
                         for p_idx, p_lms in enumerate(detection_result.pose_landmarks):
                             xs = [p_lms[i].x for i in range(min(len(p_lms), 33))]
@@ -253,6 +259,19 @@ def extract_pose(
                                 best_area = area
                                 best_idx = p_idx
                     lms = detection_result.pose_landmarks[best_idx]
+                # Accumulate motion scores for multi-person tracking
+                if len(detection_result.pose_landmarks) > 1 and _prev_landmarks is not None:
+                    for p_idx, p_lms in enumerate(detection_result.pose_landmarks):
+                        # Calculate total landmark displacement vs previous frame
+                        motion = 0.0
+                        for li in range(min(len(p_lms), 33)):
+                            if _prev_landmarks and li < len(_prev_landmarks):
+                                dx = p_lms[li].x - _prev_landmarks[li].x
+                                dy = p_lms[li].y - _prev_landmarks[li].y
+                                motion += dx * dx + dy * dy
+                        _motion_scores[p_idx] = _motion_scores.get(p_idx, 0.0) + motion
+                _prev_landmarks = lms
+
                 # Update tracked center for next frame
                 _prev_center = (
                     float(np.mean([lms[i].x for i in range(min(len(lms), 33))])),
