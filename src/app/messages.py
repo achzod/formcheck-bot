@@ -12,24 +12,14 @@ Regles :
 # pour que le client filme correctement DES le premier envoi.
 
 WELCOME = (
-    "Bienvenue sur *FORMCHECK by ACHZOD* — Analyse biomecanique experte.\n\n"
-    "Envoie-moi une video de ton exercice et tu recois :\n"
-    "1. Score de forme detaille /100\n"
-    "2. Analyse rep par rep (tempo, ROM, fatigue)\n"
-    "3. Corrections prioritaires avec explications\n"
-    "4. Exercices correctifs personnalises\n"
-    "5. Rapport complet avec images annotees\n\n"
-    "--- --- ---\n\n"
-    "*AVANT DE FILMER — Les 5 regles essentielles :*\n\n"
-    "1. *Profil (lateral)* — C'est le meilleur angle pour 90% des exos\n"
-    "2. *Corps entier visible* — Tete aux pieds dans le cadre\n"
-    "3. *Camera fixe* — Pose ton tel sur un support, pas de mouvement\n"
-    "4. *Bon eclairage* — Pas de contre-jour, pas dans le noir\n"
-    "5. *3 a 8 reps completes* — Pas juste une demi-rep\n\n"
-    "--- --- ---\n\n"
-    "*1 analyse offerte* pour tester.\n"
-    "Envoie ta video quand tu es pret.\n"
-    "Tape *guide* pour le guide complet par exercice."
+    "*FORMCHECK by ACHZOD*\n\n"
+    "Analyse biomecanique experte de tes exercices.\n"
+    "Envoie une video, recois un rapport complet.\n\n"
+    "Comment filmer :\n"
+    "1. De profil, corps entier visible\n"
+    "2. Camera fixe, bon eclairage\n"
+    "3. 3 a 8 reps completes\n\n"
+    "*1 analyse offerte.* Envoie ta video."
 )
 
 # ── GUIDE DE TOURNAGE DETAILLE ───────────────────────────────────────────────
@@ -176,10 +166,7 @@ MORPHO_ERROR = (
 
 # ── MESSAGES RECEPTION VIDEO ─────────────────────────────────────────────────
 
-VIDEO_RECEIVED = (
-    "Video recue. Analyse biomecanique en cours.\n"
-    "Resultat dans 2-3 minutes."
-)
+VIDEO_RECEIVED = "Analyse en cours..."
 
 VIDEO_QUALITY_WARNING = (
     "Video recue. J'ai detecte quelques limites :\n"
@@ -279,18 +266,11 @@ HELP_TEXT = (
 
 MENU_TEXT = (
     "*FORMCHECK by ACHZOD*\n\n"
-    "*Envoie une video* — Analyse biomecanique complete\n\n"
-    "*Commandes :*\n"
-    "1. *menu* — Ce message\n"
-    "2. *guide* — Comment bien filmer (par exercice)\n"
-    "3. *credits* — Tes analyses restantes\n"
-    "4. *forfaits* — Les offres\n\n"
-    "*Forfaits :*\n"
-    "1. Starter — 5 analyses — 29,99 EUR\n"
-    "2. Pro — 20 analyses — 59,99 EUR\n"
-    "3. Illimite — 1 an — 99,99 EUR\n\n"
-    "70+ exercices supportes.\n"
-    "Filme-toi de profil, corps entier visible, camera fixe."
+    "Envoie une *video* pour une analyse.\n\n"
+    "*guide* — Conseils de tournage\n"
+    "*credits* — Analyses restantes\n"
+    "*forfaits* — Recharger\n"
+    "*morpho* — Profil morphologique"
 )
 
 # ── ERREURS ──────────────────────────────────────────────────────────────────

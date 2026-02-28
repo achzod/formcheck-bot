@@ -32,9 +32,9 @@ _ANALYSIS_TIMEOUT = 300  # 5 minutes max per analysis
 
 # Labels humains pour les frames annotées
 _FRAME_LABELS: dict[str, str] = {
-    "start": "📸 Position de depart",
-    "mid": "📸 Pic de contraction",
-    "end": "📸 Lockout / Retour",
+    "start": "Position de depart",
+    "mid": "Pic de contraction",
+    "end": "Lockout / Retour",
 }
 
 
@@ -263,15 +263,20 @@ async def _run_analysis(
         }
 
         def _progress_cb(step: int, total: int, desc: str) -> None:
+            # Only send progress at key milestones — no spam
+            # Step 5 = detection done, Step 10 = report generating
+            if step not in (5, 10):
+                return
             now = _time.time()
-            # Throttle: 1 message max toutes les 10 secondes
-            if now - _last_progress_ts[0] < 10.0 and step != total:
+            if now - _last_progress_ts[0] < 15.0:
                 return
             _last_progress_ts[0] = now
-            emoji = _PROGRESS_EMOJIS.get(step, "⚙️")
-            short = _PROGRESS_SHORT.get(step, desc)
-            progress_msg = "{} {} ({}/{})".format(emoji, short, step, total)
-            # Thread-safe: schedule the coroutine on the main event loop
+            if step == 5:
+                progress_msg = "Exercice detecte. Generation du rapport..."
+            elif step == 10:
+                progress_msg = "Rapport en cours de finalisation..."
+            else:
+                return
             try:
                 _main_loop.call_soon_threadsafe(
                     asyncio.ensure_future,
@@ -380,25 +385,33 @@ async def _run_analysis(
         save_report(report_id, report_token, html_content)
         report_url = get_report_url(settings.base_url, report_id, report_token)
 
-        # Send short WhatsApp message with link
+        # Send clean WhatsApp message with link — ONE message only, no spam
         score = result.report.score
         exercise = result.report.exercise_display
-        short_msg = (
-            f"🏋️ *FORMCHECK — {exercise}*\n"
-            f"📊 Score : *{score}/100*\n\n"
-            f"🔗 Ton rapport complet :\n{report_url}\n\n"
-            f"🔄 _Corrige et renvoie une vidéo pour voir ta progression !_\n"
-            f"⚡ _FORMCHECK by ACHZOD_"
-        )
-        await wa.send_text(phone, short_msg)
-
-        # Send remaining credits info
+        reps = result.reps.total_reps if result.reps else 0
+        
+        # Credits info inline (no separate message)
+        credits_line = ""
         user_updated = await db.get_user_by_phone(phone)
         if user_updated and not user_updated.is_unlimited:
             if user_updated.credits > 0:
-                await wa.send_text(phone, f"📊 Il te reste *{user_updated.credits} analyse(s)*.")
+                credits_line = "\n_{} analyse(s) restante(s)_".format(user_updated.credits)
             else:
-                await wa.send_text(phone, "📊 C'était ta dernière analyse ! Tape *forfaits* pour recharger.")
+                credits_line = "\n_Derniere analyse ! Tape *forfaits* pour recharger._"
+        
+        short_msg = (
+            "*{exercise}* — *{score}/100*"
+            "{reps_line}\n\n"
+            "{report_url}"
+            "{credits_line}"
+        ).format(
+            exercise=exercise,
+            score=score,
+            reps_line=" — {} reps".format(reps) if reps > 0 else "",
+            report_url=report_url,
+            credits_line=credits_line,
+        )
+        await wa.send_text(phone, short_msg)
 
         # Send only the most useful annotated frame (mid = point bas)
         if result.annotated_frames:
