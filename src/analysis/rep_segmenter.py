@@ -484,16 +484,16 @@ def _adaptive_params(exercise: str, signal: np.ndarray, fps: float) -> dict[str,
     rom_total = float(np.max(signal) - np.min(signal))
 
     if exercise in SLOW_EXERCISES:
-        # Fenêtre de lissage plus large pour les mouvements lents
-        smooth_window = min(11, max(7, int(fps * 0.4)))
-        # Prominence réduite — les pics sont moins marqués
-        min_prominence = max(rom_total * 0.10, 2.5)
-        # Distance plus grande entre pics — reps plus longues
-        min_distance = max(6, int(fps * 0.5))
+        # Light smoothing — heavy smoothing crushes real oscillations
+        smooth_window = min(5, max(3, int(fps * 0.1)))
+        # Low prominence — slow exercises have smaller amplitude oscillations
+        min_prominence = max(rom_total * 0.06, 2.0)
+        # Short distance — allow detecting reps as short as 0.4s
+        min_distance = max(4, int(fps * 0.4))
     else:
-        smooth_window = min(7, max(5, int(fps * 0.2)))
-        min_prominence = max(rom_total * 0.15, 4.0)
-        min_distance = max(4, int(fps * 0.25))
+        smooth_window = min(5, max(3, int(fps * 0.1)))
+        min_prominence = max(rom_total * 0.08, 3.0)
+        min_distance = max(3, int(fps * 0.25))
 
     # Si peu de signal (vidéo courte), réduire la distance
     if len(signal) < 40:
@@ -1016,6 +1016,10 @@ def segment_reps(
     zerocross_count = 0
     combined_signal = None
     combined_indices = None
+    params = {}
+    signal = None
+    peaks = np.array([])
+    valleys = np.array([])
     
     if raw_frames and len(raw_frames) >= 10:
         joint_signals = _extract_joint_y_signals(raw_frames)
@@ -1305,6 +1309,9 @@ def segment_reps(
         "angle_signal_len": len(signal) if signal is not None else 0,
         "num_peaks": len(peaks) if peaks is not None else 0,
         "num_valleys": len(valleys) if valleys is not None else 0,
+        "smooth_window": params["smooth_window"] if params else 0,
+        "min_prominence": round(params["min_prominence"], 2) if params else 0,
+        "min_distance": params["min_distance"] if params else 0,
     })
 
     logger.info(
