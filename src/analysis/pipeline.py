@@ -311,9 +311,27 @@ def run_pipeline(
     logger.info("Étape 5/%d : Détection de l'exercice...", TOTAL_STEPS)
     t0 = time.monotonic()
     try:
-        mid_frame_path = extraction.key_frame_images.get("mid")
-        start_frame_path = extraction.key_frame_images.get("start")
-        end_frame_path = extraction.key_frame_images.get("end")
+        # Extract RAW frames at fixed positions (25%, 50%, 75%) for detection.
+        # This is INDEPENDENT of MediaPipe key frame detection, which may
+        # track the wrong person and pick bad frame indices.
+        import cv2 as _cv2_det
+        _det_cap = _cv2_det.VideoCapture(str(video))
+        _det_total = int(_det_cap.get(_cv2_det.CAP_PROP_FRAME_COUNT))
+        _det_frames = {}
+        for _pct, _lbl in [(0.25, "start"), (0.50, "mid"), (0.75, "end")]:
+            _fidx = int(_det_total * _pct)
+            _det_cap.set(_cv2_det.CAP_PROP_POS_FRAMES, _fidx)
+            _ret, _frm = _det_cap.read()
+            if _ret and _frm is not None:
+                _det_path = out_dir / "detect_frame_{}.jpg".format(_lbl)
+                _cv2_det.imwrite(str(_det_path), _frm)
+                _det_frames[_lbl] = str(_det_path)
+        _det_cap.release()
+
+        mid_frame_path = _det_frames.get("mid") or extraction.key_frame_images.get("mid")
+        start_frame_path = _det_frames.get("start") or extraction.key_frame_images.get("start")
+        end_frame_path = _det_frames.get("end") or extraction.key_frame_images.get("end")
+        
         detection = detect_exercise(
             angles=angles,
             mid_frame_path=mid_frame_path,
