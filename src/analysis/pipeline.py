@@ -408,10 +408,13 @@ def run_pipeline(
             "  → Vision rep count: %d (%.1fs)",
             vision_rep_count, time.monotonic() - t0_vision,
         )
-        # Vision count is authoritative — override if higher than signal processing
-        if vision_rep_count > 0 and vision_rep_count > result.reps.total_reps:
+        # Vision count is AUTHORITATIVE — always use it when available
+        # GPT-4o sees the actual video frames and understands movement.
+        # Signal processing (MediaPipe) is unreliable in both directions:
+        # it can undercount (missing reps) AND overcount (noise as reps).
+        if vision_rep_count > 0:
             logger.info(
-                "Vision override: signal_processing=%d → vision=%d",
+                "Vision AUTHORITATIVE: signal_processing=%d → vision=%d",
                 result.reps.total_reps, vision_rep_count,
             )
             result.reps.total_reps = vision_rep_count
@@ -419,6 +422,16 @@ def run_pipeline(
     except Exception as e:
         logger.error("Vision rep counting failed: %s", e)
         vision_rep_count = 0
+
+    # Log vision count for debug
+    try:
+        from app.debug_log import log_error as _dbg
+        _dbg("vision_rep_count", "Vision rep counting result", {
+            "vision_rep_count": vision_rep_count,
+            "signal_processing_count": result.reps.total_reps if result.reps else 0,
+        })
+    except Exception:
+        pass
 
     # Fallback: detection-time vision count (from exercise detection call)
     if vision_rep_count == 0:
