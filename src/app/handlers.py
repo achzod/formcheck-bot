@@ -416,7 +416,9 @@ async def _run_analysis(
         # Only send annotated frame if confidence is high enough
         # Low confidence = likely wrong person tracked = embarrassing
         conf_score = result.confidence.overall_score if result.confidence else 0
-        if result.annotated_frames and conf_score >= 65:
+        logger.info("Confidence score: %d — annotated frame %s",
+                     conf_score, "SENT" if conf_score >= 75 else "HIDDEN")
+        if result.annotated_frames and conf_score >= 75:
             published = publish_annotated_frames(result.annotated_frames)
             for label, filename, url in published:
                 if label == "mid":
