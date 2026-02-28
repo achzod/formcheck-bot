@@ -101,9 +101,21 @@ def _get_section_icon(title: str) -> str:
     return ""
 
 
+def _md_inline_to_html(text: str) -> str:
+    """Convert inline markdown (bold, italic) to HTML. Input must already be html-escaped."""
+    # **bold** or __bold__
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r'__(.+?)__', r'<strong>\1</strong>', text)
+    # *italic* or _italic_ (but not inside words)
+    text = re.sub(r'(?<!\w)\*(.+?)\*(?!\w)', r'<em>\1</em>', text)
+    return text
+
+
 def _format_report_html(report_text: str) -> str:
     """Convertit le texte du rapport LLM en HTML propre, parse par sections."""
     text = html.escape(report_text)
+    # Convert markdown bullet lists to plain text (handled by numbered-item or paragraph)
+    text = re.sub(r'^[\-\*]\s+', '', text, flags=re.MULTILINE)
     lines = text.split("\n")
     html_parts: list[str] = []
     in_section = False
@@ -165,7 +177,7 @@ def _format_report_html(report_text: str) -> str:
         )
         if sub_match:
             label = sub_match.group(1)
-            rest = sub_match.group(2)
+            rest = _md_inline_to_html(sub_match.group(2))
             html_parts.append(
                 f'<div class="sub-label">{label} :</div>'
                 f'<div class="sub-content">{rest}</div>'
@@ -181,7 +193,7 @@ def _format_report_html(report_text: str) -> str:
         num_match = re.match(r"^(\d+)\.\s*(.*)", stripped)
         if num_match:
             num = num_match.group(1)
-            rest = num_match.group(2)
+            rest = _md_inline_to_html(num_match.group(2))
             html_parts.append(
                 f'<div class="numbered-item">'
                 f'<span class="item-num">{num}</span>'
@@ -191,7 +203,7 @@ def _format_report_html(report_text: str) -> str:
             continue
 
         # Default paragraph
-        html_parts.append(f'<p class="report-p">{stripped}</p>')
+        html_parts.append(f'<p class="report-p">{_md_inline_to_html(stripped)}</p>')
 
     if in_section:
         html_parts.append("</div></div>")
@@ -302,7 +314,12 @@ def generate_html_report(
     frames_html = ""
     if annotated_frames:
         frame_items = []
-        for label, path in annotated_frames.items():
+        # Show mid (point bas) first, then start, then end
+        ordered_labels = ["mid", "start", "end"]
+        for label in ordered_labels:
+            path = annotated_frames.get(label)
+            if not path:
+                continue
             if not Path(path).exists():
                 continue
             b64 = _img_to_base64(path)
@@ -642,7 +659,7 @@ body{{
         <a href="https://achzodcoaching.com" class="footer-link">achzodcoaching.com</a>
     </div>
     <div class="footer-sub" style="margin-top:4px">
-        Instagram <a href="https://instagram.com/achzod" class="footer-link">@achzod</a>
+        Instagram <a href="https://instagram.com/achzod" class="footer-link">@achzod</a> | <a href="mailto:coaching@achzodcoaching.com" class="footer-link">coaching@achzodcoaching.com</a>
     </div>
     <div class="footer-sub" style="margin-top:12px;font-size:0.7em;color:#444">
         ID: {analysis_id}
