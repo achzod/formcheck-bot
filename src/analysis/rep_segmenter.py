@@ -811,23 +811,63 @@ def _build_combined_signal(
     return combined, np.array(common_indices)
 
 
+def _trim_active_region(signal: np.ndarray, fps: float) -> np.ndarray:
+    """Trim the signal to only the active (repetitive) region.
+    
+    Removes the setup phase at the start and the walkaway at the end
+    by finding the region with the highest variance (= where reps happen).
+    Uses a sliding window of ~2 seconds.
+    """
+    n = len(signal)
+    window = max(5, int(fps * 2.0))
+    
+    if n <= window:
+        return signal
+    
+    # Compute rolling variance
+    variances = []
+    for i in range(n - window + 1):
+        variances.append(float(np.var(signal[i:i + window])))
+    variances = np.array(variances)
+    
+    if len(variances) == 0 or np.max(variances) < 1e-10:
+        return signal
+    
+    # Threshold: regions where variance > 20% of max variance
+    threshold = np.max(variances) * 0.20
+    active_mask = variances > threshold
+    
+    # Find first and last active window
+    active_indices = np.where(active_mask)[0]
+    if len(active_indices) < 2:
+        return signal
+    
+    start = max(0, active_indices[0])
+    end = min(n, active_indices[-1] + window)
+    
+    trimmed = signal[start:end]
+    logger.info(
+        "Trimmed signal: %d -> %d frames (removed %d start, %d end)",
+        n, len(trimmed), start, n - end,
+    )
+    return trimmed
+
+
 def _count_by_autocorrelation(signal: np.ndarray, fps: float) -> int:
     """Count repetitions using autocorrelation to find the dominant period.
     
     Autocorrelation finds periodicity in a signal by correlating it with
     time-shifted versions of itself. The first major peak after lag 0
     indicates the period (duration of one rep).
-    
-    Much more robust than peak detection because:
-    - Finds the AVERAGE period across all reps (not individual peaks)
-    - Tolerant to noise that would confuse peak detection
-    - Works even when amplitude varies between reps (fatigue)
     """
     if len(signal) < 15:
         return 0
 
+    # Trim to active region (remove setup/walkaway)
+    sig = _trim_active_region(signal, fps)
+    
     # Remove DC component (mean)
-    sig = signal - np.mean(signal)
+    sig = sig - np.mean(sig)
     
     # Compute autocorrelation via numpy
     n = len(sig)
@@ -841,10 +881,10 @@ def _count_by_autocorrelation(signal: np.ndarray, fps: float) -> int:
         return 0
 
     # Find the first significant peak after lag 0
-    # Min lag: at least 0.4 seconds per rep (very fast reps)
-    # Max lag: at most 8 seconds per rep (very slow reps)
-    min_lag = max(3, int(fps * 0.4))
-    max_lag = min(len(autocorr) - 1, int(fps * 8.0))
+    # Min lag: at least 0.3 seconds per rep (very fast reps)
+    # Max lag: at most 5 seconds per rep (slow controlled reps)
+    min_lag = max(3, int(fps * 0.3))
+    max_lag = min(len(autocorr) - 1, int(fps * 5.0))
     
     if min_lag >= max_lag:
         return 0
@@ -856,13 +896,12 @@ def _count_by_autocorrelation(signal: np.ndarray, fps: float) -> int:
     # Find peaks in autocorrelation
     try:
         from scipy.signal import find_peaks as sp_find_peaks
-        peaks, properties = sp_find_peaks(search_region, prominence=0.05, distance=int(fps * 0.3))
+        peaks, properties = sp_find_peaks(search_region, prominence=0.03, distance=max(2, int(fps * 0.2)))
     except ImportError:
-        # Manual peak finding
         peaks = []
         for i in range(1, len(search_region) - 1):
             if search_region[i] > search_region[i-1] and search_region[i] > search_region[i+1]:
-                if search_region[i] > 0.05:
+                if search_region[i] > 0.03:
                     peaks.append(i)
 
     if len(peaks) == 0:
@@ -873,16 +912,17 @@ def _count_by_autocorrelation(signal: np.ndarray, fps: float) -> int:
     
     # Validate: the autocorrelation at this peak should be reasonably high
     peak_value = autocorr[period_frames]
-    if peak_value < 0.1:
+    if peak_value < 0.05:
         logger.info("Autocorrelation peak too weak (%.3f), unreliable.", peak_value)
         return 0
 
-    # Count = total duration / period
+    # Count = total active duration / period
     rep_count = round(n / period_frames)
     
     logger.info(
-        "Autocorrelation: period=%.1f frames (%.2fs), peak_value=%.3f, estimated_reps=%d",
-        period_frames, period_frames / fps, peak_value, rep_count,
+        "Autocorrelation: period=%.1f frames (%.2fs), peak_value=%.3f, "
+        "active_signal=%d frames, estimated_reps=%d",
+        period_frames, period_frames / fps, peak_value, n, rep_count,
     )
     return max(1, rep_count)
 
@@ -906,7 +946,7 @@ def _best_robust_count(autocorr: int, zerocross: int) -> int:
     return autocorr
 
 
-def _count_by_zero_crossing(signal: np.ndarray) -> int:
+def _count_by_zero_crossing(signal: np.ndarray, fps: float = 30.0) -> int:
     """Count reps by zero-crossing: each full cycle (2 crossings) = 1 rep.
     
     Robust fallback: simply counts how many times the signal crosses
@@ -915,8 +955,14 @@ def _count_by_zero_crossing(signal: np.ndarray) -> int:
     if len(signal) < 5:
         return 0
     
-    mean_val = np.mean(signal)
-    centered = signal - mean_val
+    # Trim to active region first
+    trimmed = _trim_active_region(signal, fps)
+    
+    # Smooth slightly to avoid noise crossings
+    smoothed = _smooth_signal(trimmed, window=max(3, int(fps * 0.1)))
+    
+    mean_val = np.mean(smoothed)
+    centered = smoothed - mean_val
     
     # Count sign changes
     crossings = 0
@@ -927,7 +973,8 @@ def _count_by_zero_crossing(signal: np.ndarray) -> int:
     # Each complete rep = 2 crossings (down + up or up + down)
     rep_count = crossings // 2
     
-    logger.info("Zero-crossing: %d crossings → %d reps", crossings, rep_count)
+    logger.info("Zero-crossing: %d crossings → %d reps (trimmed %d→%d frames)", 
+                crossings, rep_count, len(signal), len(trimmed))
     return max(0, rep_count)
 
 
@@ -984,7 +1031,7 @@ def segment_reps(
                 autocorr_count = _count_by_autocorrelation(smoothed_combined, fps)
                 
                 # Method 2: Zero-crossing
-                zerocross_count = _count_by_zero_crossing(smoothed_combined)
+                zerocross_count = _count_by_zero_crossing(smoothed_combined, fps)
                 
                 logger.info(
                     "Robust counting: autocorr=%d, zerocross=%d",
@@ -1253,6 +1300,11 @@ def segment_reps(
         "raw_frames_provided": raw_frames is not None,
         "raw_frames_count": len(raw_frames) if raw_frames else 0,
         "combined_signal_len": len(combined_signal) if combined_signal is not None else 0,
+        "fps": fps,
+        "exercise": exercise,
+        "angle_signal_len": len(signal) if signal is not None else 0,
+        "num_peaks": len(peaks) if peaks is not None else 0,
+        "num_valleys": len(valleys) if valleys is not None else 0,
     })
 
     logger.info(
