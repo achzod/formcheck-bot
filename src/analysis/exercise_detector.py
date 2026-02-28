@@ -1845,6 +1845,11 @@ def detect_by_vision(
             "3) C'est la personne dont la POSITION CHANGE entre les frames (les autres sont statiques). "
             "4) Les personnes debout sans equipement qui ne bougent pas = spectateurs, IGNORE-LES. "
             "5) Si quelqu'un marche simplement dans le fond = passant, IGNORE-LE.\n"
+            "- DISTINGUER curl (barre/halteres) vs cable_curl (poulie) : "
+            "Si la personne tient une BARRE DROITE ou EZ (longue barre metallique) = *curl* (pas cable_curl). "
+            "cable_curl = la personne est face a une POULIE avec un CABLE visible qui descend de la machine. "
+            "Si tu vois une barre libre dans les mains = curl. Si tu vois un cable/poulie = cable_curl. "
+            "Les poulies/machines DANS LE FOND du gym ne comptent pas.\n"
             "- Si la personne est DEBOUT face a une poulie avec les bras qui bougent, "
             "c'est probablement un exercice de poulie (cable_pullover, face_pull, "
             "cable_row, tricep_extension, cable_curl, upright_row).\n"
@@ -1873,17 +1878,14 @@ def detect_by_vision(
         )
 
         user_text = (
-            "Voici {n} frame(s) extraites d'une meme serie "
-            "(debut, milieu, fin si disponibles). "
-            "Identifie precisement l'exercice de musculation. "
-            "IMPORTANT : Compare les frames entre elles pour voir "
-            "CE QUI BOUGE. Si le torse reste fixe et les bras tirent "
-            "= rowing. Si le torse se redresse = deadlift. "
-            "Regarde l'equipement, la position du corps, "
-            "et le plan de mouvement. "
-            "Compte aussi le nombre de REPETITIONS visibles "
-            "(chaque montee-descente complete = 1 rep). "
-            "Si tu ne peux pas compter precisement, estime au mieux."
+            "Voici {n} frame(s) d'une serie de musculation. "
+            "METHODE D'IDENTIFICATION :\n"
+            "1. Identifie la personne qui fait l'exercice (celle qui BOUGE avec un equipement)\n"
+            "2. Regarde quel EQUIPEMENT elle utilise : barre libre, halteres, cable/poulie, machine, poids de corps\n"
+            "3. Regarde le MOUVEMENT entre les frames : ce qui bouge et ce qui reste fixe\n"
+            "4. Compare les frames pour voir le cycle du mouvement\n"
+            "IGNORE les machines/equipements visibles en ARRIERE-PLAN qui ne sont pas utilises.\n"
+            "Compte aussi les REPETITIONS visibles."
         ).format(n=num_frames)
 
         if candidate_exercises:

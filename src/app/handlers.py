@@ -413,16 +413,15 @@ async def _run_analysis(
         )
         await wa.send_text(phone, short_msg)
 
-        # Send only the most useful annotated frame (mid = point bas)
-        if result.annotated_frames:
+        # Only send annotated frame if confidence is high enough
+        # Low confidence = likely wrong person tracked = embarrassing
+        conf_score = result.confidence.overall_score if result.confidence else 0
+        if result.annotated_frames and conf_score >= 65:
             published = publish_annotated_frames(result.annotated_frames)
-            # Only send mid (point bas) — most informative frame
-            # Skip start/end which often show setup/walkaway
             for label, filename, url in published:
                 if label == "mid":
-                    caption = _FRAME_LABELS.get(label, "Point bas")
                     try:
-                        await wa.send_image(phone, url, caption=caption)
+                        await wa.send_image(phone, url, caption="Pic de contraction")
                     except Exception:
                         logger.exception("Failed to send annotated frame %s", label)
                     break
