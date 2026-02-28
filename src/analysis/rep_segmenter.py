@@ -481,13 +481,13 @@ def _adaptive_params(exercise: str, signal: np.ndarray, fps: float) -> dict[str,
         # Fenêtre de lissage plus large pour les mouvements lents
         smooth_window = min(11, max(7, int(fps * 0.4)))
         # Prominence réduite — les pics sont moins marqués
-        min_prominence = max(rom_total * 0.12, 3.0)
+        min_prominence = max(rom_total * 0.10, 2.5)
         # Distance plus grande entre pics — reps plus longues
-        min_distance = max(8, int(fps * 0.6))
+        min_distance = max(6, int(fps * 0.5))
     else:
         smooth_window = min(7, max(5, int(fps * 0.2)))
-        min_prominence = max(rom_total * 0.20, 5.0)
-        min_distance = max(5, int(fps * 0.3))
+        min_prominence = max(rom_total * 0.15, 4.0)
+        min_distance = max(4, int(fps * 0.25))
 
     # Si peu de signal (vidéo courte), réduire la distance
     if len(signal) < 40:
@@ -706,13 +706,13 @@ def segment_reps(
         if len(peaks) >= 2:
             valleys, peaks = peaks, valleys
         else:
-            # Dernier recours : réduire la prominence de 50% et réessayer
-            logger.info("Pas assez de points, reduction prominence de 50%%.")
-            reduced_prom = params["min_prominence"] * 0.5
+            # Dernier recours : réduire la prominence de 60% et distance de 50%
+            logger.info("Pas assez de points, reduction prominence 60%% + distance 50%%.")
+            reduced_prom = params["min_prominence"] * 0.4
             peaks, valleys = _find_peaks_valleys(
                 smoothed,
                 min_prominence=reduced_prom,
-                min_distance=max(3, int(params["min_distance"] * 0.7)),
+                min_distance=max(3, int(params["min_distance"] * 0.5)),
             )
             if len(valleys) < 2 and len(peaks) >= 2:
                 valleys, peaks = peaks, valleys
