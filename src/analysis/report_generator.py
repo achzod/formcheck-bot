@@ -500,12 +500,13 @@ def generate_report(
     )
 
     if provider == "auto":
-        if os.environ.get("ANTHROPIC_API_KEY", "").strip():
-            return generate_report_claude(**kwargs)
-        elif os.environ.get("OPENAI_API_KEY", "").strip():
+        # GPT-4o en priorité — plus fiable et centralise tout sur une seule API
+        if os.environ.get("OPENAI_API_KEY", "").strip():
             return generate_report_openai(**kwargs)
+        elif os.environ.get("ANTHROPIC_API_KEY", "").strip():
+            return generate_report_claude(**kwargs)
         else:
-            raise ValueError("Aucune clé API configurée. Définissez ANTHROPIC_API_KEY ou OPENAI_API_KEY.")
+            raise ValueError("Aucune clé API configurée. Définissez OPENAI_API_KEY ou ANTHROPIC_API_KEY.")
     elif provider == "anthropic":
         return generate_report_claude(**kwargs)
     elif provider == "openai":
