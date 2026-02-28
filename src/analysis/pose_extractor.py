@@ -93,50 +93,59 @@ def _compute_hip_y(landmarks: list[dict[str, float]]) -> float:
     return 0.0
 
 
-# Exercises where peak contraction = hips at HIGHEST point (min hip_y)
-# For these, "mid" = top of movement, "end" = return to bottom
-_PEAK_AT_TOP = {
-    "hip_thrust", "glute_bridge", "curl", "cable_curl", "hammer_curl",
-    "preacher_curl", "dumbbell_curl", "incline_curl", "concentration_curl",
-    "spider_curl", "barbell_row", "dumbbell_row", "cable_row", "tbar_row",
-    "pendlay_row", "seal_row", "lat_pulldown", "close_grip_pulldown",
-    "pullup", "chinup", "face_pull", "reverse_fly", "rear_delt_fly",
-    "lateral_raise", "cable_lateral_raise", "front_raise", "shrug",
-    "upright_row", "calf_raise", "seated_calf_raise", "leg_curl",
-    "cable_kickback", "nordic_curl", "glute_ham_raise",
-}
-
-
 def _detect_key_frames(frames: list[FrameLandmarks], exercise: str = "") -> dict[str, int]:
+    """Detect key frames using exercise-specific landmark tracking.
+    
+    Uses the ExercisePhase database to know WHICH body part to track
+    and in WHICH direction the peak contraction occurs.
+    
+    Example: upright_row tracks WRISTS going UP (min_y = peak contraction)
+             squat tracks HIPS going DOWN (max_y = peak contraction)
+    """
     if not frames:
         return {"start": 0, "mid": 0, "end": 0}
     valid = [f for f in frames if f.avg_visibility > 0.3]
     if not valid:
         valid = frames
-    hip_y_values = [_compute_hip_y(f.landmarks) for f in valid]
 
-    # Peak contraction: depends on exercise type
-    # Squat/deadlift/bench = lowest point (max hip_y)
-    # Hip thrust/curl/row = highest point (min hip_y)
-    if exercise in _PEAK_AT_TOP:
-        mid_idx_pos = int(np.argmin(hip_y_values))
+    # Try to get exercise-specific phase data
+    phase = None
+    if exercise:
+        try:
+            from analysis.exercise_phases import get_phase, get_tracking_y
+            phase = get_phase(exercise)
+        except ImportError:
+            pass
+
+    if phase:
+        # Exercise-specific: track the correct landmark(s)
+        tracking_values = [get_tracking_y(f.landmarks, phase) for f in valid]
+        
+        if phase.peak_direction == "min_y":
+            mid_idx_pos = int(np.argmin(tracking_values))
+        else:
+            mid_idx_pos = int(np.argmax(tracking_values))
     else:
-        mid_idx_pos = int(np.argmax(hip_y_values))
+        # Fallback: use hip_y (original behavior)
+        tracking_values = [_compute_hip_y(f.landmarks) for f in valid]
+        mid_idx_pos = int(np.argmax(tracking_values))
+
     mid_idx = valid[mid_idx_pos].frame_index
 
-    # Start: use frame at ~10% of valid frames (skip initial setup/walkup)
+    # Start: frame at ~10% (skip setup)
     start_pos = max(0, len(valid) // 10)
     start_idx = valid[start_pos].frame_index
 
-    # End: find the opposite position after mid (return from peak contraction)
+    # End: find the return position after peak contraction
     end_idx = valid[-1].frame_index  # fallback
     if mid_idx_pos < len(valid) - 1:
-        post_mid = hip_y_values[mid_idx_pos:]
+        post_mid = tracking_values[mid_idx_pos:]
         if post_mid:
-            # For peak-at-top exercises, end = next max hip_y (return to bottom)
-            # For peak-at-bottom exercises, end = next min hip_y (return to top)
-            if exercise in _PEAK_AT_TOP:
+            # Return = opposite direction from peak
+            if phase and phase.peak_direction == "min_y":
                 local_opp_pos = int(np.argmax(post_mid))
+            elif phase and phase.peak_direction == "max_y":
+                local_opp_pos = int(np.argmin(post_mid))
             else:
                 local_opp_pos = int(np.argmin(post_mid))
             if local_opp_pos > 0:

@@ -328,7 +328,21 @@ def generate_html_report(
             if not Path(path).exists():
                 continue
             b64 = _img_to_base64(path)
+            # Try exercise-specific labels from phase database
             caption = _FRAME_LABELS.get(label, label.replace("_", " ").title())
+            try:
+                from analysis.exercise_phases import get_phase
+                _ex_val = ""
+                if pipeline_result and hasattr(pipeline_result, 'detection'):
+                    _ex_val = pipeline_result.detection.exercise.value
+                _phase = get_phase(_ex_val) if _ex_val else None
+                if _phase:
+                    if label == "mid":
+                        caption = _phase.peak_label
+                    elif label == "end":
+                        caption = _phase.return_label
+            except (ImportError, Exception):
+                pass
             frame_items.append(f'''
             <div class="frame-item">
                 <img src="{b64}" alt="{html.escape(caption)}" loading="lazy">
