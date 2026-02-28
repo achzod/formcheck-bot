@@ -1817,7 +1817,20 @@ def detect_by_vision(
             "bras tirent vers le ventre).\n"
             "- Si la personne est DEBOUT face a une poulie avec les bras qui bougent, "
             "c'est probablement un exercice de poulie (cable_pullover, face_pull, "
-            "cable_row, tricep_extension, cable_curl, upright_row).\n\n"
+            "cable_row, tricep_extension, cable_curl, upright_row).\n"
+            "- DISTINGUER ohp (developpe militaire / shoulder press) vs overhead_tricep "
+            "(extension triceps au-dessus de la tete) : "
+            "OHP = la barre/halteres PARTENT des epaules et MONTENT au-dessus de la tete, "
+            "GRANDE amplitude, les EPAULES travaillent principalement, les coudes vont de "
+            "flechis (barre aux epaules) a tendus (barre au-dessus). "
+            "OVERHEAD TRICEP = le poids est TOUJOURS au-dessus/derriere la tete, "
+            "les COUDES restent FIXES pointes vers le plafond, SEULS les avant-bras bougent "
+            "derriere la tete, PETITE amplitude. "
+            "Si tu vois une barre qui part des epaules = OHP. "
+            "Si tu vois un haltere/corde qui reste derriere la tete avec les coudes fixes = OVERHEAD_TRICEP.\n"
+            "- DISTINGUER ohp vs arnold_press : Arnold press = halteres qui partent devant "
+            "le visage (paumes vers soi) avec rotation vers l'exterieur pendant la montee. "
+            "OHP = barre ou halteres qui partent des epaules (paumes vers l'avant) sans rotation.\n\n"
             "Reponds UNIQUEMENT avec un JSON valide :\n"
             '{{"exercise": "<nom_exact>", "confidence": <0.0-1.0>, '
             '"reasoning": "<explication courte>", '
@@ -1884,6 +1897,16 @@ def detect_by_vision(
         content = response.choices[0].message.content or ""
         logger.info("Vision raw response: %s", content[:300])
 
+        # Debug log for exercise detection
+        try:
+            from app.debug_log import log_error as _dbg
+            _dbg("exercise_detection", "Vision detection result", {
+                "raw_response": content[:300],
+                "candidates": ",".join(candidate_exercises) if candidate_exercises else "none",
+            })
+        except Exception:
+            pass
+
         # Extraire le JSON de la reponse
         start = content.find("{")
         end = content.rfind("}") + 1
@@ -1911,7 +1934,14 @@ def detect_by_vision(
                 "tirage_poulie_basse": "cable_row",
                 "seated_cable_row": "cable_row",
                 "seated_row": "cable_row",
+                "shoulder_press": "ohp",
+                "military_press": "ohp",
+                "press_militaire": "ohp",
+                "overhead_press": "ohp",
+                "standing_press": "ohp",
                 "extension_triceps": "tricep_extension",
+                "overhead_extension": "overhead_tricep",
+                "extension_overhead": "overhead_tricep",
                 "cable_tricep_extension": "tricep_extension",
                 "pushdown": "tricep_extension",
                 "tricep_pushdown": "tricep_extension",
