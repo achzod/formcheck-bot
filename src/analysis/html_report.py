@@ -218,8 +218,8 @@ def _format_report_html(report_text: str) -> str:
 
 _FRAME_LABELS = {
     "start": "Position de depart",
-    "mid": "Point bas du mouvement",
-    "end": "Phase de remontee",
+    "mid": "Pic de contraction / Amplitude max",
+    "end": "Lockout / Retour position haute",
     "quarter": "Descente (1/4)",
     "three_quarter": "Remontee (3/4)",
 }
@@ -319,8 +319,8 @@ def generate_html_report(
     frames_html = ""
     if annotated_frames:
         frame_items = []
-        # Show mid (point bas) first, then start only — skip end (often useless walkaway)
-        ordered_labels = ["mid", "start"]
+        # Show mid (peak contraction) first, then end (lockout/return), skip start
+        ordered_labels = ["mid", "end"]
         for label in ordered_labels:
             path = annotated_frames.get(label)
             if not path:

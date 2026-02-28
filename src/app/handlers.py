@@ -32,9 +32,9 @@ _ANALYSIS_TIMEOUT = 300  # 5 minutes max per analysis
 
 # Labels humains pour les frames annotées
 _FRAME_LABELS: dict[str, str] = {
-    "start": "📸 Début du mouvement",
-    "mid": "📸 Point bas (milieu)",
-    "end": "📸 Fin du mouvement",
+    "start": "📸 Position de depart",
+    "mid": "📸 Pic de contraction",
+    "end": "📸 Lockout / Retour",
 }
 
 

@@ -107,13 +107,19 @@ def _detect_key_frames(frames: list[FrameLandmarks]) -> dict[str, int]:
     start_pos = max(0, len(valid) // 10)
     start_idx = valid[start_pos].frame_index
 
-    # End: use frame at ~90% of valid frames (skip walkaway/rerack)
-    # This avoids picking the last frame where the person left the bar
-    end_pos = min(len(valid) - 1, int(len(valid) * 0.9))
-    # If mid is past end_pos, adjust so end is after mid
-    if end_pos <= mid_idx_pos:
-        end_pos = min(len(valid) - 1, mid_idx_pos + (mid_idx_pos - start_pos))
-    end_idx = valid[end_pos].frame_index
+    # End: find the LOCKOUT position after mid (peak contraction).
+    # = the local minimum of hip_y AFTER mid (person standing back up / arms extended)
+    # This gives us the end-of-rep, not the walkaway frame.
+    end_idx = valid[-1].frame_index  # fallback
+    if mid_idx_pos < len(valid) - 1:
+        # Search for min hip_y after mid (= person at highest point after contraction)
+        post_mid = hip_y_values[mid_idx_pos:]
+        if post_mid:
+            local_min_pos = int(np.argmin(post_mid))
+            # Only use it if it's meaningfully different from mid (not just noise)
+            if local_min_pos > 0:
+                end_pos = mid_idx_pos + local_min_pos
+                end_idx = valid[min(end_pos, len(valid) - 1)].frame_index
 
     return {"start": start_idx, "mid": mid_idx, "end": end_idx}
 
