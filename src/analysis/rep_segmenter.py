@@ -659,6 +659,32 @@ def _detect_cheat(
                 rep.cheat_details = "Legere compensation du tronc ({:.0f} deg)".format(trunk_range)
 
 
+def _get_center_of_mass_signal(angles: "AngleResult") -> tuple[np.ndarray, np.ndarray]:
+    """Fallback signal: average Y position of all landmarks per frame.
+    
+    More robust than individual joint angles because it averages out
+    individual landmark placement errors from MediaPipe.
+    """
+    # Access the extraction's raw frames via angles
+    # Each FrameAngles has multiple angle values; we use hip angles as proxy
+    # for vertical center of mass movement
+    values = []
+    indices = []
+    for f in angles.frames:
+        # Average all available angles as a composite movement signal
+        angle_vals = []
+        for attr_name in ["left_hip_flexion", "right_hip_flexion", 
+                          "left_knee_flexion", "right_knee_flexion",
+                          "left_elbow_flexion", "right_elbow_flexion"]:
+            val = getattr(f, attr_name, None)
+            if val is not None:
+                angle_vals.append(val)
+        if angle_vals:
+            values.append(float(np.mean(angle_vals)))
+            indices.append(f.frame_index)
+    return np.array(values), np.array(indices)
+
+
 def segment_reps(
     angles: AngleResult,
     exercise: str,
@@ -684,8 +710,12 @@ def segment_reps(
 
     signal, frame_indices = _get_signal(angles.frames, attr)
     if len(signal) < 10:
-        logger.warning("Signal trop court (%d points) pour detecter des reps.", len(signal))
-        return result
+        # Fallback: try composite signal (average of all angles)
+        logger.info("Primary signal too short, trying composite signal.")
+        signal, frame_indices = _get_center_of_mass_signal(angles)
+        if len(signal) < 10:
+            logger.warning("Signal trop court (%d points) pour detecter des reps.", len(signal))
+            return result
 
     # Paramètres adaptatifs selon l'exercice
     params = _adaptive_params(exercise, signal, fps)
@@ -717,8 +747,37 @@ def segment_reps(
             if len(valleys) < 2 and len(peaks) >= 2:
                 valleys, peaks = peaks, valleys
             elif len(valleys) < 2:
-                logger.warning("Pas assez de points caracteristiques pour segmenter.")
-                return result
+                # Last resort: try composite signal (average of all joint angles)
+                logger.info("Primary signal failed, trying composite signal for rep detection.")
+                comp_signal, comp_indices = _get_center_of_mass_signal(angles)
+                if len(comp_signal) >= 10:
+                    comp_params = _adaptive_params(exercise, comp_signal, fps)
+                    comp_smoothed = _smooth_signal(comp_signal, window=int(comp_params["smooth_window"]))
+                    comp_peaks, comp_valleys = _find_peaks_valleys(
+                        comp_smoothed,
+                        min_prominence=comp_params["min_prominence"] * 0.4,
+                        min_distance=max(3, int(comp_params["min_distance"] * 0.5)),
+                    )
+                    if len(comp_valleys) >= 2:
+                        signal = comp_signal
+                        frame_indices = comp_indices
+                        smoothed = comp_smoothed
+                        peaks = comp_peaks
+                        valleys = comp_valleys
+                        logger.info("Composite signal found %d valleys, %d peaks.", len(valleys), len(peaks))
+                    elif len(comp_peaks) >= 2:
+                        signal = comp_signal
+                        frame_indices = comp_indices
+                        smoothed = comp_smoothed
+                        valleys = comp_peaks
+                        peaks = comp_valleys
+                        logger.info("Composite signal (inverted) found %d delimiters.", len(valleys))
+                    else:
+                        logger.warning("Pas assez de points caracteristiques pour segmenter.")
+                        return result
+                else:
+                    logger.warning("Pas assez de points caracteristiques pour segmenter.")
+                    return result
 
     # ROM minimum pour cet exercice
     min_rom = MIN_ROM_THRESHOLD.get(exercise, 10.0)
