@@ -250,15 +250,11 @@ async def _run_analysis(
         import time as _time
         _main_loop = asyncio.get_running_loop()
         _last_progress_ts = [0.0]  # mutable pour closure
-        _PROGRESS_EMOJIS = {
-            1: "🔍", 2: "🦴", 3: "📏", 4: "📐",
-            5: "🎯", 6: "🔄", 7: "💪", 8: "📊",
-            9: "✅", 10: "✍️", 11: "🖼️",
-        }
+        # Step descriptions (used only for logging, not sent to user)
         _PROGRESS_SHORT = {
             1: "Validation", 2: "Extraction", 3: "Lissage",
-            4: "Angles", 5: "Détection", 6: "Reps",
-            7: "Biomécanique", 8: "Morpho", 9: "Confiance",
+            4: "Angles", 5: "Detection", 6: "Reps",
+            7: "Biomecanique", 8: "Morpho", 9: "Confiance",
             10: "Rapport", 11: "Annotation",
         }
 
@@ -622,7 +618,7 @@ async def _send_credits_status(user: db.User) -> None:
     elif fresh.credits > 0:
         await wa.send_text(fresh.phone, msg.CREDITS_STATUS.format(credits=fresh.credits))
     else:
-        await wa.send_text(fresh.phone, "📊 Tu n'as plus de crédits. Tape *forfaits* pour recharger !")
+        await wa.send_text(fresh.phone, "Tu n'as plus de credits. Tape *forfaits* pour recharger.")
 
 
 def _split_message(text: str, max_len: int = 3900) -> list[str]:

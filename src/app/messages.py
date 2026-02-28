@@ -234,9 +234,9 @@ NO_CREDITS = (
     "Choisis un forfait pour continuer :"
 )
 
-PLAN_STARTER = "Starter — 5 analyses pour 29,99 EUR"
-PLAN_PRO = "Pro — 20 analyses pour 59,99 EUR"
-PLAN_UNLIMITED = "Illimite — Analyses illimitees pendant 1 an pour 99,99 EUR"
+PLAN_ESSENTIALS = "Essentials — 5 analyses pour 19,99 EUR"
+PLAN_PERFORMANCE = "Performance — 15 analyses pour 49,99 EUR"
+PLAN_ELITE = "Elite — Analyses illimitees pour 29,99 EUR/mois"
 
 PAYMENT_CONFIRMED_CREDITS = (
     "Paiement recu. {credits} analyses ajoutees a ton compte.\n"

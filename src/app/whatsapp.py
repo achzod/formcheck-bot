@@ -96,11 +96,14 @@ async def send_plan_buttons(to: str, body: str, checkout_urls: dict[str, str]) -
     lines = [
         body,
         "",
-        f"1️⃣ *Starter* — 5 analyses (29.99€)\n{checkout_urls['starter']}",
+        "1. *Essentials* — 5 analyses (19.99 EUR)",
+        checkout_urls.get("essentials", ""),
         "",
-        f"2️⃣ *Pro* — 20 analyses (59.99€)\n{checkout_urls['pro']}",
+        "2. *Performance* — 15 analyses (49.99 EUR)",
+        checkout_urls.get("performance", ""),
         "",
-        f"3️⃣ *Illimité* — 1 an (99.99€)\n{checkout_urls['unlimited']}",
+        "3. *Elite* — Illimite, 29.99 EUR/mois",
+        checkout_urls.get("elite", ""),
     ]
     return await send_text(to, "\n".join(lines))
 

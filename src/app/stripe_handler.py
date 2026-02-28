@@ -16,21 +16,21 @@ stripe.api_key = settings.stripe_secret_key
 # ── Plans ───────────────────────────────────────────────────────────────
 
 PLANS: dict[str, dict] = {
-    "starter": {
-        "name": "FORMCHECK Starter",
-        "price_cents": 2999,
+    "essentials": {
+        "name": "FORMCHECK Essentials — 5 analyses",
+        "price_cents": 1999,
         "credits": 5,
         "unlimited": False,
     },
-    "pro": {
-        "name": "FORMCHECK Pro",
-        "price_cents": 5999,
-        "credits": 20,
+    "performance": {
+        "name": "FORMCHECK Performance — 15 analyses",
+        "price_cents": 4999,
+        "credits": 15,
         "unlimited": False,
     },
-    "unlimited": {
-        "name": "FORMCHECK Illimité (1 an)",
-        "price_cents": 9999,
+    "elite": {
+        "name": "FORMCHECK Elite — Illimite (mensuel)",
+        "price_cents": 2999,
         "credits": 0,
         "unlimited": True,
     },
