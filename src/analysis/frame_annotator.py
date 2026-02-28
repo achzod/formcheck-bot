@@ -655,19 +655,37 @@ def annotate_key_frames(
             if not frame_lm or not frame_ang:
                 continue
 
-        # Skeleton disabled — MediaPipe too unreliable on real gym footage.
-        # Show clean frame with label badge only.
-        import cv2 as _cv2
-        raw_img = _cv2.imread(image_path)
-        if raw_img is not None:
-            _LABELS = {"start": "DEBUT", "mid": "PIC CONTRACTION", "end": "RETOUR"}
-            badge_text = _LABELS.get(label, label.upper())
-            font = _cv2.FONT_HERSHEY_SIMPLEX
-            (tw, th), _ = _cv2.getTextSize(badge_text, font, 1.0, 2)
-            _cv2.rectangle(raw_img, (10, 10), (30 + tw, 20 + th + 10), (0, 0, 0), -1)
-            _cv2.putText(raw_img, badge_text, (20, 15 + th), font, 1.0, (0, 255, 255), 2, _cv2.LINE_AA)
-            output_path = out_dir / f"annotated_{label}_{frame_idx}.jpg"
-            _cv2.imwrite(str(output_path), raw_img, [_cv2.IMWRITE_JPEG_QUALITY, 95])
-            annotated_paths[label] = str(output_path)
+        # Draw full skeleton with angles if landmark confidence is decent
+        try:
+            if frame_lm.avg_visibility >= 0.3:
+                annotated_img = annotate_frame(
+                    image_path=image_path,
+                    frame_landmarks=frame_lm,
+                    frame_angles=frame_ang,
+                    exercise=exercise,
+                    label=label,
+                )
+                output_path = out_dir / "annotated_{}_{}.jpg".format(label, frame_idx)
+                cv2.imwrite(str(output_path), annotated_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                annotated_paths[label] = str(output_path)
+            else:
+                # Low confidence — show clean frame with badge only
+                raw_img = cv2.imread(image_path)
+                if raw_img is not None:
+                    badge_text = label.upper()
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    (tw, th), _ = cv2.getTextSize(badge_text, font, 1.0, 2)
+                    cv2.rectangle(raw_img, (10, 10), (30 + tw, 20 + th + 10), (0, 0, 0), -1)
+                    cv2.putText(raw_img, badge_text, (20, 15 + th), font, 1.0, (0, 255, 255), 2, cv2.LINE_AA)
+                    output_path = out_dir / "annotated_{}_{}.jpg".format(label, frame_idx)
+                    cv2.imwrite(str(output_path), raw_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    annotated_paths[label] = str(output_path)
+        except Exception as _e:
+            logger.warning("Skeleton annotation failed for %s: %s — falling back to clean frame", label, _e)
+            raw_img = cv2.imread(image_path)
+            if raw_img is not None:
+                output_path = out_dir / "annotated_{}_{}.jpg".format(label, frame_idx)
+                cv2.imwrite(str(output_path), raw_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                annotated_paths[label] = str(output_path)
 
     return annotated_paths
