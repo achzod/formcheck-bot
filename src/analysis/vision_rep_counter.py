@@ -114,8 +114,14 @@ def count_reps_by_vision(
         video_fps = cap.get(cv2.CAP_PROP_FPS) or fps
         cap.release()
         duration_s = total_frames / video_fps if video_fps > 0 else 10
-        # ~1 frame per second, min 8, max 20 (cost control)
-        n_frames = max(8, min(20, int(duration_s)))
+        # ~2 frames per second for short videos (<15s), ~1.5/s for medium, ~1/s for long
+        # Fast exercises (curls, lateral raises) need more temporal resolution
+        if duration_s <= 10:
+            n_frames = max(12, min(20, int(duration_s * 2.5)))
+        elif duration_s <= 20:
+            n_frames = max(15, min(20, int(duration_s * 1.5)))
+        else:
+            n_frames = 20  # cap at 20 for cost
         logger.info("Auto frames: %.1fs video → %d frames", duration_s, n_frames)
     
     frames_b64 = _extract_evenly_spaced_frames(video_path, n_frames=n_frames)
@@ -146,10 +152,13 @@ def count_reps_by_vision(
         "- Les frames ou le sujet est dans la meme position = meme phase\n"
         "- Les frames ou le sujet alterne entre 2 positions = repetitions\n"
         "- Ne compte PAS la mise en place ni le rerack\n"
-        "- Si la video est longue (>15 frames), il y a probablement PLUSIEURS reps\n"
-        "- Un set typique contient entre 5 et 20 reps\n"
+        "- ATTENTION : les exercices rapides (curls, lateral raises, shrugs) ont des reps de 1-2 secondes. "
+        "En 8-10 secondes il peut y avoir 8-12 reps !\n"
+        "- Chaque fois que tu vois le bras/jambe revenir a la position de depart = 1 rep de plus\n"
+        "- Un set typique contient entre 5 et 20 reps. 3 reps ou moins est TRES rare.\n"
+        "- En cas de doute, compte CHAQUE alternance de position clairement visible\n"
         "\n"
-        "Reponds UNIQUEMENT avec un JSON: {\"rep_count\": <nombre>, \"reasoning\": \"<explication courte>\"}"
+        "Reponds UNIQUEMENT avec un JSON: {\"rep_count\": <nombre>, \"reasoning\": \"<description frame par frame: F1=bras bas, F2=bras haut=R1, F3=bras bas, F4=bras haut=R2, etc.>\"}"
     )
     
     # Calculate duration for the prompt
