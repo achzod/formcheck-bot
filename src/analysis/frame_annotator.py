@@ -660,7 +660,7 @@ def annotate_key_frames(
         import cv2 as _cv2
         raw_img = _cv2.imread(image_path)
         if raw_img is not None:
-            _LABELS = {"start": "DEBUT", "mid": "POINT BAS", "end": "FIN"}
+            _LABELS = {"start": "DEBUT", "mid": "PIC CONTRACTION", "end": "RETOUR"}
             badge_text = _LABELS.get(label, label.upper())
             font = _cv2.FONT_HERSHEY_SIMPLEX
             (tw, th), _ = _cv2.getTextSize(badge_text, font, 1.0, 2)

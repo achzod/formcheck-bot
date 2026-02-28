@@ -93,32 +93,54 @@ def _compute_hip_y(landmarks: list[dict[str, float]]) -> float:
     return 0.0
 
 
-def _detect_key_frames(frames: list[FrameLandmarks]) -> dict[str, int]:
+# Exercises where peak contraction = hips at HIGHEST point (min hip_y)
+# For these, "mid" = top of movement, "end" = return to bottom
+_PEAK_AT_TOP = {
+    "hip_thrust", "glute_bridge", "curl", "cable_curl", "hammer_curl",
+    "preacher_curl", "dumbbell_curl", "incline_curl", "concentration_curl",
+    "spider_curl", "barbell_row", "dumbbell_row", "cable_row", "tbar_row",
+    "pendlay_row", "seal_row", "lat_pulldown", "close_grip_pulldown",
+    "pullup", "chinup", "face_pull", "reverse_fly", "rear_delt_fly",
+    "lateral_raise", "cable_lateral_raise", "front_raise", "shrug",
+    "upright_row", "calf_raise", "seated_calf_raise", "leg_curl",
+    "cable_kickback", "nordic_curl", "glute_ham_raise",
+}
+
+
+def _detect_key_frames(frames: list[FrameLandmarks], exercise: str = "") -> dict[str, int]:
     if not frames:
         return {"start": 0, "mid": 0, "end": 0}
     valid = [f for f in frames if f.avg_visibility > 0.3]
     if not valid:
         valid = frames
     hip_y_values = [_compute_hip_y(f.landmarks) for f in valid]
-    mid_idx_pos = int(np.argmax(hip_y_values))
+
+    # Peak contraction: depends on exercise type
+    # Squat/deadlift/bench = lowest point (max hip_y)
+    # Hip thrust/curl/row = highest point (min hip_y)
+    if exercise in _PEAK_AT_TOP:
+        mid_idx_pos = int(np.argmin(hip_y_values))
+    else:
+        mid_idx_pos = int(np.argmax(hip_y_values))
     mid_idx = valid[mid_idx_pos].frame_index
 
     # Start: use frame at ~10% of valid frames (skip initial setup/walkup)
     start_pos = max(0, len(valid) // 10)
     start_idx = valid[start_pos].frame_index
 
-    # End: find the LOCKOUT position after mid (peak contraction).
-    # = the local minimum of hip_y AFTER mid (person standing back up / arms extended)
-    # This gives us the end-of-rep, not the walkaway frame.
+    # End: find the opposite position after mid (return from peak contraction)
     end_idx = valid[-1].frame_index  # fallback
     if mid_idx_pos < len(valid) - 1:
-        # Search for min hip_y after mid (= person at highest point after contraction)
         post_mid = hip_y_values[mid_idx_pos:]
         if post_mid:
-            local_min_pos = int(np.argmin(post_mid))
-            # Only use it if it's meaningfully different from mid (not just noise)
-            if local_min_pos > 0:
-                end_pos = mid_idx_pos + local_min_pos
+            # For peak-at-top exercises, end = next max hip_y (return to bottom)
+            # For peak-at-bottom exercises, end = next min hip_y (return to top)
+            if exercise in _PEAK_AT_TOP:
+                local_opp_pos = int(np.argmax(post_mid))
+            else:
+                local_opp_pos = int(np.argmin(post_mid))
+            if local_opp_pos > 0:
+                end_pos = mid_idx_pos + local_opp_pos
                 end_idx = valid[min(end_pos, len(valid) - 1)].frame_index
 
     return {"start": start_idx, "mid": mid_idx, "end": end_idx}

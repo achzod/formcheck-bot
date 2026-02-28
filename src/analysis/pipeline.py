@@ -334,6 +334,25 @@ def run_pipeline(
         logger.error("Détection échouée: %s", e)
         return result
 
+    # ── Étape 5a-bis : Recalculer key frames avec l'exercice détecté ──
+    # Maintenant qu'on connaît l'exercice, on peut choisir la bonne frame
+    # (peak contraction en haut pour hip thrust/curl, en bas pour squat/deadlift)
+    try:
+        from analysis.pose_extractor import _detect_key_frames, _save_key_frame
+        new_indices = _detect_key_frames(extraction.frames, detection.exercise.value)
+        if new_indices != extraction.key_frame_indices:
+            extraction.key_frame_indices = new_indices
+            # Re-save key frame images
+            out_dir = Path(extraction.video_path).parent
+            for lbl, fidx in new_indices.items():
+                old_path = extraction.key_frame_images.get(lbl)
+                new_path = _save_key_frame(str(extraction.video_path), fidx, lbl, out_dir)
+                if new_path:
+                    extraction.key_frame_images[lbl] = new_path
+            logger.info("  → Key frames recalculated for %s", detection.exercise.value)
+    except Exception as e:
+        logger.warning("Key frame recalc failed: %s", e)
+
     # ── Étape 5b : Chargement profil morphologique ─────────────────────
     # Si un profil morpho est fourni dans la config, on l'utilise
     morpho_profile = cfg.morpho_profile
