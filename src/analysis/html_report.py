@@ -79,6 +79,8 @@ _SECTION_TITLES = [
     "DECOMPOSITION DU SCORE",
     "ANALYSE AVANCEE",
     "POINT BIOMECANIQUE",
+    "RECOMMANDATION POUR LA PROCHAINE VIDEO",
+    "RECOMMANDATION",
 ]
 
 # Icones SVG inline par section (petites, legeres, pas d'emojis)
@@ -90,6 +92,7 @@ _SECTION_ICONS: dict[str, str] = {
     "EXERCICES CORRECTIFS": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>',
     "POINT BIOMECANIQUE": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
     "PROFIL MORPHOLOGIQUE": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    "RECOMMANDATION": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>',
 }
 
 
@@ -175,8 +178,8 @@ def _format_report_html(report_text: str) -> str:
 
         # Sub-headers
         sub_match = re.match(
-            r"^(Donnee mesuree|Impact biomecanique|Correction|Cible|Execution|"
-            r"Phase excentrique|Phase concentrique|Phase isometrique|Tempo ratio|"
+            r"^(Donnee mesuree|Pourquoi c'est important|Impact biomecanique|Correction|Cible|Execution|Execution detaillee|"
+            r"Quand le faire|Phase excentrique|Phase concentrique|Phase isometrique|Tempo ratio|"
             r"Consistance du tempo|Consistance|Time Under Tension)\s*:\s*(.*)$",
             stripped,
         )

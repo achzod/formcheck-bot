@@ -210,6 +210,7 @@ def extract_pose(
 
     with vision.PoseLandmarker.create_from_options(options) as landmarker:
         frame_idx = 0
+        _prev_center: tuple[float, float] | None = None
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -226,20 +227,37 @@ def extract_pose(
             detection_result = landmarker.detect_for_video(mp_image, timestamp_ms)
 
             if detection_result.pose_landmarks and len(detection_result.pose_landmarks) > 0:
-                # Multi-person: choisir la personne avec le plus grand bounding box
-                # (plus grande surface = probablement le lifter, pas un spotter)
+                # Multi-person: pick the person closest to the previous frame's tracked person
+                # (temporal consistency). First frame uses largest bounding box.
                 lms = detection_result.pose_landmarks[0]
                 if len(detection_result.pose_landmarks) > 1:
                     best_idx = 0
-                    best_area = 0.0
-                    for p_idx, p_lms in enumerate(detection_result.pose_landmarks):
-                        xs = [p_lms[i].x for i in range(min(len(p_lms), 33))]
-                        ys = [p_lms[i].y for i in range(min(len(p_lms), 33))]
-                        area = (max(xs) - min(xs)) * (max(ys) - min(ys))
-                        if area > best_area:
-                            best_area = area
-                            best_idx = p_idx
+                    if _prev_center is not None:
+                        # Pick person whose center is closest to previous tracked center
+                        best_dist = float("inf")
+                        for p_idx, p_lms in enumerate(detection_result.pose_landmarks):
+                            cx = float(np.mean([p_lms[i].x for i in range(min(len(p_lms), 33))]))
+                            cy = float(np.mean([p_lms[i].y for i in range(min(len(p_lms), 33))]))
+                            dist = (cx - _prev_center[0]) ** 2 + (cy - _prev_center[1]) ** 2
+                            if dist < best_dist:
+                                best_dist = dist
+                                best_idx = p_idx
+                    else:
+                        # First frame: pick largest bounding box (most likely the lifter)
+                        best_area = 0.0
+                        for p_idx, p_lms in enumerate(detection_result.pose_landmarks):
+                            xs = [p_lms[i].x for i in range(min(len(p_lms), 33))]
+                            ys = [p_lms[i].y for i in range(min(len(p_lms), 33))]
+                            area = (max(xs) - min(xs)) * (max(ys) - min(ys))
+                            if area > best_area:
+                                best_area = area
+                                best_idx = p_idx
                     lms = detection_result.pose_landmarks[best_idx]
+                # Update tracked center for next frame
+                _prev_center = (
+                    float(np.mean([lms[i].x for i in range(min(len(lms), 33))])),
+                    float(np.mean([lms[i].y for i in range(min(len(lms), 33))])),
+                )
                 landmarks = [
                     _landmark_to_dict(lms[i], LANDMARK_NAMES[i])
                     for i in range(min(len(lms), len(LANDMARK_NAMES)))

@@ -200,11 +200,35 @@ Symetrie : [XX]/10
 POINT BIOMECANIQUE
 [4-6 phrases. Insight profond specifique a CET exercice. Chaines musculaires, leverages, morphologie, fascias, innervation. Montre que tu as 11 certifications, pas juste un diplome basique. Ce paragraphe doit impressionner un kine ou un osteo qui lirait le rapport.]
 
+RECOMMANDATION D'ANGLE DE CAMERA :
+A la fin du rapport, ajoute une section courte :
+
+---
+
+RECOMMANDATION POUR LA PROCHAINE VIDEO
+[Indique l'angle de camera optimal pour CET exercice specifique. Exemples :
+ Squat/deadlift : vue de profil (laterale) a hauteur de hanche, 2-3 metres de distance
+ Bench press : vue laterale + optionnellement vue de dessus pour la trajectoire de la barre
+ Curl/lateral raise : vue de face pour la symetrie ET vue de profil pour l'amplitude
+ Pull-up/lat pulldown : vue de face pour la symetrie des bras et le valgus
+Si la video analysee a ete filmee sous un angle suboptimal, dis-le clairement et explique pourquoi un meilleur angle aurait permis une analyse plus precise.]
+
+CALIBRATION DU SCORE — SOIS INTRANSIGEANT :
+Le score doit refleter la REALITE de l'execution. Un score au-dessus de 80 = execution quasi parfaite.
+Bareme indicatif :
+ 90-100 : Execution de competition, quasi parfaite. Reserve aux athletes confirmes.
+ 75-89 : Bonne execution avec des points a ameliorer. La plupart des pratiquants intermediaires.
+ 60-74 : Execution passable avec des corrections importantes necessaires.
+ 40-59 : Execution problematique avec risques de blessure.
+ 0-39 : Execution dangereuse, stop immediat recommande.
+NE GONFLE PAS le score. Un squat avec les genoux qui rentrent (valgus) NE PEUT PAS avoir plus de 65.
+Un deadlift avec le dos rond NE PEUT PAS avoir plus de 55. Sois honnete — le client paie pour la verite.
+
 REGLES ABSOLUES :
 1. ZERO emoji. ZERO asterisque/markdown. ZERO tiret comme puce. Numeros uniquement.
 2. Tutoie le client.
 3. NE CITE QUE les donnees presentes dans le JSON.
-4. NE CONCLUS JAMAIS a un valgus du genou a partir de donnees 2D laterales.
+4. NE CONCLUS JAMAIS a un valgus du genou a partir de donnees 2D laterales SAUF si la video est filmee de face.
 5. Chaque correction justifiee par une donnee mesuree avec le chiffre exact.
 6. 1800-3000 mots. Sois exhaustif. Le client paie pour cette analyse.
 7. L'amplitude (ROM) est OBLIGATOIRE — cite les angles et compare aux normes.
@@ -212,7 +236,63 @@ REGLES ABSOLUES :
 9. Les exercices correctifs doivent etre decrits assez precisement pour etre executes sans video.
 10. Au moins une analogie concrete par correction pour rendre le rapport accessible.
 11. Les POINTS POSITIFS viennent AVANT les corrections. Toujours.
-12. Le rapport doit donner l'impression qu'un coach expert a regarde la video en personne, pas qu'un algorithme a genere du texte."""
+12. Le rapport doit donner l'impression qu'un coach expert a regarde la video en personne, pas qu'un algorithme a genere du texte.
+13. Si l'angle de camera ne permet pas d'analyser un parametre, DIS-LE au lieu d'inventer. Honnetete > completude."""
+
+
+def _estimate_camera_angle(angles: AngleResult) -> str:
+    """Estimate the camera angle from landmark positions.
+    
+    Uses the relative X positions of left vs right body parts.
+    If left_shoulder.x ≈ right_shoulder.x → lateral/profile view
+    If they're far apart → frontal view
+    If one is partially visible → 3/4 view
+    """
+    if not angles or not angles.frames:
+        return "Angle de camera indetermine (pas assez de donnees)"
+    
+    # Sample frames
+    sample = angles.frames[::max(1, len(angles.frames) // 5)]
+    shoulder_diffs = []
+    hip_diffs = []
+    
+    for frame in sample:
+        # Check shoulder spread
+        ls = getattr(frame, 'left_shoulder_abduction', None)
+        rs = getattr(frame, 'right_shoulder_abduction', None)
+        # We'll use a different approach — look at the raw x-spread
+        # from the stats instead
+        pass
+    
+    # Use angle stats (dict[str, AngleStats]) to infer camera angle
+    stats = angles.stats if hasattr(angles, 'stats') else {}
+    if stats:
+        # If both left and right angles have similar ROM → frontal view
+        # If one side has much less ROM → profile view (far side occluded)
+        l_knee_s = stats.get('left_knee_flexion')
+        r_knee_s = stats.get('right_knee_flexion')
+        l_elbow_s = stats.get('left_elbow_flexion')
+        r_elbow_s = stats.get('right_elbow_flexion')
+        
+        l_knee = l_knee_s.range_of_motion if l_knee_s else 0
+        r_knee = r_knee_s.range_of_motion if r_knee_s else 0
+        l_elbow = l_elbow_s.range_of_motion if l_elbow_s else 0
+        r_elbow = r_elbow_s.range_of_motion if r_elbow_s else 0
+        
+        knee_diff = abs(l_knee - r_knee) if l_knee and r_knee else 0
+        elbow_diff = abs(l_elbow - r_elbow) if l_elbow and r_elbow else 0
+        
+        max_rom = max(l_knee, r_knee, l_elbow, r_elbow, 1)
+        asymmetry = max(knee_diff, elbow_diff) / max_rom
+        
+        if asymmetry > 0.4:
+            return "Vue LATERALE (profil). Un cote du corps est partiellement masque. Bonne vue pour les exercices bilateraux sagittaux (squat, deadlift, bench). Ne permet PAS de juger le valgus du genou."
+        elif asymmetry > 0.15:
+            return "Vue 3/4 (semi-profil). Les deux cotes visibles mais a des distances differentes. Analyse de symetrie limitee."
+        else:
+            return "Vue FRONTALE (face). Les deux cotes du corps sont egalement visibles. Bonne pour detecter la symetrie et le valgus du genou."
+    
+    return "Angle de camera indetermine"
 
 
 def _build_analysis_prompt(
@@ -331,7 +411,13 @@ Ces seuils sont personnalises pour CE client. Utilise-les comme reference au lie
 {json.dumps(adapted_thresholds, indent=2, ensure_ascii=False)}
 ```"""
 
+    # Detect camera angle from landmarks
+    camera_angle = _estimate_camera_angle(angles)
+    
     user_prompt = f"""Analyse cette video de {exercise.display_name}.
+
+### Angle de camera estime
+{camera_angle}
 
 ## Donnees de pose estimation
 
