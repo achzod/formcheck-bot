@@ -198,8 +198,9 @@ def count_reps_by_vision(
                     ],
                 },
             ],
-            max_tokens=150,
+            max_tokens=200,
             temperature=0.1,
+            timeout=30,
         )
         
         content = response.choices[0].message.content or ""

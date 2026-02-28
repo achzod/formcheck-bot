@@ -1761,18 +1761,20 @@ def detect_by_vision(
         candidate_text = ""
 
         if ref_db and ref_db.get("exercises"):
-            # Use pattern result to pre-filter candidates if available
-            if pattern_result is not None:
-                candidate_exercises = _get_candidate_exercises(pattern_result, n=10)
-            else:
-                # No pattern result: use common exercises as candidates
-                candidate_exercises = [
-                    "squat", "deadlift", "bench_press", "ohp", "barbell_row",
-                    "pullup", "curl", "lat_pulldown", "rdl", "hip_thrust",
-                    "front_squat", "incline_bench", "dumbbell_row", "dip",
-                    "tricep_extension", "lateral_raise", "push_up", "lunge",
-                    "goblet_squat", "cable_row",
-                ][:10]
+            # ALWAYS use a broad candidate list — pattern matching is unreliable
+            # and can bias GPT-4o toward completely wrong exercise categories.
+            # Include all common exercises regardless of pattern matching result.
+            candidate_exercises = [
+                "squat", "front_squat", "goblet_squat", "deadlift", "rdl",
+                "sumo_deadlift", "bench_press", "incline_bench", "ohp",
+                "barbell_row", "dumbbell_row", "cable_row", "tbar_row",
+                "pullup", "lat_pulldown", "curl", "dumbbell_curl", "hammer_curl",
+                "cable_curl", "tricep_extension", "overhead_tricep", "skull_crusher",
+                "lateral_raise", "face_pull", "reverse_fly", "upright_row", "shrug",
+                "hip_thrust", "leg_press", "leg_curl", "leg_extension",
+                "lunge", "bulgarian_split_squat", "dip", "push_up",
+                "cable_crossover", "chest_fly", "calf_raise",
+            ]
             candidate_text = _build_reference_grid_text(candidate_exercises)
             logger.info(
                 "Visual ref matching: %d candidates: %s",
@@ -1915,6 +1917,7 @@ def detect_by_vision(
             ],
             max_tokens=400,
             temperature=0.1,
+            timeout=30,
         )
 
         import json
