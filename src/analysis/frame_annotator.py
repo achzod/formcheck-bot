@@ -655,6 +655,26 @@ def annotate_key_frames(
             if not frame_lm or not frame_ang:
                 continue
 
+        # Skip skeleton annotation if pose confidence is too low
+        # (prevents garbage skeleton overlays on complex backgrounds)
+        if frame_lm.avg_visibility < 0.45:
+            # Just add label badge on raw frame, no skeleton
+            import cv2 as _cv2
+            raw_img = _cv2.imread(image_path)
+            if raw_img is not None:
+                _LABELS = {"start": "DEBUT", "mid": "POINT BAS", "end": "FIN"}
+                badge_text = _LABELS.get(label, label.upper())
+                font = _cv2.FONT_HERSHEY_SIMPLEX
+                (tw, th), _ = _cv2.getTextSize(badge_text, font, 1.0, 2)
+                _cv2.rectangle(raw_img, (10, 10), (30 + tw, 20 + th + 10), (0, 0, 0), -1)
+                _cv2.putText(raw_img, badge_text, (20, 15 + th), font, 1.0, (0, 255, 255), 2, _cv2.LINE_AA)
+                # Add "LOW CONFIDENCE" watermark
+                _cv2.putText(raw_img, "Pose detection limitee", (10, raw_img.shape[0] - 20), font, 0.6, (0, 140, 255), 1, _cv2.LINE_AA)
+                output_path = out_dir / f"annotated_{label}_{frame_idx}.jpg"
+                _cv2.imwrite(str(output_path), raw_img, [_cv2.IMWRITE_JPEG_QUALITY, 95])
+                annotated_paths[label] = str(output_path)
+            continue
+
         annotated = annotate_frame(image_path, frame_lm, frame_ang, exercise, label)
 
         output_path = out_dir / f"annotated_{label}_{frame_idx}.jpg"

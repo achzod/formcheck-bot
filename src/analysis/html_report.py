@@ -314,8 +314,8 @@ def generate_html_report(
     frames_html = ""
     if annotated_frames:
         frame_items = []
-        # Show mid (point bas) first, then start, then end
-        ordered_labels = ["mid", "start", "end"]
+        # Show mid (point bas) first, then start only — skip end (often useless walkaway)
+        ordered_labels = ["mid", "start"]
         for label in ordered_labels:
             path = annotated_frames.get(label)
             if not path:
