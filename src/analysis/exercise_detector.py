@@ -4,12 +4,14 @@ Analyse les ROM (Range of Motion) et les variations d'angles articulaires
 pour classifier l'exercice. Utilise GPT-4 Vision comme backup/confirmation
 sur la frame du milieu.
 
-Couvre 91 exercices via pattern matching + GPT-4o Vision.
+Couvre 91 exercices via pattern matching + GPT-4o Vision + visual reference matching.
 """
 
 from __future__ import annotations
 
 import base64
+import json
+import logging
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -19,6 +21,136 @@ from typing import Any
 import numpy as np
 
 from analysis.angle_calculator import AngleResult, AngleStats
+
+logger = logging.getLogger(__name__)
+
+# ── Reference DB loading ──────────────────────────────────────────────────────
+
+_REFERENCE_DB: dict[str, Any] | None = None
+_REFERENCE_DB_PATH = Path(__file__).parent / "exercise_refs" / "reference_db.json"
+
+
+def _load_reference_db() -> dict[str, Any] | None:
+    """Charge la base de données de référence des exercices au premier appel."""
+    global _REFERENCE_DB
+    if _REFERENCE_DB is not None:
+        return _REFERENCE_DB
+    try:
+        if _REFERENCE_DB_PATH.exists():
+            with open(_REFERENCE_DB_PATH, "r", encoding="utf-8") as f:
+                _REFERENCE_DB = json.load(f)
+            logger.info(
+                "Reference DB loaded: %d exercises",
+                len(_REFERENCE_DB.get("exercises", {})),
+            )
+        else:
+            logger.warning("Reference DB not found at %s", _REFERENCE_DB_PATH)
+            _REFERENCE_DB = {}
+    except Exception as exc:
+        logger.error("Failed to load reference DB: %s", exc)
+        _REFERENCE_DB = {}
+    return _REFERENCE_DB
+
+
+def _get_exercise_tags(exercise_name: str) -> dict[str, Any]:
+    """Retourne les tags d'un exercice depuis la base de référence."""
+    db = _load_reference_db()
+    if not db:
+        return {}
+    exercises = db.get("exercises", {})
+    return exercises.get(exercise_name, {}).get("tags", {})
+
+
+def _get_candidate_exercises(
+    pattern_result: "DetectionResult",
+    n: int = 10,
+) -> list[str]:
+    """Retourne les N exercices candidats les plus probables pour le visual matching.
+
+    Utilise le résultat du pattern matching pour filtrer intelligemment.
+    Si le pattern matching a trouvé quelque chose avec une bonne confiance,
+    on priorise les exercices de la même catégorie.
+    """
+    db = _load_reference_db()
+    if not db:
+        # Fallback: retourner les exercices les plus communs
+        return [
+            "squat", "deadlift", "bench_press", "ohp", "barbell_row",
+            "pullup", "curl", "lat_pulldown", "rdl", "hip_thrust",
+        ]
+
+    exercises = db.get("exercises", {})
+    best_exercise = pattern_result.exercise.value
+
+    # Trouver la catégorie du meilleur exercice pattern
+    best_tags = exercises.get(best_exercise, {}).get("tags", {})
+    best_category = best_tags.get("category", "")
+
+    # Score chaque exercice selon sa proximité avec le résultat pattern
+    scored: list[tuple[str, float]] = []
+    for ex_name, ex_data in exercises.items():
+        if ex_name == "unknown":
+            continue
+        tags = ex_data.get("tags", {})
+        score = 0.0
+
+        # Même exercice que le pattern → score max
+        if ex_name == best_exercise:
+            score = 1.0
+        # Même catégorie → score élevé
+        elif tags.get("category") == best_category and best_category:
+            score = 0.6
+        # Même groupe musculaire → score moyen
+        else:
+            best_muscles = set(best_tags.get("muscle_group", []))
+            ex_muscles = set(tags.get("muscle_group", []))
+            overlap = len(best_muscles & ex_muscles)
+            if overlap > 0:
+                score = 0.3 + (overlap * 0.1)
+
+        # Bonus si même equipment
+        best_equip = set(best_tags.get("equipment", []))
+        ex_equip = set(tags.get("equipment", []))
+        if best_equip & ex_equip:
+            score += 0.1
+
+        scored.append((ex_name, score))
+
+    # Trier par score décroissant, prendre les N premiers
+    scored.sort(key=lambda x: x[1], reverse=True)
+    candidates = [name for name, _ in scored[:n]]
+
+    logger.debug("Candidates for visual matching: %s", candidates)
+    return candidates
+
+
+def _build_reference_grid_text(candidates: list[str]) -> str:
+    """Construit un texte descriptif des exercices candidats pour le prompt GPT-4o."""
+    db = _load_reference_db()
+    if not db:
+        return ""
+
+    exercises = db.get("exercises", {})
+    lines = ["EXERCICES CANDIDATS (images de référence ci-dessous) :"]
+
+    for i, ex_name in enumerate(candidates, 1):
+        ex_data = exercises.get(ex_name, {})
+        display = ex_data.get("display_name", ex_name)
+        key_cues = ex_data.get("key_cues", "")
+        tags = ex_data.get("tags", {})
+        equip = ", ".join(tags.get("equipment", []))
+        position = ", ".join(tags.get("body_position", []))
+        line = "{i}. {name} ({display}): {cues} [equipement: {equip}, position: {pos}]".format(
+            i=i,
+            name=ex_name,
+            display=display,
+            cues=key_cues,
+            equip=equip,
+            pos=position,
+        )
+        lines.append(line)
+
+    return "\n".join(lines)
 
 
 class Exercise(str, Enum):
@@ -1567,24 +1699,24 @@ def detect_by_vision(
     api_key: str | None = None,
     start_frame_path: str | None = None,
     end_frame_path: str | None = None,
+    pattern_result: "DetectionResult | None" = None,
 ) -> tuple[Exercise, float, str]:
     """Utilise GPT-4o Vision pour identifier l'exercice sur 1 a 3 frames.
 
     Architecture vision-first : cette fonction est le detecteur PRIMAIRE.
-    Envoie jusqu'a 3 frames (debut, milieu, fin) pour une detection plus
-    fiable, surtout sur les exercices ambigus.
+    Envoie jusqu'a 3 frames (debut, milieu, fin) + descriptions textuelles
+    des 10 exercices candidats les plus probables (visual reference matching).
 
     Args:
         mid_frame_path: Chemin vers l'image de la frame du milieu (obligatoire).
         api_key: Cle API OpenAI. Si None, utilise OPENAI_API_KEY.
         start_frame_path: Chemin vers la frame de debut (optionnel).
         end_frame_path: Chemin vers la frame de fin (optionnel).
+        pattern_result: Resultat du pattern matching pour pre-filtrer les candidats.
 
     Returns:
         Tuple (exercise, confidence, reasoning).
     """
-    import logging
-    logger = logging.getLogger(__name__)
 
     key = api_key or os.environ.get("OPENAI_API_KEY", "")
     if not key:
@@ -1609,14 +1741,59 @@ def detect_by_vision(
         b64_images = [_encode_image_base64(p) for p in frame_paths]
         num_frames = len(b64_images)
 
+        # ── Visual Reference Matching: build candidate list ──────────────────
+        ref_db = _load_reference_db()
+        candidate_exercises: list[str] = []
+        candidate_text = ""
+
+        if ref_db and ref_db.get("exercises"):
+            # Use pattern result to pre-filter candidates if available
+            if pattern_result is not None:
+                candidate_exercises = _get_candidate_exercises(pattern_result, n=10)
+            else:
+                # No pattern result: use common exercises as candidates
+                candidate_exercises = [
+                    "squat", "deadlift", "bench_press", "ohp", "barbell_row",
+                    "pullup", "curl", "lat_pulldown", "rdl", "hip_thrust",
+                    "front_squat", "incline_bench", "dumbbell_row", "dip",
+                    "tricep_extension", "lateral_raise", "push_up", "lunge",
+                    "goblet_squat", "cable_row",
+                ][:10]
+            candidate_text = _build_reference_grid_text(candidate_exercises)
+            logger.info(
+                "Visual ref matching: %d candidates: %s",
+                len(candidate_exercises),
+                candidate_exercises,
+            )
+
+        # Build full exercises list for system prompt
         exercises_list = ", ".join(
-            ["{} ({})".format(e.value, EXERCISE_DISPLAY_NAMES[e.value]) for e in Exercise if e != Exercise.UNKNOWN]
+            [
+                "{} ({})".format(e.value, EXERCISE_DISPLAY_NAMES[e.value])
+                for e in Exercise
+                if e != Exercise.UNKNOWN
+            ]
         )
+
+        # Build system prompt with reference matching context
+        ref_section = ""
+        if candidate_text:
+            ref_section = (
+                "\n\nVISUAL REFERENCE MATCHING :\n"
+                "Les {n} exercices candidats les plus probables sont listés ci-dessous "
+                "avec leurs indices visuels clés. Compare SOIGNEUSEMENT la vidéo de "
+                "l'utilisateur avec ces descriptions pour identifier le meilleur match :\n\n"
+                "{candidates}\n\n"
+                "MÉTHODE : Identifie lequel de ces {n} candidats correspond EXACTEMENT "
+                "à ce que tu vois dans les frames. Si aucun ne correspond parfaitement, "
+                "tu peux utiliser un autre exercice de la liste complète ci-dessous."
+            ).format(n=len(candidate_exercises), candidates=candidate_text)
 
         system_prompt = (
             "Tu es un coach de musculation expert avec 15 ans d'experience et "
             "des certifications NASM, ISSA, Pre-Script. Tu identifies les exercices "
-            "de musculation avec precision.\n\n"
+            "de musculation avec precision."
+            "{ref_section}\n\n"
             "REGLES D'IDENTIFICATION :\n"
             "- Regarde la POSITION DU CORPS, l'EQUIPEMENT utilise (barre, halteres, "
             "poulie haute/basse, machine, poids de corps), et le PLAN DE MOUVEMENT.\n"
@@ -1641,11 +1818,31 @@ def detect_by_vision(
             "c'est probablement un exercice de poulie (cable_pullover, face_pull, "
             "cable_row, tricep_extension, cable_curl, upright_row).\n\n"
             "Reponds UNIQUEMENT avec un JSON valide :\n"
-            '{"exercise": "<nom_exact>", "confidence": <0.0-1.0>, '
-            '"reasoning": "<explication courte>"}\n\n'
+            '{{"exercise": "<nom_exact>", "confidence": <0.0-1.0>, '
+            '"reasoning": "<explication courte>"}}\n\n'
             "Exercices possibles (utilise EXACTEMENT un de ces noms) :\n"
-            "{}".format(exercises_list)
+            "{exercises_list}"
+        ).format(
+            ref_section=ref_section,
+            exercises_list=exercises_list,
         )
+
+        user_text = (
+            "Voici {n} frame(s) extraites d'une meme serie "
+            "(debut, milieu, fin si disponibles). "
+            "Identifie precisement l'exercice de musculation. "
+            "IMPORTANT : Compare les frames entre elles pour voir "
+            "CE QUI BOUGE. Si le torse reste fixe et les bras tirent "
+            "= rowing. Si le torse se redresse = deadlift. "
+            "Regarde l'equipement, la position du corps, "
+            "et le plan de mouvement."
+        ).format(n=num_frames)
+
+        if candidate_exercises:
+            user_text += (
+                " Parmis les candidats: {candidates}. "
+                "Lequel correspond le mieux a ce que tu vois ?"
+            ).format(candidates=", ".join(candidate_exercises))
 
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -1669,21 +1866,12 @@ def detect_by_vision(
                         ],
                         {
                             "type": "text",
-                            "text": (
-                                "Voici {} frame(s) extraites d'une meme serie "
-                                "(debut, milieu, fin si disponibles). "
-                                "Identifie precisement l'exercice de musculation. "
-                                "IMPORTANT : Compare les frames entre elles pour voir "
-                                "CE QUI BOUGE. Si le torse reste fixe et les bras tirent "
-                                "= rowing. Si le torse se redresse = deadlift. "
-                                "Regarde l'equipement, la position du corps, "
-                                "et le plan de mouvement.".format(num_frames)
-                            ),
+                            "text": user_text,
                         },
                     ],
                 },
             ],
-            max_tokens=300,
+            max_tokens=400,
             temperature=0.1,
         )
 
@@ -1897,9 +2085,6 @@ def detect_exercise(
     Returns:
         DetectionResult avec l'exercice détecté et les métadonnées.
     """
-    import logging
-    logger = logging.getLogger(__name__)
-
     pattern_result = detect_by_pattern(angles)
     logger.info(
         "Pattern detection: %s (conf=%.2f) — %s",
@@ -1912,6 +2097,7 @@ def detect_exercise(
             mid_frame_path,
             start_frame_path=start_frame_path,
             end_frame_path=end_frame_path,
+            pattern_result=pattern_result,
         )
         logger.info(
             "Vision detection: %s (conf=%.2f) — %s",

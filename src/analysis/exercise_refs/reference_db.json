@@ -1,0 +1,1315 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "description": "Reference image database for exercise visual matching",
+    "sources": ["musclewiki.com", "wger.de", "exrx.net"],
+    "note": "URLs point to publicly available exercise demonstration images/GIFs"
+  },
+  "exercises": {
+    "squat": {
+      "display_name": "Back Squat",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["standing", "bilateral"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["quadriceps", "glutes", "hamstrings"],
+        "category": "knee_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-back-squat-front.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-back-squat-side.gif"
+      },
+      "key_cues": "Bar on upper back, bilateral stance, deep knee flexion, torso leans forward slightly"
+    },
+    "front_squat": {
+      "display_name": "Front Squat",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["standing", "bilateral"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["quadriceps", "glutes"],
+        "category": "knee_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-front-squat-front.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-front-squat-side.gif"
+      },
+      "key_cues": "Bar racked on front deltoids, very upright torso, deep squat"
+    },
+    "bulgarian_split_squat": {
+      "display_name": "Bulgarian Split Squat",
+      "tags": {
+        "equipment": ["barbell", "dumbbell", "bodyweight"],
+        "body_position": ["standing", "unilateral", "rear_foot_elevated"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["quadriceps", "glutes"],
+        "category": "knee_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-bulgarian-split-squat-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-bulgarian-split-squat-side.gif"
+      },
+      "key_cues": "Rear foot elevated on bench, front leg does the work, one knee bends deeply"
+    },
+    "lunge": {
+      "display_name": "Lunge",
+      "tags": {
+        "equipment": ["barbell", "dumbbell", "bodyweight"],
+        "body_position": ["standing", "unilateral"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["quadriceps", "glutes"],
+        "category": "knee_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-lunge-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-lunge-side.gif"
+      },
+      "key_cues": "Step forward, both knees bend, front thigh parallel to floor"
+    },
+    "deadlift": {
+      "display_name": "Conventional Deadlift",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["standing", "bilateral"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["hamstrings", "glutes", "back", "traps"],
+        "category": "hip_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-deadlift-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-deadlift-front.gif"
+      },
+      "key_cues": "Bar starts on floor, hips hinge, torso goes from horizontal to vertical, arms stay straight"
+    },
+    "sumo_deadlift": {
+      "display_name": "Sumo Deadlift",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["standing", "wide_stance"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["hamstrings", "glutes", "adductors"],
+        "category": "hip_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-sumo-deadlift-front.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-sumo-deadlift-side.gif"
+      },
+      "key_cues": "Wide foot stance, toes pointed out, hands between legs, more upright torso than conventional"
+    },
+    "rdl": {
+      "display_name": "Romanian Deadlift",
+      "tags": {
+        "equipment": ["barbell", "dumbbell"],
+        "body_position": ["standing", "bilateral"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["hamstrings", "glutes"],
+        "category": "hip_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-romanian-deadlift-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-romanian-deadlift-side.gif"
+      },
+      "key_cues": "Starts standing, hips push back, legs nearly straight, bar slides down legs, no touching floor"
+    },
+    "bench_press": {
+      "display_name": "Barbell Bench Press",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["lying", "supine", "horizontal_bench"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["chest", "triceps", "front_delts"],
+        "category": "horizontal_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-bench-press-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-bench-press-front.gif"
+      },
+      "key_cues": "Lying on flat bench, bar descends to chest, arms fully extend, feet on floor"
+    },
+    "incline_bench": {
+      "display_name": "Incline Bench Press",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["lying", "incline_bench"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["upper_chest", "triceps", "front_delts"],
+        "category": "incline_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-incline-bench-press-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-incline-bench-press-front.gif"
+      },
+      "key_cues": "Bench at 30-45 degrees, bar comes to upper chest, inclined torso"
+    },
+    "ohp": {
+      "display_name": "Overhead Press",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["standing", "bilateral"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["shoulders", "triceps", "upper_traps"],
+        "category": "vertical_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-overhead-press-front.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-overhead-press-side.gif"
+      },
+      "key_cues": "Bar starts at shoulder level, pressed overhead, arms fully extend, torso vertical"
+    },
+    "barbell_row": {
+      "display_name": "Barbell Row",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["standing", "hinged_forward"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["lats", "rhomboids", "biceps"],
+        "category": "horizontal_pull"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-bent-over-row-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-bent-over-row-front.gif"
+      },
+      "key_cues": "Torso bent forward ~45 degrees and STAYS FIXED, bar pulled to lower chest/abdomen, elbows go back"
+    },
+    "dumbbell_row": {
+      "display_name": "Dumbbell Row",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["hinged_forward", "one_arm", "bench_support"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["lats", "rhomboids", "biceps"],
+        "category": "horizontal_pull"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-row-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-row-front.gif"
+      },
+      "key_cues": "One knee on bench, one hand on bench, dumbbell pulled up with elbow going back"
+    },
+    "hip_thrust": {
+      "display_name": "Hip Thrust",
+      "tags": {
+        "equipment": ["barbell", "bodyweight"],
+        "body_position": ["back_on_bench", "feet_on_floor"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["glutes", "hamstrings"],
+        "category": "hip_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-hip-thrust-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-hip-thrust-front.gif"
+      },
+      "key_cues": "Upper back on bench, feet on floor, hips drive up, bar across hips"
+    },
+    "curl": {
+      "display_name": "Barbell Curl",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["standing"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["biceps"],
+        "category": "elbow_flexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-curl-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-curl-front.gif"
+      },
+      "key_cues": "Standing, arms curl bar from extended to fully flexed, elbows stay at sides"
+    },
+    "tricep_extension": {
+      "display_name": "Cable Tricep Extension (Pushdown)",
+      "tags": {
+        "equipment": ["cable"],
+        "body_position": ["standing"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["triceps"],
+        "category": "elbow_extension"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-tricep-pushdown-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-tricep-pushdown-front.gif"
+      },
+      "key_cues": "Standing at cable tower, arms push rope/bar down, elbows stay at sides, only forearms move"
+    },
+    "lateral_raise": {
+      "display_name": "Dumbbell Lateral Raise",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["standing"],
+        "movement_plane": ["frontal"],
+        "muscle_group": ["lateral_delts"],
+        "category": "shoulder_abduction"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-lateral-raise-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-lateral-raise-front.gif"
+      },
+      "key_cues": "Arms raise to sides, slightly bent elbows, dumbbells go to shoulder height, torso still"
+    },
+    "face_pull": {
+      "display_name": "Face Pull",
+      "tags": {
+        "equipment": ["cable"],
+        "body_position": ["standing"],
+        "movement_plane": ["transverse"],
+        "muscle_group": ["rear_delts", "rotator_cuff"],
+        "category": "shoulder_external_rotation"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-face-pull-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-face-pull-front.gif"
+      },
+      "key_cues": "Cable at face height, elbows come up and back, rope pulled to face, external rotation at end"
+    },
+    "pullup": {
+      "display_name": "Pull-Up",
+      "tags": {
+        "equipment": ["bodyweight", "bar"],
+        "body_position": ["hanging", "pronated_grip"],
+        "movement_plane": ["frontal"],
+        "muscle_group": ["lats", "biceps"],
+        "category": "vertical_pull"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-pull-up-front.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-pull-up-side.gif"
+      },
+      "key_cues": "Hanging from bar, overhand grip, body pulls up until chin clears bar, arms fully extend at bottom"
+    },
+    "lat_pulldown": {
+      "display_name": "Lat Pulldown",
+      "tags": {
+        "equipment": ["cable", "machine"],
+        "body_position": ["seated"],
+        "movement_plane": ["frontal"],
+        "muscle_group": ["lats", "biceps"],
+        "category": "vertical_pull"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-lat-pulldown-front.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-lat-pulldown-side.gif"
+      },
+      "key_cues": "Seated, bar pulled from overhead down to upper chest, elbows drive down, legs secured under pads"
+    },
+    "leg_press": {
+      "display_name": "Leg Press",
+      "tags": {
+        "equipment": ["machine"],
+        "body_position": ["seated", "reclined"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["quadriceps", "glutes"],
+        "category": "knee_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-machine-leg-press-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-machine-leg-press-front.gif"
+      },
+      "key_cues": "Seated in reclined machine, feet on platform, legs push weight away, back stays fixed"
+    },
+    "leg_extension": {
+      "display_name": "Leg Extension",
+      "tags": {
+        "equipment": ["machine"],
+        "body_position": ["seated"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["quadriceps"],
+        "category": "knee_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-machine-leg-extension-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-machine-leg-extension-front.gif"
+      },
+      "key_cues": "Seated in machine, only lower leg moves, extends from flexed to straight, nothing else moves"
+    },
+    "leg_curl": {
+      "display_name": "Lying Leg Curl",
+      "tags": {
+        "equipment": ["machine"],
+        "body_position": ["lying", "prone"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["hamstrings"],
+        "category": "knee_flexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-machine-lying-leg-curl-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-machine-lying-leg-curl-front.gif"
+      },
+      "key_cues": "Lying face down, lower legs curl toward glutes, hips stay on pad, only knee joint moves"
+    },
+    "goblet_squat": {
+      "display_name": "Goblet Squat",
+      "tags": {
+        "equipment": ["dumbbell", "kettlebell"],
+        "body_position": ["standing", "bilateral"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["quadriceps", "glutes"],
+        "category": "knee_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-goblet-squat-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-goblet-squat-front.gif"
+      },
+      "key_cues": "Weight held at chest height with both hands, very upright torso, deep squat, elbows inside knees"
+    },
+    "upright_row": {
+      "display_name": "Upright Row",
+      "tags": {
+        "equipment": ["barbell", "dumbbell", "cable"],
+        "body_position": ["standing"],
+        "movement_plane": ["frontal"],
+        "muscle_group": ["lateral_delts", "traps", "biceps"],
+        "category": "vertical_pull"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-upright-row-front.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-upright-row-side.gif"
+      },
+      "key_cues": "Bar/dumbbells pulled vertically up along body, elbows flare out and rise above hands"
+    },
+    "cable_row": {
+      "display_name": "Seated Cable Row",
+      "tags": {
+        "equipment": ["cable"],
+        "body_position": ["seated"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["lats", "rhomboids", "biceps"],
+        "category": "horizontal_pull"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-seated-row-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-seated-row-front.gif"
+      },
+      "key_cues": "Seated on cable machine, torso upright, handle pulled to abdomen, elbows go back"
+    },
+    "cable_curl": {
+      "display_name": "Cable Curl",
+      "tags": {
+        "equipment": ["cable"],
+        "body_position": ["standing"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["biceps"],
+        "category": "elbow_flexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-curl-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-curl-front.gif"
+      },
+      "key_cues": "Standing at cable tower low pulley, arms curl up, constant cable tension throughout"
+    },
+    "pullover": {
+      "display_name": "Dumbbell Pullover",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["lying", "supine", "across_bench"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["lats", "chest", "serratus"],
+        "category": "shoulder_extension"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-pullover-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-pullover-front.gif"
+      },
+      "key_cues": "Lying across bench, dumbbell held overhead with both hands, arms arc from behind head to over chest"
+    },
+    "cable_pullover": {
+      "display_name": "Cable Pullover (Straight-Arm Pulldown)",
+      "tags": {
+        "equipment": ["cable"],
+        "body_position": ["standing", "hinged_slightly"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["lats", "chest"],
+        "category": "shoulder_extension"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-straight-arm-pulldown-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-straight-arm-pulldown-front.gif"
+      },
+      "key_cues": "Standing facing cable, arms STRAIGHT, pull rope/bar down in arc from overhead to hips, no elbow bend"
+    },
+    "dip": {
+      "display_name": "Tricep Dip",
+      "tags": {
+        "equipment": ["bodyweight", "parallel_bars"],
+        "body_position": ["suspended", "upright"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["triceps", "chest", "front_delts"],
+        "category": "vertical_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-dip-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-dip-front.gif"
+      },
+      "key_cues": "Suspended on parallel bars, body dips down as elbows bend, torso upright for triceps focus"
+    },
+    "shrug": {
+      "display_name": "Shrug",
+      "tags": {
+        "equipment": ["barbell", "dumbbell"],
+        "body_position": ["standing"],
+        "movement_plane": ["frontal"],
+        "muscle_group": ["traps"],
+        "category": "scapular_elevation"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-shrug-front.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-shrug-side.gif"
+      },
+      "key_cues": "Standing, shoulders elevate up toward ears, minimal arm bend, only traps contract"
+    },
+    "calf_raise": {
+      "display_name": "Standing Calf Raise",
+      "tags": {
+        "equipment": ["bodyweight", "barbell", "machine"],
+        "body_position": ["standing"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["calves", "gastrocnemius"],
+        "category": "ankle_plantarflexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-calf-raise-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-calf-raise-front.gif"
+      },
+      "key_cues": "Standing, heels raise up on balls of feet, legs stay straight, only ankle moves"
+    },
+    "hack_squat": {
+      "display_name": "Hack Squat",
+      "tags": {
+        "equipment": ["machine"],
+        "body_position": ["reclined", "feet_forward"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["quadriceps", "glutes"],
+        "category": "knee_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-machine-hack-squat-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-machine-hack-squat-front.gif"
+      },
+      "key_cues": "Back against angled pad, feet on platform, knees bend and extend, machine guides movement"
+    },
+    "pendlay_row": {
+      "display_name": "Pendlay Row",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["hinged_forward", "parallel_to_floor"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["lats", "rhomboids", "traps"],
+        "category": "horizontal_pull"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-pendlay-row-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-pendlay-row-front.gif"
+      },
+      "key_cues": "Torso nearly parallel to floor, bar starts from floor each rep, explosive pull to chest"
+    },
+    "tbar_row": {
+      "display_name": "T-Bar Row",
+      "tags": {
+        "equipment": ["barbell", "t_bar_machine"],
+        "body_position": ["hinged_forward", "chest_supported_optional"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["lats", "rhomboids"],
+        "category": "horizontal_pull"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-t-bar-row-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-t-bar-row-front.gif"
+      },
+      "key_cues": "Hinged over T-bar or landmine, narrow grip handles, bar pulled up to chest"
+    },
+    "chest_fly": {
+      "display_name": "Dumbbell Chest Fly",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["lying", "supine", "flat_bench"],
+        "movement_plane": ["transverse"],
+        "muscle_group": ["chest"],
+        "category": "chest_isolation"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-chest-fly-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-chest-fly-front.gif"
+      },
+      "key_cues": "Lying on bench, arms arc wide to sides with slight elbow bend, dumbbells come together over chest"
+    },
+    "cable_crossover": {
+      "display_name": "Cable Crossover",
+      "tags": {
+        "equipment": ["cable"],
+        "body_position": ["standing", "between_cables"],
+        "movement_plane": ["transverse"],
+        "muscle_group": ["chest"],
+        "category": "chest_isolation"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-crossover-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-crossover-front.gif"
+      },
+      "key_cues": "Standing between two cable towers, arms pull cables forward and together in arc"
+    },
+    "reverse_fly": {
+      "display_name": "Reverse Fly",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["hinged_forward", "sitting"],
+        "movement_plane": ["transverse"],
+        "muscle_group": ["rear_delts", "rhomboids"],
+        "category": "shoulder_horizontal_abduction"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-reverse-fly-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-reverse-fly-front.gif"
+      },
+      "key_cues": "Bent over, arms raise laterally to sides with slight elbow bend, torso stays fixed"
+    },
+    "hammer_curl": {
+      "display_name": "Hammer Curl",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["standing"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["biceps", "brachialis"],
+        "category": "elbow_flexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-hammer-curl-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-hammer-curl-front.gif"
+      },
+      "key_cues": "Neutral grip (thumbs up), dumbbells curl up, wrists stay neutral throughout"
+    },
+    "preacher_curl": {
+      "display_name": "Preacher Curl",
+      "tags": {
+        "equipment": ["barbell", "dumbbell", "cable"],
+        "body_position": ["seated", "arm_on_pad"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["biceps"],
+        "category": "elbow_flexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-preacher-curl-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-preacher-curl-front.gif"
+      },
+      "key_cues": "Arms rest on angled preacher pad, only forearms move, upper arm stays fixed on pad"
+    },
+    "skull_crusher": {
+      "display_name": "Skull Crusher",
+      "tags": {
+        "equipment": ["barbell", "dumbbell", "ez_bar"],
+        "body_position": ["lying", "supine", "flat_bench"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["triceps"],
+        "category": "elbow_extension"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-skull-crusher-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-skull-crusher-front.gif"
+      },
+      "key_cues": "Lying on bench, bar lowered toward forehead by bending elbows, upper arms stay vertical"
+    },
+    "good_morning": {
+      "display_name": "Good Morning",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["standing"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["hamstrings", "lower_back", "glutes"],
+        "category": "hip_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-good-morning-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-good-morning-front.gif"
+      },
+      "key_cues": "Bar on back, hips hinge forward, legs nearly straight, torso bows forward, arms not involved"
+    },
+    "step_up": {
+      "display_name": "Step-Up",
+      "tags": {
+        "equipment": ["dumbbell", "barbell", "bodyweight"],
+        "body_position": ["standing", "unilateral"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["quadriceps", "glutes"],
+        "category": "knee_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-step-up-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-step-up-front.gif"
+      },
+      "key_cues": "One foot steps onto elevated box, single leg drives body up, other leg follows"
+    },
+    "sissy_squat": {
+      "display_name": "Sissy Squat",
+      "tags": {
+        "equipment": ["bodyweight"],
+        "body_position": ["standing", "leaning_back"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["quadriceps"],
+        "category": "knee_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-sissy-squat-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-sissy-squat-front.gif"
+      },
+      "key_cues": "Heels raised, body leans backward, knees travel far forward, hips stay extended throughout"
+    },
+    "decline_bench": {
+      "display_name": "Decline Bench Press",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["lying", "decline_bench"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["lower_chest", "triceps"],
+        "category": "decline_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-decline-bench-press-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-decline-bench-press-front.gif"
+      },
+      "key_cues": "Bench declined, feet elevated, bar pressed to lower chest, head lower than hips"
+    },
+    "dumbbell_bench": {
+      "display_name": "Dumbbell Bench Press",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["lying", "supine", "flat_bench"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["chest", "triceps"],
+        "category": "horizontal_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-bench-press-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-bench-press-front.gif"
+      },
+      "key_cues": "Lying on flat bench, dumbbells pressed up, more range than barbell, wrists neutral"
+    },
+    "dumbbell_incline": {
+      "display_name": "Dumbbell Incline Press",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["lying", "incline_bench"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["upper_chest", "triceps"],
+        "category": "incline_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-incline-bench-press-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-incline-bench-press-front.gif"
+      },
+      "key_cues": "Incline bench, dumbbells pressed overhead at incline angle, upper chest targeted"
+    },
+    "chest_dip": {
+      "display_name": "Chest Dip",
+      "tags": {
+        "equipment": ["bodyweight", "parallel_bars"],
+        "body_position": ["suspended", "leaning_forward"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["chest", "triceps"],
+        "category": "vertical_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-chest-dip-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-chest-dip-front.gif"
+      },
+      "key_cues": "Parallel bars, torso leans forward more than tricep dip, elbows flare more outward"
+    },
+    "push_up": {
+      "display_name": "Push-Up",
+      "tags": {
+        "equipment": ["bodyweight"],
+        "body_position": ["prone", "hands_on_floor"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["chest", "triceps", "front_delts"],
+        "category": "horizontal_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-push-up-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-push-up-front.gif"
+      },
+      "key_cues": "Prone position, hands on floor, body in plank, chest lowers to floor and pushes up"
+    },
+    "machine_chest_press": {
+      "display_name": "Machine Chest Press",
+      "tags": {
+        "equipment": ["machine"],
+        "body_position": ["seated"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["chest", "triceps"],
+        "category": "horizontal_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-machine-chest-press-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-machine-chest-press-front.gif"
+      },
+      "key_cues": "Seated in machine, back against pad, handles pressed forward, machine guides path"
+    },
+    "svend_press": {
+      "display_name": "Svend Press",
+      "tags": {
+        "equipment": ["plates"],
+        "body_position": ["standing"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["chest"],
+        "category": "chest_isolation"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-svend-press-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-svend-press-front.gif"
+      },
+      "key_cues": "Plates pressed together between palms at chest, arms extend forward, plates stay squeezed"
+    },
+    "landmine_press": {
+      "display_name": "Landmine Press",
+      "tags": {
+        "equipment": ["barbell", "landmine"],
+        "body_position": ["standing", "kneeling"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["chest", "shoulders", "triceps"],
+        "category": "incline_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-landmine-press-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-landmine-press-front.gif"
+      },
+      "key_cues": "Bar anchored at floor, presses up at angle from chest, arc path due to pivot point"
+    },
+    "chinup": {
+      "display_name": "Chin-Up",
+      "tags": {
+        "equipment": ["bodyweight", "bar"],
+        "body_position": ["hanging", "supinated_grip"],
+        "movement_plane": ["frontal"],
+        "muscle_group": ["biceps", "lats"],
+        "category": "vertical_pull"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-chin-up-front.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-chin-up-side.gif"
+      },
+      "key_cues": "Underhand (supinated) grip on bar, chin pulls above bar, palms face toward you"
+    },
+    "close_grip_pulldown": {
+      "display_name": "Close-Grip Pulldown",
+      "tags": {
+        "equipment": ["cable", "machine"],
+        "body_position": ["seated"],
+        "movement_plane": ["frontal"],
+        "muscle_group": ["lats", "biceps"],
+        "category": "vertical_pull"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-close-grip-lat-pulldown-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-close-grip-lat-pulldown-front.gif"
+      },
+      "key_cues": "Seated, V-bar or neutral grip attachment, pulled to upper chest, elbows stay closer to body"
+    },
+    "seal_row": {
+      "display_name": "Seal Row",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["lying", "prone", "elevated_bench"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["lats", "rhomboids"],
+        "category": "horizontal_pull"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-seal-row-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-seal-row-front.gif"
+      },
+      "key_cues": "Lying prone on elevated bench, bar pulled from hanging to chest, body fully supported"
+    },
+    "dumbbell_ohp": {
+      "display_name": "Dumbbell Shoulder Press",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["seated", "standing"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["shoulders", "triceps"],
+        "category": "vertical_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-shoulder-press-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-shoulder-press-front.gif"
+      },
+      "key_cues": "Dumbbells at shoulder height, pressed overhead, can rotate path slightly unlike barbell"
+    },
+    "arnold_press": {
+      "display_name": "Arnold Press",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["seated"],
+        "movement_plane": ["sagittal", "transverse"],
+        "muscle_group": ["shoulders", "triceps"],
+        "category": "vertical_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-arnold-press-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-arnold-press-front.gif"
+      },
+      "key_cues": "Starts with palms facing body, rotates to palms forward as arms press overhead"
+    },
+    "cable_lateral_raise": {
+      "display_name": "Cable Lateral Raise",
+      "tags": {
+        "equipment": ["cable"],
+        "body_position": ["standing"],
+        "movement_plane": ["frontal"],
+        "muscle_group": ["lateral_delts"],
+        "category": "shoulder_abduction"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-lateral-raise-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-lateral-raise-front.gif"
+      },
+      "key_cues": "Cable at low pulley beside body, arm raises laterally against cable tension, single arm"
+    },
+    "front_raise": {
+      "display_name": "Front Raise",
+      "tags": {
+        "equipment": ["dumbbell", "barbell", "cable"],
+        "body_position": ["standing"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["front_delts"],
+        "category": "shoulder_flexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-front-raise-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-front-raise-front.gif"
+      },
+      "key_cues": "Arms raise forward to shoulder height or above, elbows nearly straight, torso stays upright"
+    },
+    "rear_delt_fly": {
+      "display_name": "Rear Delt Fly (Machine)",
+      "tags": {
+        "equipment": ["machine"],
+        "body_position": ["seated", "chest_against_pad"],
+        "movement_plane": ["transverse"],
+        "muscle_group": ["rear_delts"],
+        "category": "shoulder_horizontal_abduction"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-machine-reverse-fly-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-machine-reverse-fly-front.gif"
+      },
+      "key_cues": "Seated at pec deck machine facing pad, arms open backward in arc"
+    },
+    "lu_raise": {
+      "display_name": "Lu Raise / Y-Raise",
+      "tags": {
+        "equipment": ["dumbbell", "cable"],
+        "body_position": ["standing", "hinged_slightly"],
+        "movement_plane": ["frontal", "sagittal"],
+        "muscle_group": ["lower_traps", "serratus", "rear_delts"],
+        "category": "shoulder_complex"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-lu-raise-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-lu-raise-front.gif"
+      },
+      "key_cues": "Arms raise at Y angle (45 degrees in front), combination of lateral and front raise"
+    },
+    "dumbbell_curl": {
+      "display_name": "Dumbbell Curl",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["standing"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["biceps"],
+        "category": "elbow_flexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-curl-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-curl-front.gif"
+      },
+      "key_cues": "Alternating or simultaneous dumbbell curls, supinated grip, elbows at sides"
+    },
+    "incline_curl": {
+      "display_name": "Incline Dumbbell Curl",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["lying", "incline_bench", "arms_hanging"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["biceps", "long_head_emphasis"],
+        "category": "elbow_flexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-incline-curl-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-incline-curl-front.gif"
+      },
+      "key_cues": "Seated on incline bench, arms hang behind body, curls from stretched position"
+    },
+    "concentration_curl": {
+      "display_name": "Concentration Curl",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["seated", "elbow_on_knee"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["biceps"],
+        "category": "elbow_flexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-concentration-curl-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-concentration-curl-front.gif"
+      },
+      "key_cues": "Seated, elbow braced against inner thigh, single arm curl, upper arm fixed"
+    },
+    "spider_curl": {
+      "display_name": "Spider Curl",
+      "tags": {
+        "equipment": ["barbell", "dumbbell"],
+        "body_position": ["prone", "incline_bench"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["biceps"],
+        "category": "elbow_flexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-spider-curl-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-spider-curl-front.gif"
+      },
+      "key_cues": "Lying prone on incline bench, arms hang down, curls from fully extended position"
+    },
+    "overhead_tricep": {
+      "display_name": "Overhead Tricep Extension",
+      "tags": {
+        "equipment": ["dumbbell", "barbell", "cable"],
+        "body_position": ["standing", "seated"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["triceps", "long_head_emphasis"],
+        "category": "elbow_extension"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-overhead-tricep-extension-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-overhead-tricep-extension-front.gif"
+      },
+      "key_cues": "Weight held overhead, elbows bend to lower weight behind head, upper arms stay vertical"
+    },
+    "kickback": {
+      "display_name": "Tricep Kickback",
+      "tags": {
+        "equipment": ["dumbbell"],
+        "body_position": ["hinged_forward", "bench_support"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["triceps"],
+        "category": "elbow_extension"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-tricep-kickback-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-tricep-kickback-front.gif"
+      },
+      "key_cues": "Bent over, upper arm parallel to floor, forearm extends backward kicking weight out"
+    },
+    "close_grip_bench": {
+      "display_name": "Close-Grip Bench Press",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["lying", "supine", "flat_bench"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["triceps", "chest"],
+        "category": "horizontal_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-close-grip-bench-press-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-close-grip-bench-press-front.gif"
+      },
+      "key_cues": "Like bench press but hands shoulder width or closer, elbows stay closer to body"
+    },
+    "diamond_pushup": {
+      "display_name": "Diamond Push-Up",
+      "tags": {
+        "equipment": ["bodyweight"],
+        "body_position": ["prone", "hands_close"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["triceps", "chest"],
+        "category": "horizontal_push"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-diamond-push-up-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-diamond-push-up-front.gif"
+      },
+      "key_cues": "Hands form diamond shape under chest, elbows close to body, triceps focused push-up"
+    },
+    "cable_overhead_tricep": {
+      "display_name": "Cable Overhead Tricep Extension",
+      "tags": {
+        "equipment": ["cable"],
+        "body_position": ["standing", "facing_away"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["triceps"],
+        "category": "elbow_extension"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-overhead-tricep-extension-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-overhead-tricep-extension-front.gif"
+      },
+      "key_cues": "Facing away from cable, rope overhead, elbows bent behind head, extends forward"
+    },
+    "walking_lunge": {
+      "display_name": "Walking Lunge",
+      "tags": {
+        "equipment": ["dumbbell", "barbell", "bodyweight"],
+        "body_position": ["moving", "unilateral"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["quadriceps", "glutes"],
+        "category": "knee_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-walking-lunge-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-walking-lunge-front.gif"
+      },
+      "key_cues": "Continuous stepping forward into lunge, alternating legs, travelling across space"
+    },
+    "nordic_curl": {
+      "display_name": "Nordic Curl",
+      "tags": {
+        "equipment": ["bodyweight", "partner"],
+        "body_position": ["kneeling", "feet_anchored"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["hamstrings"],
+        "category": "knee_flexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-nordic-curl-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-nordic-curl-front.gif"
+      },
+      "key_cues": "Kneeling, feet anchored, body falls forward slowly, hamstrings eccentrically control descent"
+    },
+    "single_leg_rdl": {
+      "display_name": "Single-Leg RDL",
+      "tags": {
+        "equipment": ["dumbbell", "barbell", "bodyweight"],
+        "body_position": ["standing", "unilateral", "balance"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["hamstrings", "glutes"],
+        "category": "hip_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-dumbbell-single-leg-rdl-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-dumbbell-single-leg-rdl-front.gif"
+      },
+      "key_cues": "One leg, hip hinge, other leg extends behind for balance, weight in hand on working side"
+    },
+    "glute_ham_raise": {
+      "display_name": "Glute-Ham Raise",
+      "tags": {
+        "equipment": ["ghr_machine"],
+        "body_position": ["prone", "specialized_machine"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["hamstrings", "glutes"],
+        "category": "hip_and_knee"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-glute-ham-raise-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-glute-ham-raise-front.gif"
+      },
+      "key_cues": "On GHR machine, body lowers forward then curls back up using both hip and knee flexion"
+    },
+    "cable_kickback": {
+      "display_name": "Cable Glute Kickback",
+      "tags": {
+        "equipment": ["cable"],
+        "body_position": ["standing", "hinged_forward"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["glutes"],
+        "category": "hip_extension"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-glute-kickback-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-glute-kickback-front.gif"
+      },
+      "key_cues": "Cable attached to ankle, standing on other leg, leg kicks back and up against cable tension"
+    },
+    "glute_bridge": {
+      "display_name": "Glute Bridge",
+      "tags": {
+        "equipment": ["barbell", "bodyweight"],
+        "body_position": ["lying", "supine", "feet_on_floor"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["glutes", "hamstrings"],
+        "category": "hip_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-glute-bridge-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-glute-bridge-front.gif"
+      },
+      "key_cues": "Lying on floor, feet flat, hips drive up to full extension, upper back stays on ground"
+    },
+    "trap_bar_deadlift": {
+      "display_name": "Trap Bar Deadlift",
+      "tags": {
+        "equipment": ["trap_bar", "hex_bar"],
+        "body_position": ["standing", "inside_bar"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["quadriceps", "glutes", "hamstrings", "back"],
+        "category": "hip_dominant"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-trap-bar-deadlift-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-trap-bar-deadlift-front.gif"
+      },
+      "key_cues": "Standing inside hexagonal bar, hands at sides, more upright torso than conventional deadlift"
+    },
+    "seated_calf_raise": {
+      "display_name": "Seated Calf Raise",
+      "tags": {
+        "equipment": ["machine"],
+        "body_position": ["seated"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["calves", "soleus"],
+        "category": "ankle_plantarflexion"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-machine-seated-calf-raise-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-machine-seated-calf-raise-front.gif"
+      },
+      "key_cues": "Seated, pads on knees, only heels raise and lower, knees at 90 degrees"
+    },
+    "crunch": {
+      "display_name": "Crunch",
+      "tags": {
+        "equipment": ["bodyweight"],
+        "body_position": ["lying", "supine", "knees_bent"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["abs", "rectus_abdominis"],
+        "category": "core"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-crunch-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-crunch-front.gif"
+      },
+      "key_cues": "Lying on back, knees bent, shoulders curl up, lower back stays on floor"
+    },
+    "cable_crunch": {
+      "display_name": "Cable Crunch",
+      "tags": {
+        "equipment": ["cable"],
+        "body_position": ["kneeling"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["abs"],
+        "category": "core"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-crunch-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-crunch-front.gif"
+      },
+      "key_cues": "Kneeling at cable tower, rope at head, torso crunches down under cable resistance"
+    },
+    "hanging_leg_raise": {
+      "display_name": "Hanging Leg Raise",
+      "tags": {
+        "equipment": ["bar"],
+        "body_position": ["hanging"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["abs", "hip_flexors"],
+        "category": "core"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-hanging-leg-raise-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-hanging-leg-raise-front.gif"
+      },
+      "key_cues": "Hanging from bar, legs raise to horizontal or above, lower back rounds at top"
+    },
+    "ab_wheel": {
+      "display_name": "Ab Wheel Rollout",
+      "tags": {
+        "equipment": ["ab_wheel"],
+        "body_position": ["kneeling", "extended"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["abs", "lats", "serratus"],
+        "category": "core"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-ab-wheel-rollout-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-ab-wheel-rollout-front.gif"
+      },
+      "key_cues": "Kneeling with wheel, rolls body out to extended position, abs brace throughout"
+    },
+    "plank": {
+      "display_name": "Plank",
+      "tags": {
+        "equipment": ["bodyweight"],
+        "body_position": ["prone", "forearms_or_hands"],
+        "movement_plane": ["isometric"],
+        "muscle_group": ["abs", "core"],
+        "category": "core"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-bodyweight-plank-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-bodyweight-plank-front.gif"
+      },
+      "key_cues": "Body straight from head to heels, forearms or hands on floor, static hold, no movement"
+    },
+    "woodchop": {
+      "display_name": "Cable Woodchop",
+      "tags": {
+        "equipment": ["cable"],
+        "body_position": ["standing", "rotational"],
+        "movement_plane": ["transverse"],
+        "muscle_group": ["obliques", "core"],
+        "category": "core"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-cable-woodchop-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-cable-woodchop-front.gif"
+      },
+      "key_cues": "Rotating motion diagonal across body, arms straight, hips and torso rotate"
+    },
+    "clean": {
+      "display_name": "Power Clean",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["standing", "dynamic"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["full_body", "traps", "quads", "glutes"],
+        "category": "olympic"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-clean-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-clean-front.gif"
+      },
+      "key_cues": "Explosive pull from floor, bar catches on shoulders/front rack, triple extension at hips knees ankles"
+    },
+    "snatch": {
+      "display_name": "Snatch",
+      "tags": {
+        "equipment": ["barbell"],
+        "body_position": ["standing", "dynamic"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["full_body"],
+        "category": "olympic"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-snatch-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-snatch-front.gif"
+      },
+      "key_cues": "Bar pulled from floor to overhead in one movement, wide grip, arms lock out overhead"
+    },
+    "thruster": {
+      "display_name": "Thruster",
+      "tags": {
+        "equipment": ["barbell", "dumbbell"],
+        "body_position": ["standing"],
+        "movement_plane": ["sagittal"],
+        "muscle_group": ["full_body", "quads", "shoulders"],
+        "category": "compound"
+      },
+      "ref_images": {
+        "start": "https://musclewiki.com/media/uploads/male-barbell-thruster-side.gif",
+        "contracted": "https://musclewiki.com/media/uploads/male-barbell-thruster-front.gif"
+      },
+      "key_cues": "Front squat into overhead press in one fluid motion, squat drives momentum into press"
+    },
+    "unknown": {
+      "display_name": "Unknown Exercise",
+      "tags": {
+        "equipment": [],
+        "body_position": [],
+        "movement_plane": [],
+        "muscle_group": [],
+        "category": "unknown"
+      },
+      "ref_images": {
+        "start": null,
+        "contracted": null
+      },
+      "key_cues": ""
+    }
+  }
+}
