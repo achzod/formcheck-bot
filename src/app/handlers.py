@@ -424,8 +424,13 @@ async def _run_analysis(
                         logger.exception("Failed to send annotated frame %s", label)
                     break
 
-        # Cleanup temp video
+        # Cleanup temp video + preview frame
         cleanup_video(video_path)
+        if preview_frame_path:
+            try:
+                Path(preview_frame_path).unlink(missing_ok=True)
+            except Exception:
+                pass
 
     except Exception as exc:
         logger.exception("Analysis failed for analysis_id=%s", analysis_id)

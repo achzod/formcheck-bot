@@ -400,10 +400,12 @@ body{{
     background:#0a0a0f;
     color:#d0d0e0;
     font-family:'Inter',system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
-    line-height:1.7;
+    line-height:1.75;
+    font-size:15px;
     -webkit-font-smoothing:antialiased;
     -moz-osx-font-smoothing:grayscale
 }}
+@media(max-width:600px){{body{{font-size:14px;line-height:1.7}}}}
 
 /* ── Container ────────────────────────────────────────────── */
 .container{{max-width:780px;margin:0 auto;padding:24px 20px}}
@@ -532,11 +534,11 @@ body{{
 }}
 
 /* ── Report text elements ─────────────────────────────────── */
-.report-p{{margin:4px 0;line-height:1.7;color:#c8c8e0}}
+.report-p{{margin:6px 0;line-height:1.75;color:#d0d0e8;font-size:0.95em}}
 .score-line{{color:#06b6d4;font-size:1.05em;font-weight:700;margin:6px 0}}
 .score-cat{{margin:8px 0;color:#e0e0f0;font-weight:600}}
-.sub-label{{color:#06b6d4;font-weight:600;font-size:0.9em;margin:10px 0 2px}}
-.sub-content{{margin:2px 0 10px 0;color:#c8c8e0;line-height:1.7}}
+.sub-label{{color:#06b6d4;font-weight:600;font-size:0.88em;margin:14px 0 4px;text-transform:uppercase;letter-spacing:0.5px}}
+.sub-content{{margin:2px 0 12px 0;color:#d0d0e8;line-height:1.75;padding-left:12px;border-left:2px solid #1a1e28}}
 .numbered-item{{
     display:flex;
     gap:12px;
