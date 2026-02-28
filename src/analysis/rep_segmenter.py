@@ -15,6 +15,12 @@ import numpy as np
 
 from analysis.angle_calculator import AngleResult, FrameAngles
 
+try:
+    from app.debug_log import log_error as _debug_log
+except ImportError:
+    def _debug_log(context: str, error: str, extra: dict | None = None) -> None:
+        pass
+
 logger = logging.getLogger("formcheck.rep_segmenter")
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -687,18 +693,30 @@ def _extract_joint_y_signals(raw_frames: list) -> dict[str, tuple[np.ndarray, np
     Y in image coordinates (higher Y = lower position in image).
     """
     signals = {}
+    vis_stats = {}
     for joint_name, lm_idx in _JOINT_INDICES.items():
         values = []
         indices = []
+        vis_values = []
         for frame in raw_frames:
             if lm_idx < len(frame.landmarks):
                 lm = frame.landmarks[lm_idx]
                 vis = lm.get("visibility", 0.0)
-                if vis > 0.3:
+                vis_values.append(vis)
+                # Very low threshold — even low-visibility landmarks give usable Y
+                if vis > 0.1:
                     values.append(lm["y"])
                     indices.append(frame.frame_index)
+        avg_vis = float(np.mean(vis_values)) if vis_values else 0.0
+        vis_stats[joint_name] = (len(values), avg_vis)
         if len(values) >= 10:
             signals[joint_name] = (np.array(values), np.array(indices))
+    
+    logger.info(
+        "Joint Y extraction: %d/%d joints usable. Stats: %s",
+        len(signals), len(_JOINT_INDICES),
+        {k: "{}pts/{:.2f}vis".format(v[0], v[1]) for k, v in vis_stats.items()},
+    )
     return signals
 
 
@@ -1224,6 +1242,18 @@ def segment_reps(
             "Counts aligned: peak=%d, robust=%d — keeping peak segmentation.",
             peak_count, robust_count,
         )
+
+    # Debug log for visibility in /debug/errors endpoint
+    _debug_log("rep_counting", "Rep counting results", {
+        "autocorr_count": autocorr_count,
+        "zerocross_count": zerocross_count,
+        "peak_count": peak_count,
+        "final_count": result.total_reps,
+        "robust_count": robust_count,
+        "raw_frames_provided": raw_frames is not None,
+        "raw_frames_count": len(raw_frames) if raw_frames else 0,
+        "combined_signal_len": len(combined_signal) if combined_signal is not None else 0,
+    })
 
     logger.info(
         "Segmentation: %d reps (%d completes, %d partielles), "
