@@ -380,6 +380,7 @@ def run_pipeline(
             angles=angles,
             exercise=detection.exercise.value,
             fps=extraction.fps,
+            raw_frames=extraction.frames,
         )
         result.reps = rep_seg
         result.timings["rep_segmentation"] = time.monotonic() - t0

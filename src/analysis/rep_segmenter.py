@@ -659,48 +659,323 @@ def _detect_cheat(
                 rep.cheat_details = "Legere compensation du tronc ({:.0f} deg)".format(trunk_range)
 
 
-def _get_center_of_mass_signal(angles: "AngleResult") -> tuple[np.ndarray, np.ndarray]:
-    """Fallback signal: average Y position of all landmarks per frame.
+# ═══════════════════════════════════════════════════════════════════════════
+# MULTI-JOINT Y SIGNAL — Robust rep counting via landmark positions
+# ═══════════════════════════════════════════════════════════════════════════
+
+# MediaPipe landmark indices for key joints
+_JOINT_INDICES = {
+    "left_hip": 23,
+    "right_hip": 24,
+    "left_knee": 25,
+    "right_knee": 26,
+    "left_ankle": 27,
+    "right_ankle": 28,
+    "left_shoulder": 11,
+    "right_shoulder": 12,
+    "left_elbow": 13,
+    "right_elbow": 14,
+    "left_wrist": 15,
+    "right_wrist": 16,
+}
+
+
+def _extract_joint_y_signals(raw_frames: list) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Extract Y position time-series for each key joint from raw landmarks.
     
-    More robust than individual joint angles because it averages out
-    individual landmark placement errors from MediaPipe.
+    Returns dict of joint_name -> (y_values, frame_indices).
+    Y in image coordinates (higher Y = lower position in image).
     """
-    # Access the extraction's raw frames via angles
-    # Each FrameAngles has multiple angle values; we use hip angles as proxy
-    # for vertical center of mass movement
-    values = []
-    indices = []
-    for f in angles.frames:
-        # Average all available angles as a composite movement signal
-        angle_vals = []
-        for attr_name in ["left_hip_flexion", "right_hip_flexion", 
-                          "left_knee_flexion", "right_knee_flexion",
-                          "left_elbow_flexion", "right_elbow_flexion"]:
-            val = getattr(f, attr_name, None)
-            if val is not None:
-                angle_vals.append(val)
-        if angle_vals:
-            values.append(float(np.mean(angle_vals)))
-            indices.append(f.frame_index)
-    return np.array(values), np.array(indices)
+    signals = {}
+    for joint_name, lm_idx in _JOINT_INDICES.items():
+        values = []
+        indices = []
+        for frame in raw_frames:
+            if lm_idx < len(frame.landmarks):
+                lm = frame.landmarks[lm_idx]
+                vis = lm.get("visibility", 0.0)
+                if vis > 0.3:
+                    values.append(lm["y"])
+                    indices.append(frame.frame_index)
+        if len(values) >= 10:
+            signals[joint_name] = (np.array(values), np.array(indices))
+    return signals
+
+
+def _build_combined_signal(
+    joint_signals: dict[str, tuple[np.ndarray, np.ndarray]],
+    fps: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build a variance-weighted combined signal from multi-joint Y positions.
+    
+    1. For each joint, compute variance of its Y signal
+    2. Select top joints by variance (= joints that move the most)
+    3. Normalize each to [0,1] 
+    4. Combine as variance-weighted sum → single 1D signal
+    
+    This is robust because:
+    - Averaging over multiple joints smooths out individual tracking errors
+    - Variance weighting focuses on joints that actually participate in the movement
+    - Y position is the most reliable coordinate from MediaPipe (less affected by depth errors)
+    """
+    if not joint_signals:
+        return np.array([]), np.array([])
+
+    # Find common frame indices (intersection of all joints)
+    all_indices_sets = [set(idx.tolist()) for _, idx in joint_signals.values()]
+    common_indices = sorted(set.intersection(*all_indices_sets)) if all_indices_sets else []
+    
+    if len(common_indices) < 10:
+        # Fallback: use the joint with most frames
+        best_joint = max(joint_signals.keys(), key=lambda k: len(joint_signals[k][0]))
+        return joint_signals[best_joint]
+
+    common_set = set(common_indices)
+    
+    # Align all signals to common indices
+    aligned = {}
+    for name, (vals, idxs) in joint_signals.items():
+        mask = np.array([i in common_set for i in idxs.tolist()])
+        if np.sum(mask) == len(common_indices):
+            aligned[name] = vals[mask]
+        else:
+            # Rebuild by lookup
+            idx_to_val = dict(zip(idxs.tolist(), vals.tolist()))
+            aligned_vals = [idx_to_val[ci] for ci in common_indices if ci in idx_to_val]
+            if len(aligned_vals) == len(common_indices):
+                aligned[name] = np.array(aligned_vals)
+
+    if not aligned:
+        best_joint = max(joint_signals.keys(), key=lambda k: len(joint_signals[k][0]))
+        return joint_signals[best_joint]
+
+    # Compute variance for each joint signal
+    variances = {}
+    for name, vals in aligned.items():
+        variances[name] = float(np.var(vals))
+
+    total_var = sum(variances.values())
+    if total_var < 1e-10:
+        # No movement detected
+        best_joint = max(joint_signals.keys(), key=lambda k: len(joint_signals[k][0]))
+        return joint_signals[best_joint]
+
+    # Select top joints by variance (at least 5% of total variance)
+    threshold = total_var * 0.05
+    selected = {n: v for n, v in aligned.items() if variances[n] >= threshold}
+    
+    if not selected:
+        selected = aligned  # use all if none pass threshold
+
+    logger.info(
+        "Multi-joint signal: %d/%d joints selected by variance: %s",
+        len(selected), len(aligned),
+        [(n, round(variances.get(n, 0), 6)) for n in selected],
+    )
+
+    # Normalize each signal to [0, 1]
+    normalized = {}
+    for name, vals in selected.items():
+        vmin, vmax = float(np.min(vals)), float(np.max(vals))
+        if vmax - vmin > 1e-10:
+            normalized[name] = (vals - vmin) / (vmax - vmin)
+        else:
+            normalized[name] = np.zeros_like(vals)
+
+    # Variance-weighted combination
+    weights = {n: variances[n] for n in normalized}
+    w_total = sum(weights.values())
+    combined = np.zeros(len(common_indices))
+    for name, norm_vals in normalized.items():
+        w = weights[name] / w_total
+        combined += w * norm_vals
+
+    return combined, np.array(common_indices)
+
+
+def _count_by_autocorrelation(signal: np.ndarray, fps: float) -> int:
+    """Count repetitions using autocorrelation to find the dominant period.
+    
+    Autocorrelation finds periodicity in a signal by correlating it with
+    time-shifted versions of itself. The first major peak after lag 0
+    indicates the period (duration of one rep).
+    
+    Much more robust than peak detection because:
+    - Finds the AVERAGE period across all reps (not individual peaks)
+    - Tolerant to noise that would confuse peak detection
+    - Works even when amplitude varies between reps (fatigue)
+    """
+    if len(signal) < 15:
+        return 0
+
+    # Remove DC component (mean)
+    sig = signal - np.mean(signal)
+    
+    # Compute autocorrelation via numpy
+    n = len(sig)
+    autocorr = np.correlate(sig, sig, mode='full')
+    autocorr = autocorr[n - 1:]  # Keep positive lags only
+    
+    # Normalize
+    if autocorr[0] > 0:
+        autocorr = autocorr / autocorr[0]
+    else:
+        return 0
+
+    # Find the first significant peak after lag 0
+    # Min lag: at least 0.4 seconds per rep (very fast reps)
+    # Max lag: at most 8 seconds per rep (very slow reps)
+    min_lag = max(3, int(fps * 0.4))
+    max_lag = min(len(autocorr) - 1, int(fps * 8.0))
+    
+    if min_lag >= max_lag:
+        return 0
+
+    search_region = autocorr[min_lag:max_lag + 1]
+    if len(search_region) < 3:
+        return 0
+
+    # Find peaks in autocorrelation
+    try:
+        from scipy.signal import find_peaks as sp_find_peaks
+        peaks, properties = sp_find_peaks(search_region, prominence=0.05, distance=int(fps * 0.3))
+    except ImportError:
+        # Manual peak finding
+        peaks = []
+        for i in range(1, len(search_region) - 1):
+            if search_region[i] > search_region[i-1] and search_region[i] > search_region[i+1]:
+                if search_region[i] > 0.05:
+                    peaks.append(i)
+
+    if len(peaks) == 0:
+        return 0
+
+    # The first peak = dominant period
+    period_frames = peaks[0] + min_lag
+    
+    # Validate: the autocorrelation at this peak should be reasonably high
+    peak_value = autocorr[period_frames]
+    if peak_value < 0.1:
+        logger.info("Autocorrelation peak too weak (%.3f), unreliable.", peak_value)
+        return 0
+
+    # Count = total duration / period
+    rep_count = round(n / period_frames)
+    
+    logger.info(
+        "Autocorrelation: period=%.1f frames (%.2fs), peak_value=%.3f, estimated_reps=%d",
+        period_frames, period_frames / fps, peak_value, rep_count,
+    )
+    return max(1, rep_count)
+
+
+def _best_robust_count(autocorr: int, zerocross: int) -> int:
+    """Pick the best rep count from robust methods.
+    
+    If both agree (within 1), trust it.
+    If they disagree, prefer autocorrelation (more accurate for periodic signals).
+    """
+    if autocorr == 0 and zerocross == 0:
+        return 0
+    if autocorr == 0:
+        return zerocross
+    if zerocross == 0:
+        return autocorr
+    # If within 1 rep of each other, average (rounded)
+    if abs(autocorr - zerocross) <= 1:
+        return round((autocorr + zerocross) / 2)
+    # Disagree: prefer autocorrelation
+    return autocorr
+
+
+def _count_by_zero_crossing(signal: np.ndarray) -> int:
+    """Count reps by zero-crossing: each full cycle (2 crossings) = 1 rep.
+    
+    Robust fallback: simply counts how many times the signal crosses
+    its mean value. Less affected by amplitude variations than peak detection.
+    """
+    if len(signal) < 5:
+        return 0
+    
+    mean_val = np.mean(signal)
+    centered = signal - mean_val
+    
+    # Count sign changes
+    crossings = 0
+    for i in range(1, len(centered)):
+        if centered[i-1] * centered[i] < 0:
+            crossings += 1
+    
+    # Each complete rep = 2 crossings (down + up or up + down)
+    rep_count = crossings // 2
+    
+    logger.info("Zero-crossing: %d crossings → %d reps", crossings, rep_count)
+    return max(0, rep_count)
 
 
 def segment_reps(
     angles: AngleResult,
     exercise: str,
     fps: float = 30.0,
+    raw_frames: list | None = None,
 ) -> RepSegmentation:
-    """Segmente les répétitions à partir du signal angulaire.
+    """Segmente les répétitions avec une architecture multi-méthode.
+
+    Architecture de comptage (cascade) :
+    1. Multi-joint Y signal + autocorrélation (le plus robuste)
+    2. Zero-crossing sur le signal combiné (fallback)
+    3. Peak detection sur angle primaire (fallback classique)
+    
+    La méthode 1 (autocorrélation) donne le nombre de reps le plus fiable.
+    Si les méthodes divergent, on prend le maximum cohérent.
+    
+    La segmentation individuelle (tempo, fatigue, triche) utilise le signal 
+    angulaire classique car elle a besoin des positions exactes des pics/vallées.
 
     Args:
         angles: Résultat du calcul d'angles.
         exercise: Nom de l'exercice (valeur de l'enum Exercise).
-        fps: FPS de la vidéo pour calculer les durées.
+        fps: FPS de la vidéo.
+        raw_frames: FrameLandmarks brutes de l'extraction (pour multi-joint Y).
 
     Returns:
         RepSegmentation avec les reps détectées, fatigue et triche.
     """
     result = RepSegmentation()
+
+    # ══════════════════════════════════════════════════════════════════════
+    # PHASE 1 : COMPTAGE ROBUSTE (multi-joint + autocorrélation + zero-crossing)
+    # ══════════════════════════════════════════════════════════════════════
+    
+    autocorr_count = 0
+    zerocross_count = 0
+    combined_signal = None
+    combined_indices = None
+    
+    if raw_frames and len(raw_frames) >= 10:
+        joint_signals = _extract_joint_y_signals(raw_frames)
+        if joint_signals:
+            combined_signal, combined_indices = _build_combined_signal(joint_signals, fps)
+            
+            if len(combined_signal) >= 15:
+                # Smooth the combined signal
+                smooth_win = min(7, max(3, int(fps * 0.15)))
+                smoothed_combined = _smooth_signal(combined_signal, window=smooth_win)
+                
+                # Method 1: Autocorrelation
+                autocorr_count = _count_by_autocorrelation(smoothed_combined, fps)
+                
+                # Method 2: Zero-crossing
+                zerocross_count = _count_by_zero_crossing(smoothed_combined)
+                
+                logger.info(
+                    "Robust counting: autocorr=%d, zerocross=%d",
+                    autocorr_count, zerocross_count,
+                )
+
+    # ══════════════════════════════════════════════════════════════════════
+    # PHASE 2 : SEGMENTATION PAR PEAK DETECTION (pour tempo/fatigue/triche)
+    # ══════════════════════════════════════════════════════════════════════
 
     # Déterminer l'angle principal
     attr = PRIMARY_ANGLE_MAP.get(exercise)
@@ -710,12 +985,15 @@ def segment_reps(
 
     signal, frame_indices = _get_signal(angles.frames, attr)
     if len(signal) < 10:
-        # Fallback: try composite signal (average of all angles)
-        logger.info("Primary signal too short, trying composite signal.")
-        signal, frame_indices = _get_center_of_mass_signal(angles)
-        if len(signal) < 10:
-            logger.warning("Signal trop court (%d points) pour detecter des reps.", len(signal))
+        logger.info("Primary angle signal too short (%d pts).", len(signal))
+        # If we have a robust count but no angle signal, return count-only result
+        robust_count = _best_robust_count(autocorr_count, zerocross_count)
+        if robust_count > 0:
+            result.total_reps = robust_count
+            result.complete_reps = robust_count
+            logger.info("Using robust count only (no angle data): %d reps", robust_count)
             return result
+        return result
 
     # Paramètres adaptatifs selon l'exercice
     params = _adaptive_params(exercise, signal, fps)
@@ -723,7 +1001,7 @@ def segment_reps(
     # Lisser le signal
     smoothed = _smooth_signal(signal, window=int(params["smooth_window"]))
 
-    # Détecter pics et vallées
+    # Détecter pics et vallées — try multiple prominence levels
     peaks, valleys = _find_peaks_valleys(
         smoothed,
         min_prominence=params["min_prominence"],
@@ -731,53 +1009,28 @@ def segment_reps(
     )
 
     if len(valleys) < 2:
-        # Pas assez de vallées pour segmenter
-        # Essayer avec les pics comme délimiteurs
         if len(peaks) >= 2:
             valleys, peaks = peaks, valleys
         else:
-            # Dernier recours : réduire la prominence de 60% et distance de 50%
-            logger.info("Pas assez de points, reduction prominence 60%% + distance 50%%.")
-            reduced_prom = params["min_prominence"] * 0.4
+            # Reduce prominence aggressively
+            reduced_prom = params["min_prominence"] * 0.3
             peaks, valleys = _find_peaks_valleys(
                 smoothed,
                 min_prominence=reduced_prom,
-                min_distance=max(3, int(params["min_distance"] * 0.5)),
+                min_distance=max(3, int(params["min_distance"] * 0.4)),
             )
             if len(valleys) < 2 and len(peaks) >= 2:
                 valleys, peaks = peaks, valleys
             elif len(valleys) < 2:
-                # Last resort: try composite signal (average of all joint angles)
-                logger.info("Primary signal failed, trying composite signal for rep detection.")
-                comp_signal, comp_indices = _get_center_of_mass_signal(angles)
-                if len(comp_signal) >= 10:
-                    comp_params = _adaptive_params(exercise, comp_signal, fps)
-                    comp_smoothed = _smooth_signal(comp_signal, window=int(comp_params["smooth_window"]))
-                    comp_peaks, comp_valleys = _find_peaks_valleys(
-                        comp_smoothed,
-                        min_prominence=comp_params["min_prominence"] * 0.4,
-                        min_distance=max(3, int(comp_params["min_distance"] * 0.5)),
-                    )
-                    if len(comp_valleys) >= 2:
-                        signal = comp_signal
-                        frame_indices = comp_indices
-                        smoothed = comp_smoothed
-                        peaks = comp_peaks
-                        valleys = comp_valleys
-                        logger.info("Composite signal found %d valleys, %d peaks.", len(valleys), len(peaks))
-                    elif len(comp_peaks) >= 2:
-                        signal = comp_signal
-                        frame_indices = comp_indices
-                        smoothed = comp_smoothed
-                        valleys = comp_peaks
-                        peaks = comp_valleys
-                        logger.info("Composite signal (inverted) found %d delimiters.", len(valleys))
-                    else:
-                        logger.warning("Pas assez de points caracteristiques pour segmenter.")
-                        return result
-                else:
-                    logger.warning("Pas assez de points caracteristiques pour segmenter.")
+                # Peak detection failed — use robust count if available
+                robust_count = _best_robust_count(autocorr_count, zerocross_count)
+                if robust_count > 0:
+                    result.total_reps = robust_count
+                    result.complete_reps = robust_count
+                    logger.info("Peak detection failed, using robust count: %d reps", robust_count)
                     return result
+                logger.warning("All methods failed to detect reps.")
+                return result
 
     # ROM minimum pour cet exercice
     min_rom = MIN_ROM_THRESHOLD.get(exercise, 10.0)
@@ -947,11 +1200,38 @@ def segment_reps(
         if reps:
             result.cheat_percentage = (len(cheat_list) / len(reps)) * 100
 
+    # ══════════════════════════════════════════════════════════════════════
+    # PHASE 3 : RECONCILIATION — robust count overrides if peak detection undercount
+    # ══════════════════════════════════════════════════════════════════════
+    robust_count = _best_robust_count(autocorr_count, zerocross_count)
+    peak_count = result.total_reps
+
+    if robust_count > peak_count and robust_count > 0:
+        logger.info(
+            "Robust override: peak_detection=%d, autocorr=%d, zerocross=%d → using %d",
+            peak_count, autocorr_count, zerocross_count, robust_count,
+        )
+        result.total_reps = robust_count
+        # Adjust complete/partial counts proportionally
+        if peak_count > 0:
+            extra = robust_count - peak_count
+            result.complete_reps += extra
+        else:
+            result.complete_reps = robust_count
+            result.partial_reps = 0
+    elif robust_count > 0:
+        logger.info(
+            "Counts aligned: peak=%d, robust=%d — keeping peak segmentation.",
+            peak_count, robust_count,
+        )
+
     logger.info(
         "Segmentation: %d reps (%d completes, %d partielles), "
-        "tempo=%s, ROM_deg=%.0f%%, fatigue_onset=rep%d, triche=%d%%, set_complete=%s",
+        "tempo=%s, ROM_deg=%.0f%%, fatigue_onset=rep%d, triche=%d%%, set_complete=%s "
+        "[autocorr=%d, zerocross=%d]",
         result.total_reps, result.complete_reps, result.partial_reps,
         result.avg_tempo, result.rom_degradation, result.fatigue_onset_rep,
         result.cheat_percentage, result.set_complete,
+        autocorr_count, zerocross_count,
     )
     return result
