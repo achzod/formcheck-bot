@@ -1042,7 +1042,7 @@ def _build_reps_timeline(reps: Any) -> str:
 
     return f'''
     <div class="card fade-in" style="animation-delay:0.38s">
-        <div class="card-header">Timeline des repetitions — {len(rep_list)} reps</div>
+        <div class="card-header">Timeline des repetitions — {reps.total_reps} reps</div>
         <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
             <div style="font-size:0.82em;color:#8888aa">Tempo moyen : <span style="color:#e0e0f0;font-weight:600">{avg_ecc:.1f}s ecc / {avg_conc:.1f}s conc</span></div>
             <div style="font-size:0.82em;color:#8888aa">Consistance : <span style="color:#e0e0f0;font-weight:600">{reps.tempo_consistency:.0%}</span></div>

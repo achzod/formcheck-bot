@@ -395,14 +395,40 @@ def run_pipeline(
         logger.error("Segmentation reps échouée: %s", e)
         result.reps = RepSegmentation()
 
-    # If MediaPipe rep detection found very few reps but Vision saw more, trust Vision
-    vision_reps = getattr(detection, 'vision_rep_count', 0)
-    if vision_reps > 0 and result.reps.total_reps < vision_reps:
-        logger.info(
-            "Vision rep override: MediaPipe found %d reps, Vision found %d — using Vision count.",
-            result.reps.total_reps, vision_reps,
+    # ── Étape 6b : GPT-4o Vision rep counting (PRIMARY, most reliable) ──
+    try:
+        from analysis.vision_rep_counter import count_reps_by_vision
+        t0_vision = time.monotonic()
+        vision_rep_count = count_reps_by_vision(
+            video_path=str(extraction.video_path),
+            exercise_name=detection.exercise.value,
+            n_frames=10,
         )
-        result.reps.total_reps = vision_reps
+        logger.info(
+            "  → Vision rep count: %d (%.1fs)",
+            vision_rep_count, time.monotonic() - t0_vision,
+        )
+        # Vision count is authoritative — override if higher than signal processing
+        if vision_rep_count > 0 and vision_rep_count > result.reps.total_reps:
+            logger.info(
+                "Vision override: signal_processing=%d → vision=%d",
+                result.reps.total_reps, vision_rep_count,
+            )
+            result.reps.total_reps = vision_rep_count
+            result.reps.complete_reps = vision_rep_count
+    except Exception as e:
+        logger.error("Vision rep counting failed: %s", e)
+        vision_rep_count = 0
+
+    # Fallback: detection-time vision count (from exercise detection call)
+    if vision_rep_count == 0:
+        detection_reps = getattr(detection, 'vision_rep_count', 0)
+        if detection_reps > 0 and detection_reps > result.reps.total_reps:
+            logger.info(
+                "Detection-time vision override: %d → %d",
+                result.reps.total_reps, detection_reps,
+            )
+            result.reps.total_reps = detection_reps
 
     # ── Étape 7 : Analyse biomécanique avancée ───────────────────────────
     _notify_progress(cfg, 7, "Analyse biomécanique avancée")
