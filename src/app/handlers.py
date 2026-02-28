@@ -400,24 +400,19 @@ async def _run_analysis(
             else:
                 await wa.send_text(phone, "📊 C'était ta dernière analyse ! Tape *forfaits* pour recharger.")
 
-        # Send 2-3 best annotated frames via WhatsApp
+        # Send only the most useful annotated frame (mid = point bas)
         if result.annotated_frames:
-            # Prioritize mid > start > end, max 3
-            priority = ["mid", "start", "end"]
-            sent = 0
             published = publish_annotated_frames(result.annotated_frames)
-            for target_label in priority:
-                if sent >= 3:
+            # Only send mid (point bas) — most informative frame
+            # Skip start/end which often show setup/walkaway
+            for label, filename, url in published:
+                if label == "mid":
+                    caption = _FRAME_LABELS.get(label, "Point bas")
+                    try:
+                        await wa.send_image(phone, url, caption=caption)
+                    except Exception:
+                        logger.exception("Failed to send annotated frame %s", label)
                     break
-                for label, filename, url in published:
-                    if label == target_label:
-                        caption = _FRAME_LABELS.get(label, f"📸 {label}")
-                        try:
-                            await wa.send_image(phone, url, caption=caption)
-                            sent += 1
-                        except Exception:
-                            logger.exception("Failed to send annotated frame %s", label)
-                        break
 
         # Cleanup temp video
         cleanup_video(video_path)

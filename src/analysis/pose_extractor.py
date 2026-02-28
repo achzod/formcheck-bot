@@ -100,9 +100,21 @@ def _detect_key_frames(frames: list[FrameLandmarks]) -> dict[str, int]:
     if not valid:
         valid = frames
     hip_y_values = [_compute_hip_y(f.landmarks) for f in valid]
-    start_idx = valid[0].frame_index
-    end_idx = valid[-1].frame_index
-    mid_idx = valid[int(np.argmax(hip_y_values))].frame_index
+    mid_idx_pos = int(np.argmax(hip_y_values))
+    mid_idx = valid[mid_idx_pos].frame_index
+
+    # Start: use frame at ~10% of valid frames (skip initial setup/walkup)
+    start_pos = max(0, len(valid) // 10)
+    start_idx = valid[start_pos].frame_index
+
+    # End: use frame at ~90% of valid frames (skip walkaway/rerack)
+    # This avoids picking the last frame where the person left the bar
+    end_pos = min(len(valid) - 1, int(len(valid) * 0.9))
+    # If mid is past end_pos, adjust so end is after mid
+    if end_pos <= mid_idx_pos:
+        end_pos = min(len(valid) - 1, mid_idx_pos + (mid_idx_pos - start_pos))
+    end_idx = valid[end_pos].frame_index
+
     return {"start": start_idx, "mid": mid_idx, "end": end_idx}
 
 
