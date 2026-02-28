@@ -526,6 +526,32 @@ def run_pipeline(
     _notify_progress(cfg, 10, "Génération du rapport")
     logger.info("Étape 10/%d : Génération du rapport biomécanique...", TOTAL_STEPS)
     t0 = time.monotonic()
+    
+    # Extract 8 evenly-spaced raw frames for GPT-4o Vision report
+    _report_frames = []
+    try:
+        import cv2 as _cv2_rpt
+        _rpt_cap = _cv2_rpt.VideoCapture(str(video))
+        _rpt_total = int(_rpt_cap.get(_cv2_rpt.CAP_PROP_FRAME_COUNT))
+        _n_report_frames = min(8, max(5, _rpt_total // 30))  # 5-8 frames
+        for _ri in range(_n_report_frames):
+            _rfidx = int(_rpt_total * (_ri + 0.5) / _n_report_frames)
+            _rpt_cap.set(_cv2_rpt.CAP_PROP_POS_FRAMES, _rfidx)
+            _rret, _rfrm = _rpt_cap.read()
+            if _rret and _rfrm is not None:
+                _rpath = out_dir / "report_frame_{}.jpg".format(_ri)
+                # Resize to max 512px wide for cost efficiency
+                _rh, _rw = _rfrm.shape[:2]
+                if _rw > 512:
+                    _scale = 512.0 / _rw
+                    _rfrm = _cv2_rpt.resize(_rfrm, (512, int(_rh * _scale)))
+                _cv2_rpt.imwrite(str(_rpath), _rfrm, [_cv2_rpt.IMWRITE_JPEG_QUALITY, 75])
+                _report_frames.append(str(_rpath))
+        _rpt_cap.release()
+        logger.info("Extracted %d frames for report generation", len(_report_frames))
+    except Exception as _rfe:
+        logger.warning("Failed to extract report frames: %s", _rfe)
+    
     try:
         report = generate_report(
             exercise=detection,
@@ -538,6 +564,7 @@ def run_pipeline(
             provider=cfg.llm_provider,
             morpho_profile=result.morpho_profile,
             adapted_thresholds=result.adapted_thresholds,
+            video_frames=_report_frames if _report_frames else None,
         )
         result.report = report
         result.timings["report"] = time.monotonic() - t0

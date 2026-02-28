@@ -525,13 +525,22 @@ def generate_report_openai(
     model: str = "gpt-4o",
     morpho_profile: dict | None = None,
     adapted_thresholds: dict | None = None,
+    video_frames: list[str] | None = None,
 ) -> Report:
-    """Génère le rapport via l'API OpenAI (GPT-4)."""
+    """Génère le rapport via l'API OpenAI (GPT-4o) — AVEC frames visuelles.
+    
+    video_frames: list of file paths to raw video frames (JPEG).
+    When provided, GPT-4o sees the actual video and can analyze form visually,
+    independent of MediaPipe data quality.
+    """
     key = api_key or os.environ.get("OPENAI_API_KEY", "")
     if not key:
         raise ValueError("Clé API OpenAI requise. Définissez OPENAI_API_KEY.")
 
+    import base64
     import openai
+    import logging
+    _logger = logging.getLogger("formcheck.report")
 
     client = openai.OpenAI(api_key=key)
     system_prompt, user_prompt = _build_analysis_prompt(
@@ -540,14 +549,50 @@ def generate_report_openai(
         morpho_profile=morpho_profile, adapted_thresholds=adapted_thresholds,
     )
 
+    # Build message content — text + optional frames
+    user_content = []
+    
+    # Add video frames if available (GPT-4o Vision)
+    if video_frames:
+        user_content.append({
+            "type": "text",
+            "text": (
+                "VOICI {} FRAMES DE LA VIDEO (dans l'ordre chronologique). "
+                "Utilise-les pour VOIR l'execution reelle du mouvement. "
+                "Les donnees numeriques ci-dessous sont issues de MediaPipe et peuvent etre "
+                "IMPRECISES (mauvaise personne trackee en gym bonde). "
+                "En cas de contradiction entre ce que tu VOIS et les chiffres, "
+                "fais confiance a ce que tu VOIS sur les frames. "
+                "Analyse la personne au PREMIER PLAN (la plus proche de la camera)."
+            ).format(len(video_frames)),
+        })
+        for i, fpath in enumerate(video_frames):
+            try:
+                with open(fpath, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("utf-8")
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/jpeg;base64," + b64,
+                        "detail": "low",  # Cost-efficient: ~$0.003 per frame
+                    },
+                })
+            except Exception as e:
+                _logger.warning("Failed to load frame %s: %s", fpath, e)
+        _logger.info("Sending %d frames to GPT-4o for report generation", len(video_frames))
+    
+    # Add the text analysis prompt
+    user_content.append({"type": "text", "text": user_prompt})
+    
     response = client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+            {"role": "user", "content": user_content},
         ],
         max_tokens=8000,
         temperature=0.3,
+        timeout=120,
     )
 
     raw_response = response.choices[0].message.content or ""
@@ -565,6 +610,7 @@ def generate_report(
     provider: str = "auto",
     morpho_profile: dict | None = None,
     adapted_thresholds: dict | None = None,
+    video_frames: list[str] | None = None,
 ) -> Report:
     """Point d'entrée principal pour la génération de rapport.
 
@@ -588,7 +634,7 @@ def generate_report(
     if provider == "auto":
         # GPT-4o en priorité — plus fiable et centralise tout sur une seule API
         if os.environ.get("OPENAI_API_KEY", "").strip():
-            return generate_report_openai(**kwargs)
+            return generate_report_openai(**kwargs, video_frames=video_frames)
         elif os.environ.get("ANTHROPIC_API_KEY", "").strip():
             return generate_report_claude(**kwargs)
         else:
