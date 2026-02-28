@@ -114,8 +114,13 @@ def _md_inline_to_html(text: str) -> str:
 def _format_report_html(report_text: str) -> str:
     """Convertit le texte du rapport LLM en HTML propre, parse par sections."""
     text = html.escape(report_text)
-    # Convert markdown bullet lists to plain text (handled by numbered-item or paragraph)
-    text = re.sub(r'^[\-\*]\s+', '', text, flags=re.MULTILINE)
+    # Strip ALL markdown artifacts aggressively
+    text = re.sub(r'^[\-\*•]\s+', '', text, flags=re.MULTILINE)     # bullet lists
+    text = re.sub(r'^#{1,4}\s+', '', text, flags=re.MULTILINE)      # headers
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)                     # **bold** → plain
+    text = re.sub(r'__(.+?)__', r'\1', text)                         # __bold__ → plain
+    text = re.sub(r'(?<!\w)\*(.+?)\*(?!\w)', r'\1', text)           # *italic* → plain
+    text = re.sub(r'`(.+?)`', r'\1', text)                           # `code` → plain
     lines = text.split("\n")
     html_parts: list[str] = []
     in_section = False
