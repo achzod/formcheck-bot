@@ -120,7 +120,18 @@ def _get_candidate_exercises(
     scored.sort(key=lambda x: x[1], reverse=True)
     candidates = [name for name, _ in scored[:n]]
 
-    logger.debug("Candidates for visual matching: %s", candidates)
+    # ALWAYS include core compound movements to prevent blind spots
+    # Pattern matching is unreliable — don't let it exclude major exercises
+    _ALWAYS_INCLUDE = [
+        "squat", "deadlift", "bench_press", "ohp", "barbell_row",
+        "curl", "lat_pulldown", "hip_thrust", "rdl", "dumbbell_row",
+        "lateral_raise", "tricep_extension", "pullup", "dip",
+    ]
+    for ex in _ALWAYS_INCLUDE:
+        if ex not in candidates:
+            candidates.append(ex)
+
+    logger.debug("Candidates for visual matching (with always-include): %s", candidates)
     return candidates
 
 
