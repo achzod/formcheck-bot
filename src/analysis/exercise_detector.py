@@ -360,6 +360,7 @@ class DetectionResult:
     reasoning: str                 # Explication de la classification
     vision_exercise: Exercise | None = None   # Résultat GPT-4 Vision si utilisé
     vision_confidence: float = 0.0
+    vision_rep_count: int = 0                # Nombre de reps détectées par Vision
     display_name: str = ""
 
     def __post_init__(self) -> None:
@@ -1720,10 +1721,10 @@ def detect_by_vision(
 
     key = api_key or os.environ.get("OPENAI_API_KEY", "")
     if not key:
-        return Exercise.UNKNOWN, 0.0, "Pas de cle API OpenAI configuree."
+        return Exercise.UNKNOWN, 0.0, "Pas de cle API OpenAI configuree.", 0
 
     if not Path(mid_frame_path).exists():
-        return Exercise.UNKNOWN, 0.0, "Image introuvable"
+        return Exercise.UNKNOWN, 0.0, "Image introuvable", 0
 
     try:
         import openai
@@ -1819,7 +1820,8 @@ def detect_by_vision(
             "cable_row, tricep_extension, cable_curl, upright_row).\n\n"
             "Reponds UNIQUEMENT avec un JSON valide :\n"
             '{{"exercise": "<nom_exact>", "confidence": <0.0-1.0>, '
-            '"reasoning": "<explication courte>"}}\n\n'
+            '"reasoning": "<explication courte>", '
+            '"rep_count": <nombre de repetitions visibles dans les frames>}}\n\n'
             "Exercices possibles (utilise EXACTEMENT un de ces noms) :\n"
             "{exercises_list}"
         ).format(
@@ -1835,7 +1837,10 @@ def detect_by_vision(
             "CE QUI BOUGE. Si le torse reste fixe et les bras tirent "
             "= rowing. Si le torse se redresse = deadlift. "
             "Regarde l'equipement, la position du corps, "
-            "et le plan de mouvement."
+            "et le plan de mouvement. "
+            "Compte aussi le nombre de REPETITIONS visibles "
+            "(chaque montee-descente complete = 1 rep). "
+            "Si tu ne peux pas compter precisement, estime au mieux."
         ).format(n=num_frames)
 
         if candidate_exercises:
@@ -2045,20 +2050,22 @@ def detect_by_vision(
                 logger.warning("Vision returned unknown exercise name: %s", ex_name)
                 exercise = Exercise.UNKNOWN
             
+            rep_count = int(data.get("rep_count", 0))
             result = (
                 exercise,
                 float(data.get("confidence", 0.5)),
                 data.get("reasoning", ""),
+                rep_count,
             )
-            logger.info("Vision parsed: %s (conf=%.2f)", exercise.value, result[1])
+            logger.info("Vision parsed: %s (conf=%.2f, reps=%d)", exercise.value, result[1], rep_count)
             return result
 
         logger.warning("Vision response not parseable: %s", content[:200])
-        return Exercise.UNKNOWN, 0.0, "Reponse non parseable: {}".format(content[:100])
+        return Exercise.UNKNOWN, 0.0, "Reponse non parseable: {}".format(content[:100]), 0
 
     except Exception as e:
         logger.exception("Vision detection failed")
-        return Exercise.UNKNOWN, 0.0, "Erreur GPT-4 Vision: {}".format(str(e))
+        return Exercise.UNKNOWN, 0.0, "Erreur GPT-4 Vision: {}".format(str(e)), 0
 
 
 def detect_exercise(
@@ -2093,15 +2100,17 @@ def detect_exercise(
 
     # ── Vision-first : GPT-4o est meilleur pour identifier visuellement ──
     if use_vision_backup and mid_frame_path:
-        vision_ex, vision_conf, vision_reason = detect_by_vision(
+        vision_result = detect_by_vision(
             mid_frame_path,
             start_frame_path=start_frame_path,
             end_frame_path=end_frame_path,
             pattern_result=pattern_result,
         )
+        vision_ex, vision_conf, vision_reason = vision_result[0], vision_result[1], vision_result[2]
+        vision_reps = vision_result[3] if len(vision_result) > 3 else 0
         logger.info(
-            "Vision detection: %s (conf=%.2f) — %s",
-            vision_ex.value, vision_conf, vision_reason,
+            "Vision detection: %s (conf=%.2f, reps=%d) — %s",
+            vision_ex.value, vision_conf, vision_reps, vision_reason,
         )
 
         if vision_ex != Exercise.UNKNOWN and vision_conf >= 0.4:
@@ -2114,6 +2123,7 @@ def detect_exercise(
                     reasoning="[Vision + Pattern d'accord] {}".format(vision_reason),
                     vision_exercise=vision_ex,
                     vision_confidence=vision_conf,
+                    vision_rep_count=vision_reps,
                 )
             else:
                 # Désaccord → vision gagne (elle est plus fiable pour l'identification)
@@ -2127,6 +2137,7 @@ def detect_exercise(
                     reasoning="[Vision] {} (pattern suggerait: {})".format(vision_reason, pattern_result.exercise.value),
                     vision_exercise=vision_ex,
                     vision_confidence=vision_conf,
+                    vision_rep_count=vision_reps,
                 )
 
     # ── Fallback : pattern matching seul (pas d'image ou vision a échoué) ──
