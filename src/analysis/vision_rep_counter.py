@@ -82,7 +82,8 @@ def _extract_evenly_spaced_frames(
 def count_reps_by_vision(
     video_path: str,
     exercise_name: str = "",
-    n_frames: int = 10,
+    n_frames: int = 0,
+    fps: float = 30.0,
 ) -> int:
     """Count exercise reps using GPT-4o Vision.
     
@@ -105,6 +106,18 @@ def count_reps_by_vision(
         logger.warning("No OpenAI API key — cannot count reps by vision.")
         return 0
     
+    # Auto-calculate number of frames based on video duration
+    # Target: ~3 frames per expected rep (~1 frame per second of video)
+    if n_frames <= 0:
+        cap = cv2.VideoCapture(video_path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        video_fps = cap.get(cv2.CAP_PROP_FPS) or fps
+        cap.release()
+        duration_s = total_frames / video_fps if video_fps > 0 else 10
+        # ~1 frame per second, min 8, max 20 (cost control)
+        n_frames = max(8, min(20, int(duration_s)))
+        logger.info("Auto frames: %.1fs video → %d frames", duration_s, n_frames)
+    
     frames_b64 = _extract_evenly_spaced_frames(video_path, n_frames=n_frames)
     if len(frames_b64) < 3:
         logger.warning("Not enough frames extracted (%d).", len(frames_b64))
@@ -122,22 +135,37 @@ def count_reps_by_vision(
         exercise_hint = " L'exercice detecte est: {}.".format(exercise_name.replace("_", " "))
     
     system_prompt = (
-        "Tu es un expert en analyse biomecanique du mouvement. "
+        "Tu es un expert en analyse biomecanique du mouvement avec 15 ans d'experience. "
         "On te montre une sequence de frames extraites d'une video d'exercice de musculation. "
-        "Les frames sont dans l'ordre chronologique, uniformement espacees dans la video. "
-        "Compte le nombre EXACT de repetitions COMPLETES visibles. "
-        "Une repetition = un cycle complet du mouvement (montee + descente ou descente + montee). "
-        "Ne compte PAS les demi-reps, la mise en position, ou le rerack. "
+        "Les frames sont dans l'ORDRE CHRONOLOGIQUE, uniformement espacees dans la video. "
+        "Ta tache : compter le nombre EXACT de repetitions COMPLETES. "
+        "\n\n"
+        "REGLES DE COMPTAGE :\n"
+        "- Une repetition = un cycle complet (phase excentrique + phase concentrique)\n"
+        "- Cherche les CHANGEMENTS DE POSITION entre frames successives\n"
+        "- Les frames ou le sujet est dans la meme position = meme phase\n"
+        "- Les frames ou le sujet alterne entre 2 positions = repetitions\n"
+        "- Ne compte PAS la mise en place ni le rerack\n"
+        "- Si la video est longue (>15 frames), il y a probablement PLUSIEURS reps\n"
+        "- Un set typique contient entre 5 et 20 reps\n"
+        "\n"
         "Reponds UNIQUEMENT avec un JSON: {\"rep_count\": <nombre>, \"reasoning\": \"<explication courte>\"}"
     )
     
+    # Calculate duration for the prompt
+    _cap = cv2.VideoCapture(video_path)
+    _total = int(_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    _vfps = _cap.get(cv2.CAP_PROP_FPS) or fps
+    _cap.release()
+    _duration = _total / _vfps if _vfps > 0 else 10
+    
     user_text = (
-        "Voici {n} frames extraites uniformement d'une video d'exercice."
+        "Voici {n} frames extraites uniformement d'une video de {duration:.0f} secondes."
         "{hint} "
-        "Compte le nombre EXACT de repetitions COMPLETES. "
-        "Regarde les changements de position entre les frames successives "
-        "pour identifier chaque cycle complet du mouvement."
-    ).format(n=len(frames_b64), hint=exercise_hint)
+        "Les frames couvrent toute la duree de la video. "
+        "Compte le nombre EXACT de repetitions COMPLETES en observant "
+        "les alternances de position du sujet entre les frames."
+    ).format(n=len(frames_b64), hint=exercise_hint, duration=_duration)
     
     try:
         response = client.chat.completions.create(

@@ -402,7 +402,7 @@ def run_pipeline(
         vision_rep_count = count_reps_by_vision(
             video_path=str(extraction.video_path),
             exercise_name=detection.exercise.value,
-            n_frames=10,
+            fps=extraction.fps,
         )
         logger.info(
             "  → Vision rep count: %d (%.1fs)",

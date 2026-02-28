@@ -1018,12 +1018,21 @@ def _build_morpho_section(morpho: dict) -> str:
 
 def _build_reps_timeline(reps: Any) -> str:
     """Construit une timeline visuelle des reps."""
-    if not reps or not reps.reps:
+    if not reps or reps.total_reps < 1:
         return ""
 
     rep_list = reps.reps
-    if not rep_list:
-        return ""
+    
+    # If peak detection found a wildly different number than the authoritative count,
+    # don't show per-rep bars (they'd be misleading). Just show the count.
+    if not rep_list or abs(len(rep_list) - reps.total_reps) > 2:
+        return '''
+    <div class="card fade-in" style="animation-delay:0.38s">
+        <div class="card-header">{} repetitions detectees</div>
+        <div style="font-size:0.9em;color:#8888aa;padding:12px 0">
+            Comptage par analyse visuelle GPT-4o Vision.
+        </div>
+    </div>'''.format(reps.total_reps)
 
     # Trouver le max ROM pour normaliser la hauteur des barres
     max_rom = max(r.rom for r in rep_list) if rep_list else 1
