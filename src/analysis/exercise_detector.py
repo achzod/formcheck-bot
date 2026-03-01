@@ -1708,6 +1708,55 @@ def _encode_image_base64(image_path: str) -> str:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
+def _post_correct_detection(
+    exercise: Exercise,
+    confidence: float,
+    reasoning: str,
+    logger: Any,
+) -> tuple[Exercise, str]:
+    """Apply rule-based corrections after GPT-4o Vision detection.
+    
+    GPT-4o frequently confuses exercises when gym equipment is visible
+    in the background (e.g., sees cable station → says cable_curl even
+    when the person holds a barbell). These rules catch known confusions.
+    """
+    lower_reason = reasoning.lower()
+    
+    # ── cable_curl → curl correction ──
+    # If GPT-4o says cable_curl but mentions barbell/barre/EZ in reasoning
+    if exercise == Exercise.CABLE_CURL:
+        barbell_cues = ["barre", "barbell", "ez bar", "ez curl", "barre droite", "barre ez",
+                        "straight bar", "olympic bar", "free weight", "poids libre"]
+        for cue in barbell_cues:
+            if cue in lower_reason:
+                logger.info(
+                    "POST-CORRECTION: cable_curl → curl (reasoning mentions '%s')", cue,
+                )
+                return Exercise.CURL, "[Corrigé: barre libre détectée] " + reasoning
+        
+        # Also correct if confidence is low-medium (GPT-4o unsure = probably not cable)
+        if confidence < 0.7:
+            # Check for absence of cable-specific cues
+            cable_cues = ["cable", "poulie", "pulley", "stack", "câble"]
+            has_cable_cue = any(c in lower_reason for c in cable_cues)
+            if not has_cable_cue:
+                logger.info(
+                    "POST-CORRECTION: cable_curl → curl (low confidence, no cable cues)",
+                )
+                return Exercise.CURL, "[Corrigé: pas de câble confirmé] " + reasoning
+    
+    # ── Similar corrections for other common confusions ──
+    # cable_row detected but person has barbell → barbell_row
+    if exercise == Exercise.CABLE_ROW:
+        barbell_cues = ["barre", "barbell", "free weight", "poids libre"]
+        for cue in barbell_cues:
+            if cue in lower_reason:
+                logger.info("POST-CORRECTION: cable_row → barbell_row")
+                return Exercise.BARBELL_ROW, "[Corrigé: barre libre détectée] " + reasoning
+    
+    return exercise, reasoning
+
+
 def detect_by_vision(
     mid_frame_path: str,
     api_key: str | None = None,
@@ -1868,9 +1917,12 @@ def detect_by_vision(
             "- DISTINGUER ohp vs arnold_press : Arnold press = halteres qui partent devant "
             "le visage (paumes vers soi) avec rotation vers l'exterieur pendant la montee. "
             "OHP = barre ou halteres qui partent des epaules (paumes vers l'avant) sans rotation.\n\n"
+            "IMPORTANT : dans ton 'reasoning', tu DOIS decrire l'equipement que la personne "
+            "TIENT DANS SES MAINS (barre libre, halteres, poignee de cable, rien). "
+            "Cela aide a distinguer les variantes (ex: curl barre vs cable curl).\n\n"
             "Reponds UNIQUEMENT avec un JSON valide :\n"
             '{{"exercise": "<nom_exact>", "confidence": <0.0-1.0>, '
-            '"reasoning": "<explication courte>", '
+            '"reasoning": "<EQUIPEMENT DANS LES MAINS + explication courte>", '
             '"rep_count": <nombre de repetitions visibles dans les frames>}}\n\n'
             "Exercices possibles (utilise EXACTEMENT un de ces noms) :\n"
             "{exercises_list}"
@@ -2116,10 +2168,20 @@ def detect_by_vision(
                 exercise = Exercise.UNKNOWN
             
             rep_count = int(data.get("rep_count", 0))
+            reasoning = data.get("reasoning", "")
+            confidence = float(data.get("confidence", 0.5))
+            
+            # ── Post-detection correction rules ──────────────────────────
+            # GPT-4o often confuses exercises when gym equipment is visible
+            # in the background. Apply rule-based corrections.
+            exercise, reasoning = _post_correct_detection(
+                exercise, confidence, reasoning, logger,
+            )
+            
             result = (
                 exercise,
-                float(data.get("confidence", 0.5)),
-                data.get("reasoning", ""),
+                confidence,
+                reasoning,
                 rep_count,
             )
             logger.info("Vision parsed: %s (conf=%.2f, reps=%d)", exercise.value, result[1], rep_count)
