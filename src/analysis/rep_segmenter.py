@@ -1170,8 +1170,9 @@ def segment_reps(
         else:
             peak_vel = 0.0
 
-        # Tempo ratio
-        tempo_ratio = ecc_ms / conc_ms if conc_ms > 0 else 0.0
+        # Tempo ratio (clamped — values > 8 are measurement artifacts)
+        raw_tempo = ecc_ms / conc_ms if conc_ms > 0 else 0.0
+        tempo_ratio = min(raw_tempo, 8.0)
 
         rep = Rep(
             rep_number=len(reps) + 1,

@@ -173,7 +173,7 @@ Phase concentrique : [Duree. Explosive ou lente ? Evolution au fil des reps.]
 
 Phase isometrique : [Pause en bas ? En haut ? Duree. Presence ou absence de stretch-reflex exploitation.]
 
-Tempo ratio : [Chiffre. Compare a 2:1 / 3:1 optimal. Qu'est-ce que ca revele sur le controle ?]
+Tempo ratio : [Chiffre. Compare a 2:1 / 3:1 optimal. Si la valeur depasse 5, c'est probablement un artefact de mesure — mentionne que la segmentation des phases est imprecise sur cette rep et ne tire pas de conclusion. Qu'est-ce que ca revele sur le controle ?]
 
 Consistance du tempo : [Variation entre les reps. Degradation = fatigue technique.]
 
