@@ -1035,7 +1035,7 @@ def _build_reps_timeline(reps: Any) -> str:
     <div class="card fade-in" style="animation-delay:0.38s">
         <div class="card-header">{} repetitions detectees</div>
         <div style="font-size:0.9em;color:#8888aa;padding:12px 0">
-            Comptage par analyse visuelle GPT-4o Vision.
+            Comptage par analyse vidéo avancée.
         </div>
     </div>'''.format(reps.total_reps)
 
