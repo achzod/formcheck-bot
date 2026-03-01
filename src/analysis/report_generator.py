@@ -167,17 +167,7 @@ Correction : [Cue verbal entre guillemets que le client peut se repeter pendant 
 
 ANALYSE DU TEMPO ET DES PHASES
 
-Phase excentrique : [Duree en secondes. Controlee ou trop rapide ? Compare au referentiel (2-4s hypertrophie, 1-2s force). Constante ou degradation inter-reps ?]
-
-Phase concentrique : [Duree. Explosive ou lente ? Evolution au fil des reps.]
-
-Phase isometrique : [Pause en bas ? En haut ? Duree. Presence ou absence de stretch-reflex exploitation.]
-
-Tempo : [NE JAMAIS afficher le ratio brut (ex: "2.3" ou "21.67") — le client ne comprend pas. A la place, explique en langage simple : "Ta descente dure Xs et ta montee Ys. Idealement on vise 2-3 secondes en descente pour maximiser la tension mecanique." Si les valeurs sont aberrantes (excentrique < 0.3s ou > 8s), ignore-les et dis simplement que la mesure est imprecise sur cette rep.]
-
-Consistance du tempo : [Variation entre les reps. Degradation = fatigue technique.]
-
-Time Under Tension : [Total si disponible. Compare aux normes (30-60s hypertrophie).]
+IMPORTANT SUR LE TEMPO : Les donnees de tempo par rep (eccentric_duration_ms, concentric_duration_ms, tempo_ratio) ont ete RETIREES car la mesure automatique n'est pas fiable. NE CITE AUCUNE duree en secondes pour les phases excentrique/concentrique. A la place, base ton analyse UNIQUEMENT sur ce que tu observes visuellement dans les frames : est-ce que le mouvement semble controle ou balistique ? Y a-t-il du momentum ? La descente semble-t-elle trop rapide ou trop lente ? Reste qualitatif, pas quantitatif. Si le Time Under Tension (TUT) total est disponible dans les donnees, tu peux le citer car c'est une mesure globale plus fiable.
 
 [Si pas de donnees de reps : "Donnees de repetitions insuffisantes pour cette video."]
 
@@ -269,7 +259,7 @@ REGLES ABSOLUES :
 5. Chaque correction justifiee par une donnee mesuree avec le chiffre exact.
 6. 1800-3000 mots. Sois exhaustif. Le client paie pour cette analyse.
 7. L'amplitude (ROM) est OBLIGATOIRE — cite les angles et compare aux normes.
-8. Le tempo DOIT etre analyse phase par phase avec durees en secondes.
+8. Le tempo doit etre analyse qualitativement (controle, momentum, vitesse apparente) — NE CITE PAS de durees en secondes car les mesures automatiques ne sont pas fiables.
 9. Les exercices correctifs doivent etre decrits assez precisement pour etre executes sans video.
 10. Au moins une analogie concrete par correction pour rendre le rapport accessible.
 11. Les POINTS POSITIFS viennent AVANT les corrections. Toujours.
