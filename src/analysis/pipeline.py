@@ -382,7 +382,6 @@ def run_pipeline(
             detection = DetectionResult(
                 exercise=exercise_enum,
                 confidence=gemini_result["confidence"],
-                method="gemini_video",
                 reasoning=f"[Gemini Video] Equipment: {gemini_result.get('equipment', '?')}. {gemini_result.get('reasoning', '')}",
             )
             gemini_rep_count = gemini_result.get("rep_count", 0)
