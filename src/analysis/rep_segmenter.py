@@ -425,6 +425,12 @@ class RepSegmentation:
     # Triche globale
     cheat_reps: list[int] = field(default_factory=list)
     cheat_percentage: float = 0.0  # % de reps avec triche détectée
+    # Debug / fusion multi-méthode
+    peak_count: int = 0
+    autocorr_count: int = 0
+    zerocross_count: int = 0
+    robust_count: int = 0
+    count_method: str = "peak"
 
     def to_dict(self) -> dict[str, Any]:
         d = {
@@ -432,6 +438,13 @@ class RepSegmentation:
             "total_reps": self.total_reps,
             "complete_reps": self.complete_reps,
             "partial_reps": self.partial_reps,
+            "count_method": self.count_method,
+            "count_debug": {
+                "peak_count": self.peak_count,
+                "autocorr_count": self.autocorr_count,
+                "zerocross_count": self.zerocross_count,
+                "robust_count": self.robust_count,
+            },
             "avg_tempo": "NON DISPONIBLE — mesure automatique non fiable",
             "tempo_consistency": "NON DISPONIBLE — mesure automatique non fiable",
             "set_complete": self.set_complete,
@@ -1054,9 +1067,14 @@ def segment_reps(
         logger.info("Primary angle signal too short (%d pts).", len(signal))
         # If we have a robust count but no angle signal, return count-only result
         robust_count = _best_robust_count(autocorr_count, zerocross_count)
+        result.autocorr_count = autocorr_count
+        result.zerocross_count = zerocross_count
+        result.robust_count = robust_count
         if robust_count > 0:
             result.total_reps = robust_count
             result.complete_reps = robust_count
+            result.peak_count = 0
+            result.count_method = "robust_only_no_angle"
             logger.info("Using robust count only (no angle data): %d reps", robust_count)
             return result
         return result
@@ -1090,9 +1108,14 @@ def segment_reps(
             elif len(valleys) < 2:
                 # Peak detection failed — use robust count if available
                 robust_count = _best_robust_count(autocorr_count, zerocross_count)
+                result.autocorr_count = autocorr_count
+                result.zerocross_count = zerocross_count
+                result.robust_count = robust_count
                 if robust_count > 0:
                     result.total_reps = robust_count
                     result.complete_reps = robust_count
+                    result.peak_count = 0
+                    result.count_method = "robust_only_peak_failed"
                     logger.info("Peak detection failed, using robust count: %d reps", robust_count)
                     return result
                 logger.warning("All methods failed to detect reps.")
@@ -1272,6 +1295,10 @@ def segment_reps(
     # ══════════════════════════════════════════════════════════════════════
     robust_count = _best_robust_count(autocorr_count, zerocross_count)
     peak_count = result.total_reps
+    result.peak_count = peak_count
+    result.autocorr_count = autocorr_count
+    result.zerocross_count = zerocross_count
+    result.robust_count = robust_count
 
     if robust_count > peak_count and robust_count > 0:
         logger.info(
@@ -1286,11 +1313,30 @@ def segment_reps(
         else:
             result.complete_reps = robust_count
             result.partial_reps = 0
+        result.count_method = "robust_up_override"
+    elif (
+        robust_count > 0
+        and peak_count >= int(robust_count * 1.6)
+        and (peak_count - robust_count) >= 5
+    ):
+        # Peak detection can grossly overcount noisy micro-movements (common on long sets).
+        # In that case, robust periodic estimators are more trustworthy.
+        logger.info(
+            "Robust down-override: peak_detection=%d, autocorr=%d, zerocross=%d → using %d",
+            peak_count, autocorr_count, zerocross_count, robust_count,
+        )
+        result.total_reps = robust_count
+        result.complete_reps = min(result.complete_reps, robust_count)
+        result.partial_reps = max(0, robust_count - result.complete_reps)
+        result.count_method = "robust_down_override"
     elif robust_count > 0:
         logger.info(
             "Counts aligned: peak=%d, robust=%d — keeping peak segmentation.",
             peak_count, robust_count,
         )
+        result.count_method = "peak_aligned_with_robust"
+    else:
+        result.count_method = "peak_only"
 
     # Debug log for visibility in /debug/errors endpoint
     _debug_log("rep_counting", "Rep counting results", {
@@ -1310,6 +1356,7 @@ def segment_reps(
         "smooth_window": params["smooth_window"] if params else 0,
         "min_prominence": round(params["min_prominence"], 2) if params else 0,
         "min_distance": params["min_distance"] if params else 0,
+        "count_method": result.count_method,
     })
 
     logger.info(

@@ -512,21 +512,38 @@ def run_pipeline(
         logger.error("Segmentation reps échouée: %s", e)
         result.reps = RepSegmentation()
 
-    # ── Étape 6b : Rep counting — Gemini PRIMARY, GPT-4o Vision FALLBACK ──
-    # If Gemini already counted reps during detection, use that (most reliable).
-    # Otherwise fall back to GPT-4o Vision rep counting.
-    
-    if gemini_rep_count > 0:
-        # Gemini saw the full video and counted reps — AUTHORITATIVE
-        logger.info(
-            "Gemini AUTHORITATIVE rep count: signal_processing=%d → gemini=%d",
-            result.reps.total_reps, gemini_rep_count,
-        )
-        result.reps.total_reps = gemini_rep_count
-        result.reps.complete_reps = gemini_rep_count
-        vision_rep_count = gemini_rep_count
-    else:
-        # Fallback to GPT-4o Vision rep counting
+    # ── Étape 6b : Fusion rep counting (signal robuste + Gemini/Vision plausibilisés) ──
+    # Important: ne jamais écraser brutalement un comptage robuste par un compteur externe
+    # sous-échantillonné (ex: vidéos longues avec peu de frames LLM).
+    signal_rep_count = result.reps.total_reps if result.reps else 0
+    robust_rep_count = int(getattr(result.reps, "robust_count", 0) or 0) if result.reps else 0
+    reference_rep_count = robust_rep_count if robust_rep_count > 0 else signal_rep_count
+    duration_s = (
+        float(extraction.total_frames) / float(extraction.fps)
+        if extraction and extraction.fps and extraction.fps > 0
+        else 0.0
+    )
+    vision_rep_count = 0
+
+    def _is_plausible_external_count(candidate: int, reference: int, duration: float) -> bool:
+        if candidate <= 0:
+            return False
+        if reference <= 0:
+            return True
+        # Longer videos are more likely to be under-sampled by LLM frame counting.
+        lower_ratio = 0.60 if duration <= 25.0 else 0.50
+        upper_ratio = 2.20 if duration <= 25.0 else 1.80
+        lower = max(1, int(reference * lower_ratio))
+        upper = max(reference + 3, int(reference * upper_ratio))
+        return lower <= candidate <= upper
+
+    # Run GPT-4o Vision when Gemini is absent or disagrees strongly with robust signal.
+    run_vision = gemini_rep_count <= 0
+    if gemini_rep_count > 0 and reference_rep_count > 0:
+        if abs(gemini_rep_count - reference_rep_count) > max(2, int(reference_rep_count * 0.35)):
+            run_vision = True
+
+    if run_vision:
         try:
             from analysis.vision_rep_counter import count_reps_by_vision
             t0_vision = time.monotonic()
@@ -539,37 +556,75 @@ def run_pipeline(
                 "  → Vision rep count: %d (%.1fs)",
                 vision_rep_count, time.monotonic() - t0_vision,
             )
-            if vision_rep_count > 0:
-                logger.info(
-                    "Vision AUTHORITATIVE: signal_processing=%d → vision=%d",
-                    result.reps.total_reps, vision_rep_count,
-                )
-                result.reps.total_reps = vision_rep_count
-                result.reps.complete_reps = vision_rep_count
         except Exception as e:
             logger.error("Vision rep counting failed: %s", e)
             vision_rep_count = 0
 
-    # Log rep count for debug
+    plausible_external: list[tuple[str, int]] = []
+    if _is_plausible_external_count(gemini_rep_count, reference_rep_count, duration_s):
+        plausible_external.append(("gemini", gemini_rep_count))
+    elif gemini_rep_count > 0 and reference_rep_count > 0:
+        logger.warning(
+            "Ignoring Gemini rep outlier: gemini=%d, reference=%d, duration=%.1fs",
+            gemini_rep_count, reference_rep_count, duration_s,
+        )
+
+    if _is_plausible_external_count(vision_rep_count, reference_rep_count, duration_s):
+        plausible_external.append(("vision", vision_rep_count))
+    elif vision_rep_count > 0 and reference_rep_count > 0:
+        logger.warning(
+            "Ignoring Vision rep outlier: vision=%d, reference=%d, duration=%.1fs",
+            vision_rep_count, reference_rep_count, duration_s,
+        )
+
+    final_rep_count = reference_rep_count
+    if reference_rep_count <= 0:
+        if plausible_external:
+            final_rep_count = max(v for _, v in plausible_external)
+        else:
+            detection_reps = int(getattr(detection, "vision_rep_count", 0) or 0)
+            if detection_reps > 0:
+                final_rep_count = detection_reps
+    elif plausible_external:
+        values = [reference_rep_count] + [v for _, v in plausible_external]
+        values.sort()
+        # Median vote reduces impact of one noisy method.
+        final_rep_count = values[len(values) // 2]
+        if len(plausible_external) == 1:
+            ext_val = plausible_external[0][1]
+            if abs(ext_val - reference_rep_count) <= max(1, int(reference_rep_count * 0.20)):
+                final_rep_count = round((reference_rep_count + ext_val) / 2)
+
+    if result.reps and final_rep_count > 0:
+        if final_rep_count != result.reps.total_reps:
+            logger.info(
+                "Rep fusion override: signal=%d, robust=%d, gemini=%d, vision=%d -> final=%d",
+                signal_rep_count,
+                robust_rep_count,
+                gemini_rep_count,
+                vision_rep_count,
+                final_rep_count,
+            )
+            result.reps.total_reps = final_rep_count
+            result.reps.complete_reps = min(result.reps.complete_reps, final_rep_count)
+            result.reps.partial_reps = max(0, final_rep_count - result.reps.complete_reps)
+
+    # Debug log for visibility in /debug/errors endpoint.
     try:
         from app.debug_log import log_error as _dbg
-        _dbg("vision_rep_count", "Vision rep counting result", {
+        _dbg("rep_count_fusion", "Rep count fusion result", {
+            "signal_rep_count": signal_rep_count,
+            "robust_rep_count": robust_rep_count,
+            "reference_rep_count": reference_rep_count,
             "gemini_rep_count": gemini_rep_count,
             "vision_rep_count": vision_rep_count,
-            "signal_processing_count": result.reps.total_reps if result.reps else 0,
+            "final_rep_count": result.reps.total_reps if result.reps else 0,
+            "duration_s": round(duration_s, 2),
+            "run_vision": run_vision,
+            "plausible_external": ",".join("{}:{}".format(k, v) for k, v in plausible_external),
         })
     except Exception:
         pass
-
-    # Fallback: detection-time vision count (from exercise detection call)
-    if vision_rep_count == 0 and gemini_rep_count == 0:
-        detection_reps = getattr(detection, 'vision_rep_count', 0)
-        if detection_reps > 0 and detection_reps > result.reps.total_reps:
-            logger.info(
-                "Detection-time vision override: %d → %d",
-                result.reps.total_reps, detection_reps,
-            )
-            result.reps.total_reps = detection_reps
 
     # ── Étape 7 : Analyse biomécanique avancée ───────────────────────────
     _notify_progress(cfg, 7, "Analyse biomécanique avancée")
