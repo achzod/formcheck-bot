@@ -173,7 +173,7 @@ Phase concentrique : [Duree. Explosive ou lente ? Evolution au fil des reps.]
 
 Phase isometrique : [Pause en bas ? En haut ? Duree. Presence ou absence de stretch-reflex exploitation.]
 
-Tempo ratio : [Chiffre. Compare a 2:1 / 3:1 optimal. Si la valeur depasse 5, c'est probablement un artefact de mesure — mentionne que la segmentation des phases est imprecise sur cette rep et ne tire pas de conclusion. Qu'est-ce que ca revele sur le controle ?]
+Tempo : [NE JAMAIS afficher le ratio brut (ex: "2.3" ou "21.67") — le client ne comprend pas. A la place, explique en langage simple : "Ta descente dure Xs et ta montee Ys. Idealement on vise 2-3 secondes en descente pour maximiser la tension mecanique." Si les valeurs sont aberrantes (excentrique < 0.3s ou > 8s), ignore-les et dis simplement que la mesure est imprecise sur cette rep.]
 
 Consistance du tempo : [Variation entre les reps. Degradation = fatigue technique.]
 
