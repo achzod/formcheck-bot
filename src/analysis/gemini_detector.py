@@ -79,8 +79,18 @@ def detect_exercise_gemini(
 
 TÂCHE 1 — IDENTIFICATION DE L'EXERCICE :
 Regarde attentivement le MOUVEMENT COMPLET dans la vidéo. Identifie l'exercice exact.
-ATTENTION : regarde ce que la personne TIENT DANS SES MAINS (barre libre, haltères, câble avec poulie, machine, poids de corps).
-Ne te fie PAS au décor ou aux machines visibles en arrière-plan. Regarde UNIQUEMENT l'équipement utilisé par la personne.
+
+⚠️ RÈGLE CRITIQUE POUR L'ÉQUIPEMENT — ERREUR FRÉQUENTE À ÉVITER :
+Les salles de sport ont des machines partout en arrière-plan. Ce n'est PAS parce qu'une machine à câble/poulie est VISIBLE DERRIÈRE la personne qu'elle l'UTILISE.
+
+Pour déterminer si c'est un CÂBLE ou une BARRE LIBRE, vérifie ces points :
+1. Y a-t-il un câble/fil PHYSIQUEMENT ATTACHÉ à la barre que la personne tient ? (trace le câble de la barre jusqu'à une poulie)
+2. La barre a-t-elle des DISQUES/POIDS chargés aux extrémités ? → C'est une barre libre, PAS un câble.
+3. La trajectoire du mouvement est-elle en ARC DE CERCLE naturel (= barre libre) ou légèrement tirée vers l'avant/bas (= câble) ?
+4. La personne est-elle debout LIBREMENT ou positionnée contre une machine ?
+
+Si tu ne vois PAS un câble/fil physiquement connecté de la barre à une poulie → c'est une BARRE LIBRE.
+La présence d'une machine à câble en arrière-plan ne signifie PAS que la personne l'utilise.
 
 TÂCHE 2 — COMPTAGE DES RÉPÉTITIONS :
 Compte CHAQUE répétition complète visible dans la vidéo.
