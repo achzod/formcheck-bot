@@ -30,10 +30,10 @@ def _img_to_base64(image_path: str) -> str:
 
 def _score_color(score: int) -> str:
     if score >= 80:
-        return "#00ff88"
+        return "#2d7a4f"
     elif score >= 60:
-        return "#ff6b35"
-    return "#ff3366"
+        return "#c45a2d"
+    return "#c4302d"
 
 
 def _score_label(score: int) -> str:
@@ -52,16 +52,16 @@ def _score_label(score: int) -> str:
 
 def _bar_color(category: str) -> str:
     colors = {
-        "securite": "#ff3366",
-        "efficacite": "#06b6d4",
-        "controle": "#ff6b35",
-        "symetrie": "#00ff88",
+        "securite": "#c4302d",
+        "efficacite": "#2d5f7a",
+        "controle": "#c45a2d",
+        "symetrie": "#2d7a4f",
     }
     norm = category.lower().replace("é", "e").replace("è", "e")
     for key, color in colors.items():
         if key in norm:
             return color
-    return "#06b6d4"
+    return "#5a4a3a"
 
 
 # Titres de sections attendus du rapport LLM
@@ -264,7 +264,7 @@ def generate_html_report(
     <div style="position:relative;width:200px;height:200px;margin:0 auto">
         <div style="position:absolute;inset:0;border-radius:50%;box-shadow:0 0 40px {score_col}20,0 0 80px {score_col}10;pointer-events:none"></div>
         <svg viewBox="0 0 120 120" style="width:200px;height:200px;display:block">
-            <circle cx="60" cy="60" r="54" fill="none" stroke="#1e2028" stroke-width="8"/>
+            <circle cx="60" cy="60" r="54" fill="none" stroke="#d5cfc5" stroke-width="8"/>
             <circle cx="60" cy="60" r="54" fill="none" stroke="{score_col}" stroke-width="8"
                 stroke-linecap="round" stroke-dasharray="{gauge_circumference}"
                 stroke-dashoffset="{gauge_offset}"
@@ -272,7 +272,7 @@ def generate_html_report(
                 style="transition:stroke-dashoffset 1.5s ease-out;filter:drop-shadow(0 0 6px {score_col}80)"/>
             <text x="60" y="53" text-anchor="middle" fill="{score_col}"
                 font-size="30" font-weight="900" font-family="Inter,system-ui,sans-serif">{score}</text>
-            <text x="60" y="70" text-anchor="middle" fill="#8888aa"
+            <text x="60" y="70" text-anchor="middle" fill="#8a8070"
                 font-size="10" font-family="Inter,system-ui,sans-serif">/100</text>
         </svg>
     </div>'''
@@ -303,7 +303,7 @@ def generate_html_report(
                 <div class="sub-gauge-info">
                     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
                         <div class="sub-gauge-label">{label}</div>
-                        <div style="color:{color};font-weight:700;font-size:0.95em">{val}<span style="color:#6868aa;font-weight:400;font-size:0.85em">/{max_val}</span> <span style="color:#8888aa;font-size:0.8em">{pct}%</span></div>
+                        <div style="color:{color};font-weight:700;font-size:0.95em">{val}<span style="color:#8a8070;font-weight:400;font-size:0.85em">/{max_val}</span> <span style="color:#8a8070;font-size:0.8em">{pct}%</span></div>
                     </div>
                     <div class="sub-gauge-bar">
                         <div class="sub-gauge-fill" style="width:{pct}%;background:linear-gradient(90deg,{color},{color}cc)"></div>
@@ -397,8 +397,8 @@ def generate_html_report(
 *{{margin:0;padding:0;box-sizing:border-box}}
 html{{scroll-behavior:smooth}}
 body{{
-    background:#0a0a0f;
-    color:#d0d0e0;
+    background:#f5f0e8;
+    color:#1a1a1a;
     font-family:'Inter',system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
     line-height:1.75;
     font-size:15px;
@@ -426,7 +426,7 @@ body{{
 .header{{
     text-align:center;
     padding:40px 0 28px;
-    border-bottom:1px solid #1e2028;
+    border-bottom:1px solid #d5cfc5;
     position:relative
 }}
 .header::before{{
@@ -434,25 +434,25 @@ body{{
     position:absolute;
     top:0;left:50%;transform:translateX(-50%);
     width:200px;height:2px;
-    background:linear-gradient(90deg,transparent,#06b6d4,transparent);
+    background:linear-gradient(90deg,transparent,#1a1a1a,transparent);
     border-radius:1px
 }}
 .brand-label{{
-    font-size:0.75em;letter-spacing:5px;color:#6868aa;
+    font-size:0.75em;letter-spacing:5px;color:#8a8070;
     text-transform:uppercase;margin-bottom:10px
 }}
 .brand-name{{font-size:2em;font-weight:800;margin-bottom:2px;letter-spacing:2px}}
-.brand-name .fc{{color:#06b6d4}}
-.brand-name .ch{{color:#fff}}
-.brand-by{{color:#6868aa;font-size:0.78em;letter-spacing:3px;margin-bottom:24px}}
-.exercise-name{{font-size:1.35em;color:#fff;font-weight:700;margin-bottom:16px}}
-.score-label{{color:#8888aa;font-size:0.82em;margin-top:12px;letter-spacing:1px}}
-.header-date{{color:#6868aa;font-size:0.78em;margin-top:16px}}
+.brand-name .fc{{color:#1a1a1a}}
+.brand-name .ch{{color:#1a1a1a}}
+.brand-by{{color:#8a8070;font-size:0.78em;letter-spacing:3px;margin-bottom:24px}}
+.exercise-name{{font-size:1.35em;color:#1a1a1a;font-weight:700;margin-bottom:16px}}
+.score-label{{color:#8a8070;font-size:0.82em;margin-top:12px;letter-spacing:1px}}
+.header-date{{color:#8a8070;font-size:0.78em;margin-top:16px}}
 
 /* ── Cards ────────────────────────────────────────────────── */
 .card{{
-    background:#12141a;
-    border:1px solid #1e2028;
+    background:#ece7dd;
+    border:1px solid #d5cfc5;
     border-radius:16px;
     padding:24px;
     margin:20px 0;
@@ -460,13 +460,13 @@ body{{
 }}
 .card-header{{
     font-size:0.95em;
-    color:#06b6d4;
+    color:#1a1a1a;
     text-transform:uppercase;
     letter-spacing:2.5px;
     font-weight:700;
     padding-bottom:14px;
     margin-bottom:16px;
-    border-bottom:1px solid #1a1e28
+    border-bottom:1px solid #d5cfc5
 }}
 
 /* ── Sub-gauges ───────────────────────────────────────────── */
@@ -475,18 +475,18 @@ body{{
     align-items:center;
     gap:14px;
     padding:12px 0;
-    border-bottom:1px solid #1e2028
+    border-bottom:1px solid #d5cfc5
 }}
 .sub-gauge:last-child{{border-bottom:none}}
 .sub-gauge-info{{flex:1;min-width:0}}
-.sub-gauge-label{{color:#e0e0f0;font-weight:600;font-size:0.9em}}
+.sub-gauge-label{{color:#1a1a1a;font-weight:600;font-size:0.9em}}
 .sub-gauge-bar{{
-    height:8px;background:#1a1e28;border-radius:4px;overflow:hidden;margin-bottom:4px
+    height:8px;background:#d5cfc5;border-radius:4px;overflow:hidden;margin-bottom:4px
 }}
 .sub-gauge-fill{{
     height:100%;border-radius:4px;transition:width 1s ease-out
 }}
-.sub-gauge-desc{{color:#6868aa;font-size:0.75em}}
+.sub-gauge-desc{{color:#8a8070;font-size:0.75em}}
 
 /* ── Frames ───────────────────────────────────────────────── */
 .frames-grid{{
@@ -495,35 +495,35 @@ body{{
     gap:16px
 }}
 .frame-item img{{
-    width:100%;border-radius:12px;border:2px solid #1e2028;
+    width:100%;border-radius:12px;border:2px solid #d5cfc5;
     transition:transform 0.2s;cursor:pointer
 }}
 .frame-item img:hover{{transform:scale(1.02)}}
 .frame-caption{{
-    text-align:center;color:#8888aa;font-size:0.82em;margin-top:8px;font-weight:500
+    text-align:center;color:#8a8070;font-size:0.82em;margin-top:8px;font-weight:500
 }}
 
 /* ── Report sections ──────────────────────────────────────── */
 .report-section{{
     margin:20px 0;
-    background:#12141a;
-    border:1px solid #1e2028;
-    border-left:3px solid #06b6d4;
+    background:#ece7dd;
+    border:1px solid #d5cfc5;
+    border-left:3px solid #1a1a1a;
     border-radius:16px;
     overflow:hidden
 }}
-.report-section.section-positive{{border-left-color:#06b6d4}}
-.report-section.section-corrections{{border-left-color:#ff6b35}}
-.report-section.section-correctifs{{border-left-color:#00ff88}}
+.report-section.section-positive{{border-left-color:#2d7a4f}}
+.report-section.section-corrections{{border-left-color:#c45a2d}}
+.report-section.section-correctifs{{border-left-color:#2d7a4f}}
 .section-header{{
     font-size:0.92em;
-    color:#06b6d4;
+    color:#1a1a1a;
     text-transform:uppercase;
     letter-spacing:2px;
     font-weight:700;
     padding:18px 24px;
-    background:#0f1016;
-    border-bottom:1px solid #1a1e28;
+    background:#e5e0d5;
+    border-bottom:1px solid #d5cfc5;
     display:flex;
     align-items:center
 }}
@@ -534,11 +534,11 @@ body{{
 }}
 
 /* ── Report text elements ─────────────────────────────────── */
-.report-p{{margin:6px 0;line-height:1.75;color:#d0d0e8;font-size:0.95em}}
-.score-line{{color:#06b6d4;font-size:1.05em;font-weight:700;margin:6px 0}}
-.score-cat{{margin:8px 0;color:#e0e0f0;font-weight:600}}
-.sub-label{{color:#06b6d4;font-weight:600;font-size:0.88em;margin:14px 0 4px;text-transform:uppercase;letter-spacing:0.5px}}
-.sub-content{{margin:2px 0 12px 0;color:#d0d0e8;line-height:1.75;padding-left:12px;border-left:2px solid #1a1e28}}
+.report-p{{margin:6px 0;line-height:1.75;color:#1a1a1a;font-size:0.95em}}
+.score-line{{color:#1a1a1a;font-size:1.05em;font-weight:700;margin:6px 0}}
+.score-cat{{margin:8px 0;color:#1a1a1a;font-weight:600}}
+.sub-label{{color:#5a4a3a;font-weight:600;font-size:0.88em;margin:14px 0 4px;text-transform:uppercase;letter-spacing:0.5px}}
+.sub-content{{margin:2px 0 12px 0;color:#1a1a1a;line-height:1.75;padding-left:12px;border-left:2px solid #d5cfc5}}
 .numbered-item{{
     display:flex;
     gap:12px;
@@ -546,8 +546,8 @@ body{{
     align-items:flex-start
 }}
 .item-num{{
-    background:#1a1e2e;
-    color:#06b6d4;
+    background:#d5cfc5;
+    color:#1a1a1a;
     width:28px;height:28px;
     border-radius:50%;
     display:flex;align-items:center;justify-content:center;
@@ -555,7 +555,7 @@ body{{
     flex-shrink:0;
     margin-top:1px
 }}
-.item-text{{font-weight:700;color:#fff;font-size:0.95em;line-height:1.5}}
+.item-text{{font-weight:700;color:#1a1a1a;font-size:0.95em;line-height:1.5}}
 
 /* ── Reps timeline ────────────────────────────────────────── */
 .reps-bar{{
@@ -573,13 +573,13 @@ body{{
 .rep-col:hover{{opacity:0.85}}
 .rep-label{{
     position:absolute;bottom:-22px;left:50%;transform:translateX(-50%);
-    font-size:0.7em;color:#6868aa;white-space:nowrap
+    font-size:0.7em;color:#8a8070;white-space:nowrap
 }}
 
 /* ── Angle chart (canvas placeholder for inline SVG) ──────── */
 .angle-chart{{
     width:100%;height:160px;
-    background:#0e1014;
+    background:#e5e0d5;
     border-radius:12px;
     padding:12px;
     margin:12px 0;
@@ -587,18 +587,18 @@ body{{
     position:relative
 }}
 .chart-line{{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}}
-.chart-grid{{stroke:#1a1e28;stroke-width:0.5}}
+.chart-grid{{stroke:#d5cfc5;stroke-width:0.5}}
 
 /* ── Footer ───────────────────────────────────────────────── */
 .footer{{
     text-align:center;
     padding:32px 0 24px;
-    border-top:1px solid #1e2028;
+    border-top:1px solid #d5cfc5;
     margin-top:32px
 }}
-.footer-brand{{color:#06b6d4;font-weight:700;font-size:0.92em}}
-.footer-sub{{color:#6868aa;font-size:0.78em;margin-top:4px}}
-.footer-link{{color:#06b6d4;text-decoration:none}}
+.footer-brand{{color:#1a1a1a;font-weight:700;font-size:0.92em}}
+.footer-sub{{color:#8a8070;font-size:0.78em;margin-top:4px}}
+.footer-link{{color:#5a4a3a;text-decoration:none}}
 .footer-link:hover{{text-decoration:underline}}
 
 /* ── Confidence badge ─────────────────────────────────────── */
@@ -610,30 +610,30 @@ body{{
     font-weight:600;
     letter-spacing:0.5px
 }}
-.confidence-haute{{background:#00ff8820;color:#00ff88;border:1px solid #00ff8840}}
-.confidence-moyenne{{background:#ff6b3520;color:#ff6b35;border:1px solid #ff6b3540}}
-.confidence-limitee{{background:#ff336620;color:#ff3366;border:1px solid #ff336640}}
+.confidence-haute{{background:#2d7a4f20;color:#2d7a4f;border:1px solid #2d7a4f40}}
+.confidence-moyenne{{background:#c45a2d20;color:#c45a2d;border:1px solid #c45a2d40}}
+.confidence-limitee{{background:#c4302d20;color:#c4302d;border:1px solid #c4302d40}}
 
 /* ── Morpho profile ──────────────────────────────────────── */
 .morpho-ratio{{
-    background:#0e1014;border-radius:8px;padding:8px 10px;
+    background:#e5e0d5;border-radius:8px;padding:8px 10px;
     text-align:center
 }}
-.morpho-ratio-label{{color:#8888aa;font-size:0.72em;margin-bottom:2px}}
-.morpho-ratio-val{{color:#e0e0f0;font-weight:700;font-size:1.05em}}
+.morpho-ratio-label{{color:#8a8070;font-size:0.72em;margin-bottom:2px}}
+.morpho-ratio-val{{color:#1a1a1a;font-weight:700;font-size:1.05em}}
 .morpho-tag{{
-    background:#1a1e2e;color:#06b6d4;padding:3px 10px;border-radius:12px;
+    background:#d5cfc5;color:#1a1a1a;padding:3px 10px;border-radius:12px;
     font-size:0.78em;font-weight:600
 }}
 .morpho-posture-item{{
-    padding:6px 12px;margin:4px 0;font-size:0.88em;color:#e0e0f0;
-    border-radius:4px;background:#0e1014
+    padding:6px 12px;margin:4px 0;font-size:0.88em;color:#1a1a1a;
+    border-radius:4px;background:#e5e0d5
 }}
 .morpho-rec{{
     display:flex;gap:10px;align-items:flex-start;margin:8px 0
 }}
 .morpho-rec-num{{
-    background:#1a1e2e;color:#06b6d4;width:22px;height:22px;
+    background:#d5cfc5;color:#1a1a1a;width:22px;height:22px;
     border-radius:50%;display:flex;align-items:center;justify-content:center;
     font-weight:700;font-size:0.75em;flex-shrink:0;margin-top:2px
 }}
@@ -786,7 +786,7 @@ def _build_angle_chart(pipeline_result: Any) -> str:
         gy = padding_y + (i / n_grid) * usable_h
         gval = max_val - (i / n_grid) * val_range
         grid_lines += f'<line x1="{padding_x}" y1="{gy:.1f}" x2="{chart_w - padding_x}" y2="{gy:.1f}" class="chart-grid"/>'
-        grid_lines += f'<text x="{padding_x - 6}" y="{gy + 4:.1f}" text-anchor="end" fill="#6868aa" font-size="9">{gval:.0f}</text>'
+        grid_lines += f'<text x="{padding_x - 6}" y="{gy + 4:.1f}" text-anchor="end" fill="#8a8070" font-size="9">{gval:.0f}</text>'
 
     # Min/max markers
     min_idx = values.index(min(values))
@@ -803,17 +803,17 @@ def _build_angle_chart(pipeline_result: Any) -> str:
             <svg viewBox="0 0 {chart_w} {chart_h}" preserveAspectRatio="none" style="width:100%;height:100%">
                 <defs>
                     <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.3"/>
-                        <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.02"/>
+                        <stop offset="0%" stop-color="#5a4a3a" stop-opacity="0.3"/>
+                        <stop offset="100%" stop-color="#5a4a3a" stop-opacity="0.02"/>
                     </linearGradient>
                 </defs>
                 {grid_lines}
                 <path d="{area_d}" fill="url(#areaGrad)"/>
-                <path d="{path_d}" class="chart-line" stroke="#06b6d4"/>
-                <circle cx="{min_x:.1f}" cy="{min_y:.1f}" r="4" fill="#ff3366"/>
-                <text x="{min_x:.1f}" y="{min_y - 8:.1f}" text-anchor="middle" fill="#ff3366" font-size="9" font-weight="700">{min(values):.0f}deg</text>
-                <circle cx="{max_x:.1f}" cy="{max_y:.1f}" r="4" fill="#00ff88"/>
-                <text x="{max_x:.1f}" y="{max_y - 8:.1f}" text-anchor="middle" fill="#00ff88" font-size="9" font-weight="700">{max(values):.0f}deg</text>
+                <path d="{path_d}" class="chart-line" stroke="#5a4a3a"/>
+                <circle cx="{min_x:.1f}" cy="{min_y:.1f}" r="4" fill="#c4302d"/>
+                <text x="{min_x:.1f}" y="{min_y - 8:.1f}" text-anchor="middle" fill="#c4302d" font-size="9" font-weight="700">{min(values):.0f}deg</text>
+                <circle cx="{max_x:.1f}" cy="{max_y:.1f}" r="4" fill="#2d7a4f"/>
+                <text x="{max_x:.1f}" y="{max_y - 8:.1f}" text-anchor="middle" fill="#2d7a4f" font-size="9" font-weight="700">{max(values):.0f}deg</text>
             </svg>
         </div>
     </div>'''
@@ -835,10 +835,10 @@ def _build_morpho_section(morpho: dict) -> str:
     # Couleurs des ratios
     def _ratio_color(val: float, low: float, high: float) -> str:
         if val < low:
-            return "#ff6b35"
+            return "#c45a2d"
         elif val > high:
-            return "#06b6d4"
-        return "#00ff88"
+            return "#5a4a3a"
+        return "#2d7a4f"
 
     ftr_col = _ratio_color(ftr, 0.95, 1.1)
     tfr_col = _ratio_color(tfr, 0.95, 1.1)
@@ -874,46 +874,46 @@ def _build_morpho_section(morpho: dict) -> str:
     silhouette_svg = f'''
     <svg viewBox="0 0 200 {int(ankle_y + 30)}" style="width:140px;height:auto;margin:0 auto;display:block">
         <!-- Tete -->
-        <circle cx="{cx}" cy="{head_y}" r="12" fill="none" stroke="#06b6d4" stroke-width="1.5"/>
+        <circle cx="{cx}" cy="{head_y}" r="12" fill="none" stroke="#5a4a3a" stroke-width="1.5"/>
         <!-- Torse -->
-        <line x1="{cx}" y1="{head_y + 12}" x2="{cx}" y2="{hip_y}" stroke="#06b6d4" stroke-width="2"/>
+        <line x1="{cx}" y1="{head_y + 12}" x2="{cx}" y2="{hip_y}" stroke="#5a4a3a" stroke-width="2"/>
         <!-- Epaules -->
-        <line x1="{cx - s_w/2}" y1="{shoulder_y}" x2="{cx + s_w/2}" y2="{shoulder_y}" stroke="#06b6d4" stroke-width="2"/>
+        <line x1="{cx - s_w/2}" y1="{shoulder_y}" x2="{cx + s_w/2}" y2="{shoulder_y}" stroke="#5a4a3a" stroke-width="2"/>
         <!-- Bras G (upper arm + forearm) -->
-        <line x1="{cx - s_w/2}" y1="{shoulder_y}" x2="{cx - s_w/2 - 6}" y2="{shoulder_y + t_h * 0.55}" stroke="#6868aa" stroke-width="1.5"/>
-        <line x1="{cx - s_w/2 - 6}" y1="{shoulder_y + t_h * 0.55}" x2="{cx - s_w/2 - 2}" y2="{hip_y + 5}" stroke="#6868aa" stroke-width="1.5"/>
-        <circle cx="{cx - s_w/2 - 6}" cy="{shoulder_y + t_h * 0.55}" r="2" fill="#6868aa"/>
+        <line x1="{cx - s_w/2}" y1="{shoulder_y}" x2="{cx - s_w/2 - 6}" y2="{shoulder_y + t_h * 0.55}" stroke="#8a8070" stroke-width="1.5"/>
+        <line x1="{cx - s_w/2 - 6}" y1="{shoulder_y + t_h * 0.55}" x2="{cx - s_w/2 - 2}" y2="{hip_y + 5}" stroke="#8a8070" stroke-width="1.5"/>
+        <circle cx="{cx - s_w/2 - 6}" cy="{shoulder_y + t_h * 0.55}" r="2" fill="#8a8070"/>
         <!-- Bras D (upper arm + forearm) -->
-        <line x1="{cx + s_w/2}" y1="{shoulder_y}" x2="{cx + s_w/2 + 6}" y2="{shoulder_y + t_h * 0.55}" stroke="#6868aa" stroke-width="1.5"/>
-        <line x1="{cx + s_w/2 + 6}" y1="{shoulder_y + t_h * 0.55}" x2="{cx + s_w/2 + 2}" y2="{hip_y + 5}" stroke="#6868aa" stroke-width="1.5"/>
-        <circle cx="{cx + s_w/2 + 6}" cy="{shoulder_y + t_h * 0.55}" r="2" fill="#6868aa"/>
+        <line x1="{cx + s_w/2}" y1="{shoulder_y}" x2="{cx + s_w/2 + 6}" y2="{shoulder_y + t_h * 0.55}" stroke="#8a8070" stroke-width="1.5"/>
+        <line x1="{cx + s_w/2 + 6}" y1="{shoulder_y + t_h * 0.55}" x2="{cx + s_w/2 + 2}" y2="{hip_y + 5}" stroke="#8a8070" stroke-width="1.5"/>
+        <circle cx="{cx + s_w/2 + 6}" cy="{shoulder_y + t_h * 0.55}" r="2" fill="#8a8070"/>
         <!-- Hanches -->
-        <line x1="{cx - h_w/2}" y1="{hip_y}" x2="{cx + h_w/2}" y2="{hip_y}" stroke="#06b6d4" stroke-width="2"/>
+        <line x1="{cx - h_w/2}" y1="{hip_y}" x2="{cx + h_w/2}" y2="{hip_y}" stroke="#5a4a3a" stroke-width="2"/>
         <!-- Femur G -->
-        <line x1="{cx - h_w/2}" y1="{hip_y}" x2="{cx - h_w/3}" y2="{knee_y}" stroke="#ff6b35" stroke-width="2"/>
+        <line x1="{cx - h_w/2}" y1="{hip_y}" x2="{cx - h_w/3}" y2="{knee_y}" stroke="#c45a2d" stroke-width="2"/>
         <!-- Femur D -->
-        <line x1="{cx + h_w/2}" y1="{hip_y}" x2="{cx + h_w/3}" y2="{knee_y}" stroke="#ff6b35" stroke-width="2"/>
+        <line x1="{cx + h_w/2}" y1="{hip_y}" x2="{cx + h_w/3}" y2="{knee_y}" stroke="#c45a2d" stroke-width="2"/>
         <!-- Tibia G -->
-        <line x1="{cx - h_w/3}" y1="{knee_y}" x2="{cx - h_w/4}" y2="{ankle_y}" stroke="#00ff88" stroke-width="2"/>
+        <line x1="{cx - h_w/3}" y1="{knee_y}" x2="{cx - h_w/4}" y2="{ankle_y}" stroke="#2d7a4f" stroke-width="2"/>
         <!-- Tibia D -->
-        <line x1="{cx + h_w/3}" y1="{knee_y}" x2="{cx + h_w/4}" y2="{ankle_y}" stroke="#00ff88" stroke-width="2"/>
+        <line x1="{cx + h_w/3}" y1="{knee_y}" x2="{cx + h_w/4}" y2="{ankle_y}" stroke="#2d7a4f" stroke-width="2"/>
         <!-- Joints -->
-        <circle cx="{cx - s_w/2}" cy="{shoulder_y}" r="2.5" fill="#06b6d4" opacity="0.7"/>
-        <circle cx="{cx + s_w/2}" cy="{shoulder_y}" r="2.5" fill="#06b6d4" opacity="0.7"/>
-        <circle cx="{cx - h_w/2}" cy="{hip_y}" r="2.5" fill="#06b6d4" opacity="0.7"/>
-        <circle cx="{cx + h_w/2}" cy="{hip_y}" r="2.5" fill="#06b6d4" opacity="0.7"/>
-        <circle cx="{cx - h_w/3}" cy="{knee_y}" r="2.5" fill="#ff6b35" opacity="0.7"/>
-        <circle cx="{cx + h_w/3}" cy="{knee_y}" r="2.5" fill="#ff6b35" opacity="0.7"/>
-        <circle cx="{cx - h_w/4}" cy="{ankle_y}" r="2.5" fill="#00ff88" opacity="0.7"/>
-        <circle cx="{cx + h_w/4}" cy="{ankle_y}" r="2.5" fill="#00ff88" opacity="0.7"/>
+        <circle cx="{cx - s_w/2}" cy="{shoulder_y}" r="2.5" fill="#5a4a3a" opacity="0.7"/>
+        <circle cx="{cx + s_w/2}" cy="{shoulder_y}" r="2.5" fill="#5a4a3a" opacity="0.7"/>
+        <circle cx="{cx - h_w/2}" cy="{hip_y}" r="2.5" fill="#5a4a3a" opacity="0.7"/>
+        <circle cx="{cx + h_w/2}" cy="{hip_y}" r="2.5" fill="#5a4a3a" opacity="0.7"/>
+        <circle cx="{cx - h_w/3}" cy="{knee_y}" r="2.5" fill="#c45a2d" opacity="0.7"/>
+        <circle cx="{cx + h_w/3}" cy="{knee_y}" r="2.5" fill="#c45a2d" opacity="0.7"/>
+        <circle cx="{cx - h_w/4}" cy="{ankle_y}" r="2.5" fill="#2d7a4f" opacity="0.7"/>
+        <circle cx="{cx + h_w/4}" cy="{ankle_y}" r="2.5" fill="#2d7a4f" opacity="0.7"/>
         <!-- Annotations -->
-        <text x="12" y="{(shoulder_y + hip_y) / 2}" fill="#8888aa" font-size="8" font-family="Inter,system-ui">Torse</text>
-        <text x="12" y="{(hip_y + knee_y) / 2}" fill="#8888aa" font-size="8" font-family="Inter,system-ui">Femur</text>
-        <text x="12" y="{(knee_y + ankle_y) / 2}" fill="#8888aa" font-size="8" font-family="Inter,system-ui">Tibia</text>
+        <text x="12" y="{(shoulder_y + hip_y) / 2}" fill="#8a8070" font-size="8" font-family="Inter,system-ui">Torse</text>
+        <text x="12" y="{(hip_y + knee_y) / 2}" fill="#8a8070" font-size="8" font-family="Inter,system-ui">Femur</text>
+        <text x="12" y="{(knee_y + ankle_y) / 2}" fill="#8a8070" font-size="8" font-family="Inter,system-ui">Tibia</text>
         <!-- Largeur epaules -->
-        <text x="{cx}" y="{shoulder_y - 6}" text-anchor="middle" fill="#06b6d4" font-size="7" font-family="Inter,system-ui">{shoulder_w:.3f}</text>
+        <text x="{cx}" y="{shoulder_y - 6}" text-anchor="middle" fill="#5a4a3a" font-size="7" font-family="Inter,system-ui">{shoulder_w:.3f}</text>
         <!-- Largeur hanches -->
-        <text x="{cx}" y="{hip_y + 12}" text-anchor="middle" fill="#06b6d4" font-size="7" font-family="Inter,system-ui">{hip_w:.3f}</text>
+        <text x="{cx}" y="{hip_y + 12}" text-anchor="middle" fill="#5a4a3a" font-size="7" font-family="Inter,system-ui">{hip_w:.3f}</text>
     </svg>'''
 
     # Posture
@@ -922,18 +922,18 @@ def _build_morpho_section(morpho: dict) -> str:
     posture_summary = posture.get("summary", "")
     if posture.get("lordose_severity", 0) > 0.3:
         sev = posture["lordose_severity"]
-        posture_items.append(f'<div class="morpho-posture-item" style="border-left:3px solid #ff6b35">Lordose lombaire <span style="color:#ff6b35;font-weight:600">{sev:.0%}</span></div>')
+        posture_items.append(f'<div class="morpho-posture-item" style="border-left:3px solid #c45a2d">Lordose lombaire <span style="color:#c45a2d;font-weight:600">{sev:.0%}</span></div>')
     if posture.get("cyphose_severity", 0) > 0.3:
         sev = posture["cyphose_severity"]
-        posture_items.append(f'<div class="morpho-posture-item" style="border-left:3px solid #ff6b35">Cyphose thoracique <span style="color:#ff6b35;font-weight:600">{sev:.0%}</span></div>')
+        posture_items.append(f'<div class="morpho-posture-item" style="border-left:3px solid #c45a2d">Cyphose thoracique <span style="color:#c45a2d;font-weight:600">{sev:.0%}</span></div>')
     if posture.get("epaules_enroulees"):
-        posture_items.append('<div class="morpho-posture-item" style="border-left:3px solid #ff6b35">Epaules enroulees</div>')
+        posture_items.append('<div class="morpho-posture-item" style="border-left:3px solid #c45a2d">Epaules enroulees</div>')
     if posture.get("tete_en_avant"):
-        posture_items.append('<div class="morpho-posture-item" style="border-left:3px solid #ff6b35">Tete en avant</div>')
+        posture_items.append('<div class="morpho-posture-item" style="border-left:3px solid #c45a2d">Tete en avant</div>')
     if posture.get("antéversion_bassin") or posture.get("anteversion_bassin"):
-        posture_items.append('<div class="morpho-posture-item" style="border-left:3px solid #ff6b35">Antéversion du bassin</div>')
+        posture_items.append('<div class="morpho-posture-item" style="border-left:3px solid #c45a2d">Antéversion du bassin</div>')
     if not posture_items:
-        posture_items.append('<div class="morpho-posture-item" style="border-left:3px solid #00ff88">Posture equilibree</div>')
+        posture_items.append('<div class="morpho-posture-item" style="border-left:3px solid #2d7a4f">Posture equilibree</div>')
 
     posture_html = "\n".join(posture_items)
 
@@ -955,8 +955,8 @@ def _build_morpho_section(morpho: dict) -> str:
     recs_section = ""
     if recs_html:
         recs_section = '''
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #1a1e28">
-            <div style="color:#8888aa;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Recommandations personnalisees</div>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #d5cfc5">
+            <div style="color:#8a8070;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Recommandations personnalisees</div>
             ''' + recs_html + '''
         </div>'''
 
@@ -970,7 +970,7 @@ def _build_morpho_section(morpho: dict) -> str:
         <!-- Type + silhouette -->
         <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
             <div style="flex:1;min-width:200px">
-                <div style="font-size:1.1em;color:#fff;font-weight:700;margin-bottom:12px">{morpho_type}</div>
+                <div style="font-size:1.1em;color:#1a1a1a;font-weight:700;margin-bottom:12px">{morpho_type}</div>
 
                 <!-- Ratios -->
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
@@ -1011,8 +1011,8 @@ def _build_morpho_section(morpho: dict) -> str:
         </div>
 
         <!-- Posture -->
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #1a1e28">
-            <div style="color:#8888aa;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Bilan postural</div>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #d5cfc5">
+            <div style="color:#8a8070;font-size:0.82em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Bilan postural</div>
             {posture_html}
         </div>
 
@@ -1034,7 +1034,7 @@ def _build_reps_timeline(reps: Any) -> str:
         return '''
     <div class="card fade-in" style="animation-delay:0.38s">
         <div class="card-header">{} repetitions detectees</div>
-        <div style="font-size:0.9em;color:#8888aa;padding:12px 0">
+        <div style="font-size:0.9em;color:#8a8070;padding:12px 0">
             Comptage par analyse vidéo avancée.
         </div>
     </div>'''.format(reps.total_reps)
@@ -1049,11 +1049,11 @@ def _build_reps_timeline(reps: Any) -> str:
         h_pct = min(100, int(r.rom / max_rom * 100))
         # Couleur basee sur le tempo ratio
         if r.tempo_ratio >= 1.5:
-            color = "#00ff88"  # bon controle excentrique
+            color = "#2d7a4f"  # bon controle excentrique
         elif r.tempo_ratio >= 0.8:
-            color = "#06b6d4"  # equilibre
+            color = "#5a4a3a"  # equilibre
         else:
-            color = "#ff6b35"  # concentrique dominant
+            color = "#c45a2d"  # concentrique dominant
 
         ecc_s = r.eccentric_duration_ms / 1000
         conc_s = r.concentric_duration_ms / 1000
@@ -1072,15 +1072,15 @@ def _build_reps_timeline(reps: Any) -> str:
     <div class="card fade-in" style="animation-delay:0.38s">
         <div class="card-header">Timeline des repetitions — {reps.total_reps} reps</div>
         <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
-            <div style="font-size:0.82em;color:#8888aa">Tempo moyen : <span style="color:#e0e0f0;font-weight:600">{avg_ecc:.1f}s ecc / {avg_conc:.1f}s conc</span></div>
-            <div style="font-size:0.82em;color:#8888aa">Consistance : <span style="color:#e0e0f0;font-weight:600">{reps.tempo_consistency:.0%}</span></div>
+            <div style="font-size:0.82em;color:#8a8070">Tempo moyen : <span style="color:#1a1a1a;font-weight:600">{avg_ecc:.1f}s ecc / {avg_conc:.1f}s conc</span></div>
+            <div style="font-size:0.82em;color:#8a8070">Consistance : <span style="color:#1a1a1a;font-weight:600">{reps.tempo_consistency:.0%}</span></div>
         </div>
         <div class="reps-bar" style="margin-bottom:28px">
             {"".join(bars)}
         </div>
-        <div style="display:flex;gap:16px;font-size:0.72em;color:#6868aa;flex-wrap:wrap">
-            <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#00ff88;margin-right:4px"></span>Bon controle excentrique</div>
-            <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#06b6d4;margin-right:4px"></span>Tempo equilibre</div>
-            <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#ff6b35;margin-right:4px"></span>Concentrique dominant</div>
+        <div style="display:flex;gap:16px;font-size:0.72em;color:#8a8070;flex-wrap:wrap">
+            <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#2d7a4f;margin-right:4px"></span>Bon controle excentrique</div>
+            <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#5a4a3a;margin-right:4px"></span>Tempo equilibre</div>
+            <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#c45a2d;margin-right:4px"></span>Concentrique dominant</div>
         </div>
     </div>'''
