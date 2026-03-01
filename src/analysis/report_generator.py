@@ -218,6 +218,7 @@ Quand le faire : [Echauffement, entre les series, en fin de seance, ou jour off]
 ---
 
 DECOMPOSITION DU SCORE
+IMPORTANT : cette section est la SEULE exception au format paragraphes. Chaque sous-score DOIT etre sur sa propre ligne au format EXACT "Categorie : XX/YY" suivi d'un saut de ligne puis du paragraphe de justification. Ne fusionne PAS les scores dans le texte.
 
 Securite : [XX]/40
 [Justification avec donnee. Alignement articulaire, stabilite, risque de blessure.]
@@ -226,10 +227,10 @@ Efficacite technique : [XX]/30
 [Justification — cite le ROM, l'amplitude, le recrutement musculaire.]
 
 Controle et tempo : [XX]/20
-[Justification — cite le tempo mesure, les phases, le TUT, la constance.]
+[Justification — cite le tempo mesure, les phases, le TUT, la constance. Si les donnees de tempo sont absentes ou insuffisantes, attribue un score base sur l'observation visuelle des frames.]
 
 Symetrie : [XX]/10
-[Justification — cite le ratio de symetrie mesure.]
+[Justification — cite le ratio de symetrie mesure. Si la video est filmee de profil et que la symetrie n'est pas evaluable, attribue 5/10 par defaut et mentionne que l'angle ne permet pas une evaluation complete.]
 
 ---
 
