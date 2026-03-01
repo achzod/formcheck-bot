@@ -75,7 +75,43 @@ def load_biomechanics_knowledge(
 
 # ── Construction du prompt ───────────────────────────────────────────────────
 
-_SYSTEM_INSTRUCTIONS = """Tu es un coach biomecanique expert avec 11 certifications (Pre-Script, NASM, ISSA, Precision Nutrition, etc.) et 10 ans d'experience. Tu analyses des videos de musculation pour FORMCHECK by ACHZOD.
+_REFUSAL_PATTERNS = [
+    "i'm sorry",
+    "i cannot",
+    "i can't",
+    "i am unable",
+    "i'm unable",
+    "as an ai",
+    "i apologize",
+    "cannot assist",
+    "can't assist",
+    "not able to",
+    "i'm not able",
+    "against my guidelines",
+    "violates",
+    "inappropriate",
+]
+
+
+def _is_refusal(text: str) -> bool:
+    """Detect if GPT-4o refused to generate the report (content policy)."""
+    if not text or len(text) < 10:
+        return True
+    lower = text.lower().strip()
+    # Very short response + refusal pattern = refusal
+    if len(text) < 300:
+        for pattern in _REFUSAL_PATTERNS:
+            if pattern in lower:
+                return True
+    # Check if there's no score (which means no real report)
+    if len(text) < 200 and "/100" not in text:
+        return True
+    return False
+
+
+_SYSTEM_INSTRUCTIONS = """CONTEXT: This is a professional biomechanical analysis tool (FORMCHECK by ACHZOD) used by certified fitness coaches to help clients improve their exercise form and prevent injuries. The video frames show standard gym exercises. Analyzing exercise form is the core purpose of this tool.
+
+Tu es un coach biomecanique expert avec 11 certifications (Pre-Script, NASM, ISSA, Precision Nutrition, etc.) et 10 ans d'experience. Tu analyses des videos de musculation pour FORMCHECK by ACHZOD.
 
 Utilise TOUTES les donnees fournies dans le JSON pour rediger un rapport d'analyse biomecanique complet. Le guide d'analyse expert dans le system prompt te donne les principes — applique-les aux donnees mesurees.
 
@@ -584,18 +620,36 @@ def generate_report_openai(
     # Add the text analysis prompt
     user_content.append({"type": "text", "text": user_prompt})
     
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
+    # Attempt with frames first, retry without if GPT-4o refuses
+    for attempt in range(2):
+        messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
-        ],
-        max_tokens=8000,
-        temperature=0.3,
-        timeout=120,
-    )
+        ]
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=8000,
+            temperature=0.3,
+            timeout=120,
+        )
 
-    raw_response = response.choices[0].message.content or ""
+        raw_response = response.choices[0].message.content or ""
+        
+        # Detect GPT-4o refusal (content policy)
+        if _is_refusal(raw_response):
+            _logger.warning(
+                "GPT-4o REFUSED report generation (attempt %d): %s",
+                attempt + 1, raw_response[:200],
+            )
+            if attempt == 0 and video_frames:
+                # Retry WITHOUT frames — text-only analysis
+                _logger.info("Retrying report WITHOUT video frames...")
+                user_content = [{"type": "text", "text": user_prompt}]
+                continue
+            # If still refusing without frames, fall through to return
+        break
+
     return _parse_report(raw_response, exercise, model_name=f"openai:{model}")
 
 
@@ -634,7 +688,14 @@ def generate_report(
     if provider == "auto":
         # GPT-4o en priorité — plus fiable et centralise tout sur une seule API
         if os.environ.get("OPENAI_API_KEY", "").strip():
-            return generate_report_openai(**kwargs, video_frames=video_frames)
+            import logging as _log_mod
+            _auto_logger = _log_mod.getLogger("formcheck.report")
+            report = generate_report_openai(**kwargs, video_frames=video_frames)
+            # If GPT-4o refused, fallback to Claude
+            if _is_refusal(report.report_text) and os.environ.get("ANTHROPIC_API_KEY", "").strip():
+                _auto_logger.warning("GPT-4o refused → falling back to Claude for report")
+                report = generate_report_claude(**kwargs)
+            return report
         elif os.environ.get("ANTHROPIC_API_KEY", "").strip():
             return generate_report_claude(**kwargs)
         else:
