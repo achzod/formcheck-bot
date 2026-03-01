@@ -1713,12 +1713,16 @@ def _post_correct_detection(
     confidence: float,
     reasoning: str,
     logger: Any,
+    mid_frame_path: str | None = None,
 ) -> tuple[Exercise, str]:
     """Apply rule-based corrections after GPT-4o Vision detection.
     
     GPT-4o frequently confuses exercises when gym equipment is visible
     in the background (e.g., sees cable station → says cable_curl even
     when the person holds a barbell). These rules catch known confusions.
+    
+    For cable exercises: triggers a SECOND PASS verification focused
+    specifically on the equipment in the person's hands.
     """
     lower_reason = reasoning.lower()
     
@@ -1734,19 +1738,13 @@ def _post_correct_detection(
                 )
                 return Exercise.CURL, "[Corrigé: barre libre détectée] " + reasoning
         
-        # Also correct if confidence is low-medium (GPT-4o unsure = probably not cable)
-        if confidence < 0.7:
-            # Check for absence of cable-specific cues
-            cable_cues = ["cable", "poulie", "pulley", "stack", "câble"]
-            has_cable_cue = any(c in lower_reason for c in cable_cues)
-            if not has_cable_cue:
-                logger.info(
-                    "POST-CORRECTION: cable_curl → curl (low confidence, no cable cues)",
-                )
-                return Exercise.CURL, "[Corrigé: pas de câble confirmé] " + reasoning
+        # SECOND PASS: ask GPT-4o specifically about the equipment
+        if mid_frame_path:
+            corrected = _verify_cable_equipment(mid_frame_path, exercise, logger)
+            if corrected is not None:
+                return corrected, "[Vérification équipement: barre libre confirmée] " + reasoning
     
     # ── Similar corrections for other common confusions ──
-    # cable_row detected but person has barbell → barbell_row
     if exercise == Exercise.CABLE_ROW:
         barbell_cues = ["barre", "barbell", "free weight", "poids libre"]
         for cue in barbell_cues:
@@ -1755,6 +1753,95 @@ def _post_correct_detection(
                 return Exercise.BARBELL_ROW, "[Corrigé: barre libre détectée] " + reasoning
     
     return exercise, reasoning
+
+
+def _verify_cable_equipment(
+    mid_frame_path: str,
+    detected_exercise: Exercise,
+    logger: Any,
+) -> Exercise | None:
+    """Second pass: verify if the person is actually using a cable.
+    
+    Sends a focused prompt to GPT-4o asking ONLY about the equipment
+    in the person's hands. Returns corrected Exercise or None if cable confirmed.
+    """
+    import openai
+    import os
+    
+    key = os.environ.get("OPENAI_API_KEY", "")
+    if not key or not Path(mid_frame_path).exists():
+        return None
+    
+    try:
+        client = openai.OpenAI(api_key=key)
+        b64 = _encode_image_base64(mid_frame_path)
+        
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Tu es un expert en équipement de musculation. "
+                        "Regarde UNIQUEMENT ce que la personne au premier plan "
+                        "TIENT DANS SES MAINS. Ignore tout le reste du décor."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "data:image/jpeg;base64,{}".format(b64),
+                                "detail": "high",
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "Regarde UNIQUEMENT les mains de la personne au premier plan. "
+                                "Question simple : est-ce que cette personne tient :\n"
+                                "A) Une BARRE LIBRE (barre droite, barre EZ, haltères)\n"
+                                "B) Une POIGNÉE DE CÂBLE connectée à une poulie par un câble visible\n\n"
+                                "Réponds UNIQUEMENT avec le JSON : "
+                                '{{"equipment": "barbell" ou "cable", "detail": "<ce que tu vois dans ses mains>"}}'
+                            ),
+                        },
+                    ],
+                },
+            ],
+            max_tokens=150,
+            temperature=0.1,
+            timeout=15,
+        )
+        
+        content = response.choices[0].message.content or ""
+        logger.info("Equipment verification response: %s", content[:200])
+        
+        import json
+        start = content.find("{")
+        end = content.rfind("}") + 1
+        if start >= 0 and end > start:
+            data = json.loads(content[start:end])
+            equipment = data.get("equipment", "").lower()
+            
+            if equipment == "barbell":
+                logger.info("EQUIPMENT VERIFIED: barbell → correcting cable_curl to curl")
+                # Map cable exercises to their barbell equivalents
+                _CABLE_TO_BARBELL = {
+                    Exercise.CABLE_CURL: Exercise.CURL,
+                    Exercise.CABLE_ROW: Exercise.BARBELL_ROW,
+                }
+                return _CABLE_TO_BARBELL.get(detected_exercise)
+            else:
+                logger.info("EQUIPMENT VERIFIED: cable confirmed")
+                return None
+        
+        return None
+    except Exception as e:
+        logger.error("Equipment verification failed: %s", e)
+        return None
 
 
 def detect_by_vision(
@@ -2176,6 +2263,7 @@ def detect_by_vision(
             # in the background. Apply rule-based corrections.
             exercise, reasoning = _post_correct_detection(
                 exercise, confidence, reasoning, logger,
+                mid_frame_path=mid_frame_path,
             )
             
             result = (
