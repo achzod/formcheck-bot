@@ -399,7 +399,13 @@ def run_pipeline(
             
     except Exception as gemini_err:
         # ── FALLBACK: GPT-4o Vision on static frames ──
-        logger.warning("Gemini detection failed (%s), falling back to GPT-4o Vision", gemini_err)
+        logger.error("Gemini detection FAILED: %s", gemini_err, exc_info=True)
+        try:
+            from app.debug_log import log_error as _dbg_gem
+            _dbg_gem("gemini_detection_error", str(gemini_err), {"traceback": str(gemini_err)})
+        except Exception:
+            pass
+        logger.warning("Falling back to GPT-4o Vision")
         try:
             import cv2 as _cv2_det
             _det_cap = _cv2_det.VideoCapture(str(video))
