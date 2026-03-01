@@ -231,8 +231,8 @@ def run_pipeline(
         import cv2
         _cap = cv2.VideoCapture(str(video))
         _fps = _cap.get(cv2.CAP_PROP_FPS) or 30.0
-        _cap.release()
         _total_frames = int(_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        _cap.release()
         adaptive_sample_n = max(1, round(_fps / 10))
         # Limiter à max 600 frames analysées pour éviter OOM sur Render (512MB)
         max_frames_target = 600
@@ -307,32 +307,168 @@ def run_pipeline(
         return result
 
     # ── Étape 5 : Détection de l'exercice ────────────────────────────────
+    # PRIMARY: Gemini 2.5 Flash video analysis (sees full video, movement, equipment)
+    # FALLBACK: GPT-4o Vision on static frames (original method)
     _notify_progress(cfg, 5, "Détection de l'exercice")
     logger.info("Étape 5/%d : Détection de l'exercice...", TOTAL_STEPS)
     t0 = time.monotonic()
+    
+    gemini_rep_count = 0  # Will be set if Gemini succeeds
+    
     try:
-        mid_frame_path = extraction.key_frame_images.get("mid")
-        start_frame_path = extraction.key_frame_images.get("start")
-        end_frame_path = extraction.key_frame_images.get("end")
-        detection = detect_exercise(
-            angles=angles,
-            mid_frame_path=mid_frame_path,
-            use_vision_backup=cfg.use_vision_backup,
-            start_frame_path=start_frame_path,
-            end_frame_path=end_frame_path,
-        )
-        result.detection = detection
-        result.timings["detection"] = time.monotonic() - t0
-        logger.info(
-            "  → %s (confiance: %.0f%%) (%.1fs)",
-            detection.display_name, detection.confidence * 100,
-            result.timings["detection"],
-        )
+        import os as _os_det
+        if _os_det.environ.get("GEMINI_API_KEY", "").strip():
+            # ── Gemini PRIMARY: full video understanding ──
+            logger.info("  → Using Gemini 2.5 Flash (video analysis)...")
+            from analysis.gemini_detector import detect_exercise_gemini
+            gemini_result = detect_exercise_gemini(
+                video_path=str(video),
+            )
+            
+            # Map Gemini result to DetectionResult
+            from analysis.exercise_detector import Exercise
+            exercise_name = gemini_result["exercise"]
+            # Try to map to known Exercise enum
+            try:
+                exercise_enum = Exercise(exercise_name)
+            except ValueError:
+                # Try common aliases
+                _gemini_aliases = {
+                    "dumbbell_bicep_curl": "dumbbell_curl",
+                    "dumbbell_biceps_curl": "dumbbell_curl",
+                    "barbell_bicep_curl": "curl",
+                    "barbell_biceps_curl": "curl",
+                    "barbell_curl": "curl",
+                    "bicep_curl": "curl",
+                    "biceps_curl": "curl",
+                    "ez_bar_curl": "curl",
+                    "cable_bicep_curl": "cable_curl",
+                    "cable_biceps_curl": "cable_curl",
+                    "dumbbell_bicep_curl_with_supination": "dumbbell_curl",
+                    "dumbbell_shoulder_press": "ohp",
+                    "overhead_press": "ohp",
+                    "military_press": "ohp",
+                    "barbell_bench_press": "bench_press",
+                    "flat_bench_press": "bench_press",
+                    "incline_dumbbell_press": "incline_bench",
+                    "barbell_squat": "squat",
+                    "back_squat": "squat",
+                    "conventional_deadlift": "deadlift",
+                    "barbell_row": "barbell_row",
+                    "bent_over_row": "barbell_row",
+                    "pull_up": "pullup",
+                    "chin_up": "pullup",
+                    "lat_pull_down": "lat_pulldown",
+                    "dumbbell_lateral_raise": "lateral_raise",
+                    "dumbbell_front_raise": "front_raise",
+                    "tricep_pushdown": "tricep_extension",
+                    "rope_pushdown": "tricep_extension",
+                    "face_pull": "face_pull",
+                    "hip_thrust": "hip_thrust",
+                    "barbell_hip_thrust": "hip_thrust",
+                    "leg_press": "leg_press",
+                    "leg_extension": "leg_extension",
+                    "leg_curl": "leg_curl",
+                    "calf_raise": "calf_raise",
+                    "standing_calf_raise": "calf_raise",
+                }
+                mapped = _gemini_aliases.get(exercise_name, exercise_name)
+                try:
+                    exercise_enum = Exercise(mapped)
+                except ValueError:
+                    logger.warning("Gemini exercise '%s' (mapped: '%s') not in enum", exercise_name, mapped)
+                    raise ValueError(
+                        "Gemini returned unsupported exercise '{}'(mapped: '{}')".format(
+                            exercise_name, mapped
+                        )
+                    )
+
+            if exercise_enum == Exercise.UNKNOWN:
+                raise ValueError("Gemini returned UNKNOWN exercise, forcing GPT-4o fallback")
+            
+            detection = DetectionResult(
+                exercise=exercise_enum,
+                confidence=gemini_result["confidence"],
+                reasoning=f"[Gemini Video] Equipment: {gemini_result.get('equipment', '?')}. {gemini_result.get('reasoning', '')}",
+            )
+            gemini_rep_count = gemini_result.get("rep_count", 0)
+            
+            result.detection = detection
+            result.timings["detection"] = time.monotonic() - t0
+            logger.info(
+                "  → Gemini: %s (confiance: %.0f%%, reps: %d) (%.1fs)",
+                detection.display_name, detection.confidence * 100,
+                gemini_rep_count, result.timings["detection"],
+            )
+        else:
+            raise ValueError("GEMINI_API_KEY not set — falling back to GPT-4o Vision")
+            
+    except Exception as gemini_err:
+        # ── FALLBACK: GPT-4o Vision on static frames ──
+        logger.error("Gemini detection FAILED: %s", gemini_err, exc_info=True)
+        try:
+            from app.debug_log import log_error as _dbg_gem
+            _dbg_gem("gemini_detection_error", str(gemini_err), {"traceback": str(gemini_err)})
+        except Exception:
+            pass
+        logger.warning("Falling back to GPT-4o Vision")
+        try:
+            import cv2 as _cv2_det
+            _det_cap = _cv2_det.VideoCapture(str(video))
+            _det_total = int(_det_cap.get(_cv2_det.CAP_PROP_FRAME_COUNT))
+            _det_frames = {}
+            for _pct, _lbl in [(0.25, "start"), (0.50, "mid"), (0.75, "end")]:
+                _fidx = int(_det_total * _pct)
+                _det_cap.set(_cv2_det.CAP_PROP_POS_FRAMES, _fidx)
+                _ret, _frm = _det_cap.read()
+                if _ret and _frm is not None:
+                    _det_path = out_dir / "detect_frame_{}.jpg".format(_lbl)
+                    _cv2_det.imwrite(str(_det_path), _frm)
+                    _det_frames[_lbl] = str(_det_path)
+            _det_cap.release()
+
+            mid_frame_path = _det_frames.get("mid") or extraction.key_frame_images.get("mid")
+            start_frame_path = _det_frames.get("start") or extraction.key_frame_images.get("start")
+            end_frame_path = _det_frames.get("end") or extraction.key_frame_images.get("end")
+            
+            detection = detect_exercise(
+                angles=angles,
+                mid_frame_path=mid_frame_path,
+                use_vision_backup=cfg.use_vision_backup,
+                start_frame_path=start_frame_path,
+                end_frame_path=end_frame_path,
+            )
+            result.detection = detection
+            result.timings["detection"] = time.monotonic() - t0
+            logger.info(
+                "  → GPT-4o fallback: %s (confiance: %.0f%%) (%.1fs)",
+                detection.display_name, detection.confidence * 100,
+                result.timings["detection"],
+            )
+        except Exception as e:
+            result.errors.append(f"Détection d'exercice échouée: {e}")
+            result.user_messages.append(_USER_ERRORS["detection_failed"])
+            logger.error("Détection échouée: %s", e)
+            return result
+
+    # ── Étape 5a-bis : Recalculer key frames avec l'exercice détecté ──
+    # Maintenant qu'on connaît l'exercice, on peut choisir la bonne frame
+    # (peak contraction en haut pour hip thrust/curl, en bas pour squat/deadlift)
+    try:
+        from analysis.pose_extractor import _detect_key_frames, _save_key_frame
+        new_indices = _detect_key_frames(extraction.frames, detection.exercise.value)
+        if new_indices != extraction.key_frame_indices:
+            extraction.key_frame_indices = new_indices
+            # Re-save key frame images
+            out_dir = Path(extraction.video_path).parent
+            for lbl, fidx in new_indices.items():
+                old_path = extraction.key_frame_images.get(lbl)
+                new_path = _save_key_frame(str(extraction.video_path), fidx, lbl, out_dir)
+                if new_path:
+                    extraction.key_frame_images[lbl] = new_path
+            logger.info("  → Key frames recalculated for %s", detection.exercise.value)
     except Exception as e:
-        result.errors.append(f"Détection d'exercice échouée: {e}")
-        result.user_messages.append(_USER_ERRORS["detection_failed"])
-        logger.error("Détection échouée: %s", e)
-        return result
+        logger.warning("Key frame recalc failed: %s", e)
 
     # ── Étape 5b : Chargement profil morphologique ─────────────────────
     # Si un profil morpho est fourni dans la config, on l'utilise
@@ -361,6 +497,7 @@ def run_pipeline(
             angles=angles,
             exercise=detection.exercise.value,
             fps=extraction.fps,
+            raw_frames=extraction.frames,
         )
         result.reps = rep_seg
         result.timings["rep_segmentation"] = time.monotonic() - t0
@@ -374,6 +511,65 @@ def run_pipeline(
         result.errors.append(f"Segmentation reps échouée: {e}")
         logger.error("Segmentation reps échouée: %s", e)
         result.reps = RepSegmentation()
+
+    # ── Étape 6b : Rep counting — Gemini PRIMARY, GPT-4o Vision FALLBACK ──
+    # If Gemini already counted reps during detection, use that (most reliable).
+    # Otherwise fall back to GPT-4o Vision rep counting.
+    
+    if gemini_rep_count > 0:
+        # Gemini saw the full video and counted reps — AUTHORITATIVE
+        logger.info(
+            "Gemini AUTHORITATIVE rep count: signal_processing=%d → gemini=%d",
+            result.reps.total_reps, gemini_rep_count,
+        )
+        result.reps.total_reps = gemini_rep_count
+        result.reps.complete_reps = gemini_rep_count
+        vision_rep_count = gemini_rep_count
+    else:
+        # Fallback to GPT-4o Vision rep counting
+        try:
+            from analysis.vision_rep_counter import count_reps_by_vision
+            t0_vision = time.monotonic()
+            vision_rep_count = count_reps_by_vision(
+                video_path=str(extraction.video_path),
+                exercise_name=detection.exercise.value,
+                fps=extraction.fps,
+            )
+            logger.info(
+                "  → Vision rep count: %d (%.1fs)",
+                vision_rep_count, time.monotonic() - t0_vision,
+            )
+            if vision_rep_count > 0:
+                logger.info(
+                    "Vision AUTHORITATIVE: signal_processing=%d → vision=%d",
+                    result.reps.total_reps, vision_rep_count,
+                )
+                result.reps.total_reps = vision_rep_count
+                result.reps.complete_reps = vision_rep_count
+        except Exception as e:
+            logger.error("Vision rep counting failed: %s", e)
+            vision_rep_count = 0
+
+    # Log rep count for debug
+    try:
+        from app.debug_log import log_error as _dbg
+        _dbg("vision_rep_count", "Vision rep counting result", {
+            "gemini_rep_count": gemini_rep_count,
+            "vision_rep_count": vision_rep_count,
+            "signal_processing_count": result.reps.total_reps if result.reps else 0,
+        })
+    except Exception:
+        pass
+
+    # Fallback: detection-time vision count (from exercise detection call)
+    if vision_rep_count == 0 and gemini_rep_count == 0:
+        detection_reps = getattr(detection, 'vision_rep_count', 0)
+        if detection_reps > 0 and detection_reps > result.reps.total_reps:
+            logger.info(
+                "Detection-time vision override: %d → %d",
+                result.reps.total_reps, detection_reps,
+            )
+            result.reps.total_reps = detection_reps
 
     # ── Étape 7 : Analyse biomécanique avancée ───────────────────────────
     _notify_progress(cfg, 7, "Analyse biomécanique avancée")
@@ -440,6 +636,32 @@ def run_pipeline(
     _notify_progress(cfg, 10, "Génération du rapport")
     logger.info("Étape 10/%d : Génération du rapport biomécanique...", TOTAL_STEPS)
     t0 = time.monotonic()
+    
+    # Extract 8 evenly-spaced raw frames for GPT-4o Vision report
+    _report_frames = []
+    try:
+        import cv2 as _cv2_rpt
+        _rpt_cap = _cv2_rpt.VideoCapture(str(video))
+        _rpt_total = int(_rpt_cap.get(_cv2_rpt.CAP_PROP_FRAME_COUNT))
+        _n_report_frames = min(8, max(5, _rpt_total // 30))  # 5-8 frames
+        for _ri in range(_n_report_frames):
+            _rfidx = int(_rpt_total * (_ri + 0.5) / _n_report_frames)
+            _rpt_cap.set(_cv2_rpt.CAP_PROP_POS_FRAMES, _rfidx)
+            _rret, _rfrm = _rpt_cap.read()
+            if _rret and _rfrm is not None:
+                _rpath = out_dir / "report_frame_{}.jpg".format(_ri)
+                # Resize to max 512px wide for cost efficiency
+                _rh, _rw = _rfrm.shape[:2]
+                if _rw > 512:
+                    _scale = 512.0 / _rw
+                    _rfrm = _cv2_rpt.resize(_rfrm, (512, int(_rh * _scale)))
+                _cv2_rpt.imwrite(str(_rpath), _rfrm, [_cv2_rpt.IMWRITE_JPEG_QUALITY, 75])
+                _report_frames.append(str(_rpath))
+        _rpt_cap.release()
+        logger.info("Extracted %d frames for report generation", len(_report_frames))
+    except Exception as _rfe:
+        logger.warning("Failed to extract report frames: %s", _rfe)
+    
     try:
         report = generate_report(
             exercise=detection,
@@ -452,6 +674,7 @@ def run_pipeline(
             provider=cfg.llm_provider,
             morpho_profile=result.morpho_profile,
             adapted_thresholds=result.adapted_thresholds,
+            video_frames=_report_frames if _report_frames else None,
         )
         result.report = report
         result.timings["report"] = time.monotonic() - t0

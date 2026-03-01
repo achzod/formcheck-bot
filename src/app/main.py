@@ -44,9 +44,14 @@ try:
     from app.debug_log import log_error, get_errors
     from app.handlers import handle_incoming_message, handle_payment_success
     from app.media_handler import get_media_path
-    from app.stripe_handler import PLANS, construct_webhook_event, handle_checkout_completed
+    from app.stripe_handler import (
+        PLANS,
+        construct_webhook_event,
+        handle_checkout_completed,
+        handle_subscription_event,
+    )
     from app.report_server import router as report_router
-    from app.whatsapp import parse_incoming
+    from app.whatsapp import parse_incoming, validate_twilio_signature
 
     logging.basicConfig(
         level=logging.DEBUG if settings.debug else logging.INFO,
@@ -71,6 +76,8 @@ try:
 
     @app.get("/debug/errors")
     async def debug_errors(token: str = "") -> dict:
+        if not settings.render_api_key:
+            raise HTTPException(status_code=503, detail="Debug endpoint disabled")
         if token != settings.render_api_key:
             raise HTTPException(status_code=403, detail="Invalid token")
         return {
@@ -102,6 +109,35 @@ try:
     async def whatsapp_webhook(request: Request) -> PlainTextResponse:
         form = await request.form()
         body = dict(form)
+
+        if settings.verify_twilio_signature:
+            twilio_sig = request.headers.get("X-Twilio-Signature", "")
+            if not twilio_sig:
+                raise HTTPException(status_code=403, detail="Missing Twilio signature")
+
+            # Twilio signs with the exact public webhook URL. Behind proxies/load balancers,
+            # request.url may differ, so validate against a small set of likely public URLs.
+            candidate_urls: list[str] = [str(request.url)]
+            forwarded_proto = request.headers.get("x-forwarded-proto", "")
+            forwarded_host = request.headers.get("x-forwarded-host", "")
+            host = request.headers.get("host", "")
+            path = request.url.path
+
+            if forwarded_proto and forwarded_host:
+                candidate_urls.append(f"{forwarded_proto}://{forwarded_host}{path}")
+            if host:
+                candidate_urls.append(f"https://{host}{path}")
+                candidate_urls.append(f"http://{host}{path}")
+
+            # Deduplicate while preserving order.
+            checked = []
+            for u in candidate_urls:
+                if u and u not in checked:
+                    checked.append(u)
+
+            if not any(validate_twilio_signature(u, body, twilio_sig) for u in checked):
+                logger.warning("Rejected WhatsApp webhook with invalid Twilio signature")
+                raise HTTPException(status_code=403, detail="Invalid Twilio signature")
         
         message_sid = body.get("MessageSid", "")
         if message_sid and message_sid in _processed_sids:
@@ -156,6 +192,12 @@ try:
                 plan = PLANS.get(plan_key, {})
                 credits = plan.get("credits", 0)
                 await handle_payment_success(phone, plan_key, credits)
+        elif event["type"] in (
+            "customer.subscription.created",
+            "customer.subscription.updated",
+            "customer.subscription.deleted",
+        ):
+            await handle_subscription_event(event["type"], event["data"]["object"])
 
         return {"status": "ok"}
 

@@ -231,8 +231,8 @@ def run_pipeline(
         import cv2
         _cap = cv2.VideoCapture(str(video))
         _fps = _cap.get(cv2.CAP_PROP_FPS) or 30.0
-        _cap.release()
         _total_frames = int(_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        _cap.release()
         adaptive_sample_n = max(1, round(_fps / 10))
         # Limiter à max 600 frames analysées pour éviter OOM sur Render (512MB)
         max_frames_target = 600
@@ -361,8 +361,8 @@ def run_pipeline(
                     "lat_pull_down": "lat_pulldown",
                     "dumbbell_lateral_raise": "lateral_raise",
                     "dumbbell_front_raise": "front_raise",
-                    "tricep_pushdown": "tricep_pushdown",
-                    "rope_pushdown": "tricep_pushdown",
+                    "tricep_pushdown": "tricep_extension",
+                    "rope_pushdown": "tricep_extension",
                     "face_pull": "face_pull",
                     "hip_thrust": "hip_thrust",
                     "barbell_hip_thrust": "hip_thrust",
@@ -377,7 +377,14 @@ def run_pipeline(
                     exercise_enum = Exercise(mapped)
                 except ValueError:
                     logger.warning("Gemini exercise '%s' (mapped: '%s') not in enum", exercise_name, mapped)
-                    exercise_enum = Exercise.UNKNOWN
+                    raise ValueError(
+                        "Gemini returned unsupported exercise '{}'(mapped: '{}')".format(
+                            exercise_name, mapped
+                        )
+                    )
+
+            if exercise_enum == Exercise.UNKNOWN:
+                raise ValueError("Gemini returned UNKNOWN exercise, forcing GPT-4o fallback")
             
             detection = DetectionResult(
                 exercise=exercise_enum,

@@ -24,10 +24,11 @@ class Settings(BaseSettings):
     debug: bool = False
     base_url: str = "https://formcheck.fr"  # For media URLs
     test_mode: bool = False  # Bypass credit checks for testing
+    verify_twilio_signature: bool = True  # Reject unsigned/invalid webhook calls
 
     # Phase de test — toutes les analyses gratuites
     # Remettre a False pour reactiver le paywall Stripe
-    test_mode_free: bool = True
+    test_mode_free: bool = False
 
     # Render API key (aussi utilise pour auth du /debug/errors endpoint)
     render_api_key: str = ""

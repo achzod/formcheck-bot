@@ -4,6 +4,7 @@ import datetime as dt
 from typing import Sequence
 
 from sqlalchemy import ForeignKey, String, Text, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -194,6 +195,36 @@ async def set_unlimited(user_id: int) -> User | None:
         return user
 
 
+async def set_unlimited_until(user_id: int, until: dt.datetime) -> User | None:
+    """Enable unlimited access until a specific UTC datetime."""
+    async with async_session() as session:
+        user = await session.get(User, user_id)
+        if not user:
+            return None
+        user.is_unlimited = True
+        if user.unlimited_expires_at and user.unlimited_expires_at > until:
+            # Keep the furthest expiration when overlapping updates arrive.
+            pass
+        else:
+            user.unlimited_expires_at = until
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+
+async def disable_unlimited(user_id: int) -> User | None:
+    """Disable unlimited access immediately."""
+    async with async_session() as session:
+        user = await session.get(User, user_id)
+        if not user:
+            return None
+        user.is_unlimited = False
+        user.unlimited_expires_at = None
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+
 async def create_analysis(
     user_id: int,
     video_path: str | None = None,
@@ -263,6 +294,60 @@ async def get_payment_by_session_id(session_id: str) -> Payment | None:
             select(Payment).where(Payment.stripe_session_id == session_id)
         )
         return result.scalar_one_or_none()
+
+
+async def record_payment_and_apply_plan(
+    *,
+    phone: str,
+    stripe_session_id: str,
+    amount: int,
+    plan: str,
+    credits_added: int = 0,
+    unlimited_until: dt.datetime | None = None,
+) -> tuple[str | None, bool]:
+    """Atomically store payment + apply entitlement.
+
+    Returns:
+        (phone, is_duplicate_or_already_processed)
+    """
+    async with async_session() as session:
+        try:
+            async with session.begin():
+                user = (
+                    await session.execute(select(User).where(User.phone == phone))
+                ).scalar_one_or_none()
+                if not user:
+                    return None, False
+
+                existing = (
+                    await session.execute(
+                        select(Payment).where(Payment.stripe_session_id == stripe_session_id)
+                    )
+                ).scalar_one_or_none()
+                if existing:
+                    return phone, True
+
+                session.add(
+                    Payment(
+                        user_id=user.id,
+                        stripe_session_id=stripe_session_id,
+                        amount=amount,
+                        plan=plan,
+                        credits_added=credits_added,
+                    )
+                )
+
+                if unlimited_until is not None:
+                    user.is_unlimited = True
+                    if not user.unlimited_expires_at or unlimited_until > user.unlimited_expires_at:
+                        user.unlimited_expires_at = unlimited_until
+                elif credits_added > 0:
+                    user.credits += credits_added
+            return phone, False
+        except IntegrityError:
+            # Concurrent duplicate webhook race on unique stripe_session_id.
+            await session.rollback()
+            return phone, True
 
 
 async def get_user_analyses(user_id: int) -> Sequence[Analysis]:

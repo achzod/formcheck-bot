@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import logging
 from typing import Any
 
@@ -19,6 +21,23 @@ MESSAGES_URL = f"{TWILIO_API}/Messages.json"
 def _auth_header() -> dict[str, str]:
     creds = b64encode(f"{settings.twilio_account_sid}:{settings.twilio_auth_token}".encode()).decode()
     return {"Authorization": f"Basic {creds}"}
+
+
+def validate_twilio_signature(url: str, params: dict[str, Any], signature: str) -> bool:
+    """Validate X-Twilio-Signature against request URL + form params.
+
+    Twilio signs: URL + sorted(key + value) with HMAC-SHA1(auth_token), base64-encoded.
+    """
+    token = settings.twilio_auth_token.strip()
+    if not token or not signature:
+        return False
+
+    # Twilio expects string values in signature base string.
+    normalized = {str(k): str(v) for k, v in params.items()}
+    payload = url + "".join(k + normalized[k] for k in sorted(normalized))
+    digest = hmac.new(token.encode("utf-8"), payload.encode("utf-8"), hashlib.sha1).digest()
+    expected = b64encode(digest).decode("utf-8")
+    return hmac.compare_digest(expected, signature)
 
 
 async def _send_with_retry(client: httpx.AsyncClient, data: dict, max_retries: int = 3) -> httpx.Response:
