@@ -266,10 +266,152 @@ def _motion_profile(angles: AngleResult) -> dict[str, float | str]:
     }
 
 
+def _stat_value(stats: dict[str, Any], key: str, field: str) -> float:
+    item = stats.get(key)
+    if not item:
+        return 0.0
+    return float(getattr(item, field, 0.0) or 0.0)
+
+
+def _compute_press_profile(
+    extraction: ExtractionResult,
+    angles: AngleResult,
+) -> dict[str, float | bool]:
+    """Profile biomécanique pour distinguer OHP vs upright row.
+
+    OHP attendu:
+    - poignets passent souvent au-dessus des épaules (overhead)
+    - lockout coude visible sur une partie du cycle
+
+    Upright row attendu:
+    - poignets restent plutôt sous/sur ligne d'épaule
+    - peu/pas de lockout coude overhead
+    """
+    overhead_deltas: list[float] = []
+    for frame in extraction.frames:
+        by_name = {lm.get("name"): lm for lm in frame.landmarks}
+        side_deltas: list[float] = []
+        for side in ("left", "right"):
+            shoulder = by_name.get("{}_shoulder".format(side))
+            wrist = by_name.get("{}_wrist".format(side))
+            if not shoulder or not wrist:
+                continue
+            if (
+                float(shoulder.get("visibility", 0.0)) < 0.2
+                or float(wrist.get("visibility", 0.0)) < 0.2
+            ):
+                continue
+            # y MediaPipe: plus petit = plus haut dans l'image.
+            # delta > 0 => poignet au-dessus de l'épaule.
+            side_deltas.append(float(shoulder["y"]) - float(wrist["y"]))
+        if side_deltas:
+            overhead_deltas.append(max(side_deltas))
+
+    overhead_ratio = 0.0
+    wrist_travel = 0.0
+    if overhead_deltas:
+        arr = sorted(overhead_deltas)
+        overhead_ratio = sum(1 for d in arr if d > 0.02) / len(arr)
+        low = arr[int(0.05 * (len(arr) - 1))]
+        high = arr[int(0.95 * (len(arr) - 1))]
+        wrist_travel = max(0.0, high - low)
+
+    elbow_series: list[float] = []
+    for frame in angles.frames:
+        values = [
+            float(v)
+            for v in (frame.left_elbow_flexion, frame.right_elbow_flexion)
+            if v is not None
+        ]
+        if values:
+            elbow_series.append(max(values))
+
+    elbow_lockout_ratio = 0.0
+    if elbow_series:
+        elbow_lockout_ratio = sum(1 for v in elbow_series if v >= 155.0) / len(elbow_series)
+
+    stats = getattr(angles, "stats", {}) or {}
+    elbow_max = max(
+        _stat_value(stats, "left_elbow_flexion", "max_value"),
+        _stat_value(stats, "right_elbow_flexion", "max_value"),
+    )
+    elbow_rom = max(
+        _stat_value(stats, "left_elbow_flexion", "range_of_motion"),
+        _stat_value(stats, "right_elbow_flexion", "range_of_motion"),
+    )
+    shoulder_abd_rom = max(
+        _stat_value(stats, "left_shoulder_abduction", "range_of_motion"),
+        _stat_value(stats, "right_shoulder_abduction", "range_of_motion"),
+    )
+    shoulder_flex_rom = max(
+        _stat_value(stats, "left_shoulder_flexion", "range_of_motion"),
+        _stat_value(stats, "right_shoulder_flexion", "range_of_motion"),
+    )
+
+    ohp_signal = 0.0
+    if overhead_ratio >= 0.20:
+        ohp_signal += 0.42
+    elif overhead_ratio >= 0.12:
+        ohp_signal += 0.28
+    elif overhead_ratio >= 0.08:
+        ohp_signal += 0.16
+
+    if elbow_lockout_ratio >= 0.20 or elbow_max >= 155.0:
+        ohp_signal += 0.30
+    elif elbow_max >= 148.0:
+        ohp_signal += 0.18
+
+    if elbow_rom >= 20.0:
+        ohp_signal += 0.14
+    if wrist_travel >= 0.05:
+        ohp_signal += 0.12
+    if shoulder_flex_rom >= max(15.0, shoulder_abd_rom - 5.0):
+        ohp_signal += 0.06
+    ohp_signal = max(0.0, min(1.0, ohp_signal))
+
+    upright_signal = 0.0
+    if overhead_ratio <= 0.06:
+        upright_signal += 0.34
+    elif overhead_ratio <= 0.10:
+        upright_signal += 0.20
+
+    if elbow_max <= 145.0:
+        upright_signal += 0.25
+    if elbow_lockout_ratio <= 0.08:
+        upright_signal += 0.12
+    if shoulder_abd_rom >= 20.0:
+        upright_signal += 0.16
+    if wrist_travel <= 0.04:
+        upright_signal += 0.12
+    upright_signal = max(0.0, min(1.0, upright_signal))
+
+    strong_ohp_signal = bool(
+        ohp_signal >= 0.62 and overhead_ratio >= 0.10 and elbow_max >= 148.0
+    )
+    strong_upright_signal = bool(
+        upright_signal >= 0.62 and overhead_ratio <= 0.08 and elbow_max <= 148.0
+    )
+
+    return {
+        "overhead_ratio": round(overhead_ratio, 3),
+        "wrist_travel": round(wrist_travel, 3),
+        "elbow_lockout_ratio": round(elbow_lockout_ratio, 3),
+        "elbow_max": round(elbow_max, 1),
+        "elbow_rom": round(elbow_rom, 1),
+        "shoulder_abd_rom": round(shoulder_abd_rom, 1),
+        "shoulder_flex_rom": round(shoulder_flex_rom, 1),
+        "ohp_signal": round(ohp_signal, 3),
+        "upright_signal": round(upright_signal, 3),
+        "strong_ohp_signal": strong_ohp_signal,
+        "strong_upright_signal": strong_upright_signal,
+    }
+
+
 def _detection_candidate_score(
     candidate: DetectionResult,
     pattern_result: DetectionResult,
     motion: dict[str, float | str],
+    press_profile: dict[str, float | bool] | None = None,
 ) -> float:
     """Score une hypothèse d'exercice avec cohérence biomécanique."""
     score = float(candidate.confidence)
@@ -288,6 +430,20 @@ def _detection_candidate_score(
         elif pattern_result.confidence >= 0.75:
             score -= 0.08
 
+    if press_profile:
+        ohp_signal = float(press_profile.get("ohp_signal", 0.0) or 0.0)
+        upright_signal = float(press_profile.get("upright_signal", 0.0) or 0.0)
+        strong_ohp = bool(press_profile.get("strong_ohp_signal", False))
+
+        if candidate.exercise in {Exercise.OHP, Exercise.DUMBBELL_OHP}:
+            score += 0.32 * ohp_signal
+            score -= 0.35 * upright_signal
+        elif candidate.exercise == Exercise.UPRIGHT_ROW:
+            score += 0.20 * upright_signal
+            score -= 0.45 * ohp_signal
+            if strong_ohp:
+                score -= 0.25
+
     return score
 
 
@@ -295,6 +451,7 @@ def _needs_detection_crosscheck(
     gemini_detection: DetectionResult,
     pattern_result: DetectionResult,
     motion: dict[str, float | str],
+    press_profile: dict[str, float | bool] | None = None,
 ) -> bool:
     """Détermine si la détection Gemini doit être contre-vérifiée."""
     if gemini_detection.confidence < 0.72:
@@ -312,6 +469,18 @@ def _needs_detection_crosscheck(
     ):
         pattern_group = _exercise_group(pattern_result.exercise.value)
         if pattern_group == dominant or pattern_result.confidence >= 0.75:
+            return True
+
+    if press_profile:
+        if (
+            gemini_detection.exercise == Exercise.UPRIGHT_ROW
+            and bool(press_profile.get("strong_ohp_signal", False))
+        ):
+            return True
+        if (
+            gemini_detection.exercise in {Exercise.OHP, Exercise.DUMBBELL_OHP}
+            and bool(press_profile.get("strong_upright_signal", False))
+        ):
             return True
 
     return False
@@ -474,11 +643,13 @@ def run_pipeline(
     gemini_rep_count = 0
     pattern_seed = detect_by_pattern(angles)
     motion = _motion_profile(angles)
+    press_profile = _compute_press_profile(extraction, angles)
     logger.info(
-        "  → Pattern seed: %s (conf=%.2f) | motion=%s",
+        "  → Pattern seed: %s (conf=%.2f) | motion=%s | press_profile=%s",
         pattern_seed.exercise.value,
         pattern_seed.confidence,
         motion,
+        press_profile,
     )
 
     # Pré-extraire 3 frames pour cross-check vision (réutilisées si Gemini douteux).
@@ -599,7 +770,12 @@ def run_pipeline(
         detection = fallback_detection
         gemini_rep_count = 0
     else:
-        if _needs_detection_crosscheck(gemini_detection, pattern_seed, motion):
+        if _needs_detection_crosscheck(
+            gemini_detection,
+            pattern_seed,
+            motion,
+            press_profile=press_profile,
+        ):
             logger.warning(
                 "Gemini flagged for cross-check (gemini=%s conf=%.2f, pattern=%s conf=%.2f)",
                 gemini_detection.exercise.value,
@@ -620,20 +796,71 @@ def run_pipeline(
             )
             candidates.append(("pattern", pattern_vote))
 
-        source, detection = max(
-            candidates,
-            key=lambda item: _detection_candidate_score(item[1], pattern_seed, motion),
-        )
+        scored_candidates: list[tuple[str, DetectionResult, float]] = []
+        for src_name, cand in candidates:
+            cand_score = _detection_candidate_score(
+                cand,
+                pattern_seed,
+                motion,
+                press_profile=press_profile,
+            )
+            scored_candidates.append((src_name, cand, cand_score))
+
+        source, detection, winning_score = max(scored_candidates, key=lambda item: item[2])
         logger.info(
-            "  → Detection fusion winner: %s (source=%s, conf=%.2f)",
+            "  → Detection fusion winner: %s (source=%s, conf=%.2f, score=%.3f)",
             detection.exercise.value,
             source,
             detection.confidence,
+            winning_score,
         )
+
+        # Garde-fou critique:
+        # si le mouvement montre clairement un overhead press, empêcher la confusion
+        # vers upright_row même en cas de pattern agressif.
+        if (
+            detection.exercise == Exercise.UPRIGHT_ROW
+            and bool(press_profile.get("strong_ohp_signal", False))
+        ):
+            best_ohp: tuple[str, DetectionResult] | None = None
+            for src_name, cand in candidates:
+                if cand.exercise in {Exercise.OHP, Exercise.DUMBBELL_OHP}:
+                    if best_ohp is None or cand.confidence > best_ohp[1].confidence:
+                        best_ohp = (src_name, cand)
+            if best_ohp and best_ohp[1].confidence >= 0.55:
+                logger.warning(
+                    "Press disambiguation override: upright_row -> %s (source=%s, ohp_signal=%.3f, overhead_ratio=%.3f)",
+                    best_ohp[1].exercise.value,
+                    best_ohp[0],
+                    float(press_profile.get("ohp_signal", 0.0) or 0.0),
+                    float(press_profile.get("overhead_ratio", 0.0) or 0.0),
+                )
+                source, detection = best_ohp
 
         # Si Gemini n'est pas retenu, ne pas propager son rep_count (souvent corrélé à sa mauvaise classe).
         if source != "gemini":
             gemini_rep_count = 0
+
+        try:
+            from app.debug_log import log_error as _dbg_det
+            _dbg_det("exercise_fusion", "Detection fusion result", {
+                "winner_exercise": detection.exercise.value,
+                "winner_source": source,
+                "winner_confidence": round(float(detection.confidence), 3),
+                "pattern_exercise": pattern_seed.exercise.value,
+                "pattern_confidence": round(float(pattern_seed.confidence), 3),
+                "gemini_exercise": gemini_detection.exercise.value if gemini_detection else "none",
+                "gemini_confidence": round(float(gemini_detection.confidence), 3) if gemini_detection else 0.0,
+                "vision_exercise": fallback_detection.exercise.value if fallback_detection else "none",
+                "vision_confidence": round(float(fallback_detection.confidence), 3) if fallback_detection else 0.0,
+                "press_profile": press_profile,
+                "candidate_scores": ";".join(
+                    "{}:{}:{:.3f}".format(src_name, cand.exercise.value, cand_score)
+                    for src_name, cand, cand_score in scored_candidates
+                ),
+            })
+        except Exception:
+            pass
 
     result.detection = detection
     result.timings["detection"] = time.monotonic() - t0

@@ -661,6 +661,9 @@ def _score_ohp(stats: dict[str, AngleStats]) -> tuple[float, str]:
     shoulder_flex_rom = max(
         _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
     )
+    elbow_max = max(
+        _max(stats, "left_elbow_flexion"), _max(stats, "right_elbow_flexion")
+    )
     knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
     trunk_mean = _mean(stats, "trunk_inclination")
 
@@ -671,6 +674,12 @@ def _score_ohp(stats: dict[str, AngleStats]) -> tuple[float, str]:
     if shoulder_flex_rom > 30 or shoulder_abd_rom > 30:
         score += 0.25
         reasons.append(f"ROM épaule flex/abd significatif")
+    if elbow_max >= 155:
+        score += 0.20
+        reasons.append(f"Lockout coude overhead détecté ({elbow_max:.0f}°)")
+    elif elbow_max >= 148:
+        score += 0.10
+        reasons.append(f"Extension coude haute ({elbow_max:.0f}°)")
     if trunk_mean < 20:
         score += 0.25
         reasons.append(f"Tronc vertical ({trunk_mean:.0f}°)")
@@ -877,6 +886,9 @@ def _score_upright_row(stats: dict[str, AngleStats]) -> tuple[float, str]:
     shoulder_flex_rom = max(
         _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
     )
+    elbow_max = max(
+        _max(stats, "left_elbow_flexion"), _max(stats, "right_elbow_flexion")
+    )
     trunk_rom = _rom(stats, "trunk_inclination")
     trunk_mean = _mean(stats, "trunk_inclination")
     knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
@@ -896,6 +908,12 @@ def _score_upright_row(stats: dict[str, AngleStats]) -> tuple[float, str]:
     if elbow_rom > 20 and shoulder_combined > 15:
         score += 0.2
         reasons.append("Coudes + epaules actifs simultanement — typique tirage menton")
+    if elbow_max <= 145:
+        score += 0.10
+        reasons.append(f"Pas de lockout overhead ({elbow_max:.0f} deg)")
+    elif elbow_max >= 158:
+        score -= 0.18
+        reasons.append(f"Lockout coude élevé ({elbow_max:.0f} deg) atypique pour tirage menton")
 
     # Tronc vertical et stable
     if trunk_mean < 25 and trunk_rom < 12:
@@ -1693,9 +1711,10 @@ def detect_by_pattern(angles: AngleResult) -> DetectionResult:
             reasoning="Score trop faible ({:.2f}). Meilleur candidat: {}. {}".format(best[1], best[0].value, best[2]),
         )
 
+    best_conf = max(0.0, min(1.0, best[1]))
     return DetectionResult(
         exercise=best[0],
-        confidence=best[1],
+        confidence=best_conf,
         reasoning=best[2],
     )
 

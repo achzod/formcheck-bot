@@ -211,8 +211,7 @@ def extract_pose(
     with vision.PoseLandmarker.create_from_options(options) as landmarker:
         frame_idx = 0
         _prev_center: tuple[float, float] | None = None
-        _prev_landmarks: list[Any] | None = None
-        _motion_scores: dict[int, float] = {}  # person_idx → cumulative motion
+        _prev_area: float | None = None
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -229,54 +228,62 @@ def extract_pose(
             detection_result = landmarker.detect_for_video(mp_image, timestamp_ms)
 
             if detection_result.pose_landmarks and len(detection_result.pose_landmarks) > 0:
-                # Multi-person: pick the person closest to the previous frame's tracked person
-                # (temporal consistency). First frame uses largest bounding box.
-                lms = detection_result.pose_landmarks[0]
-                if len(detection_result.pose_landmarks) > 1:
-                    best_idx = 0
-                    if _prev_center is not None and _prev_landmarks is not None:
-                        # Pick person whose landmarks are closest to previous AND
-                        # accumulate motion score for each person
-                        best_score = float("inf")
-                        for p_idx, p_lms in enumerate(detection_result.pose_landmarks):
-                            cx = float(np.mean([p_lms[i].x for i in range(min(len(p_lms), 33))]))
-                            cy = float(np.mean([p_lms[i].y for i in range(min(len(p_lms), 33))]))
-                            dist = (cx - _prev_center[0]) ** 2 + (cy - _prev_center[1]) ** 2
-                            if dist < best_score:
-                                best_score = dist
-                                best_idx = p_idx
-                    elif _motion_scores and frame_idx > 30:
-                        # After 30 frames, pick person with MOST motion (the one exercising)
-                        best_idx = max(_motion_scores, key=_motion_scores.get)
-                    else:
-                        # First frames: pick largest bounding box
-                        best_area = 0.0
-                        for p_idx, p_lms in enumerate(detection_result.pose_landmarks):
-                            xs = [p_lms[i].x for i in range(min(len(p_lms), 33))]
-                            ys = [p_lms[i].y for i in range(min(len(p_lms), 33))]
-                            area = (max(xs) - min(xs)) * (max(ys) - min(ys))
-                            if area > best_area:
-                                best_area = area
-                                best_idx = p_idx
-                    lms = detection_result.pose_landmarks[best_idx]
-                # Accumulate motion scores for multi-person tracking
-                if len(detection_result.pose_landmarks) > 1 and _prev_landmarks is not None:
-                    for p_idx, p_lms in enumerate(detection_result.pose_landmarks):
-                        # Calculate total landmark displacement vs previous frame
-                        motion = 0.0
-                        for li in range(min(len(p_lms), 33)):
-                            if _prev_landmarks and li < len(_prev_landmarks):
-                                dx = p_lms[li].x - _prev_landmarks[li].x
-                                dy = p_lms[li].y - _prev_landmarks[li].y
-                                motion += dx * dx + dy * dy
-                        _motion_scores[p_idx] = _motion_scores.get(p_idx, 0.0) + motion
-                _prev_landmarks = lms
+                # Multi-person tracking:
+                # 1) initial frame -> largest clear subject
+                # 2) following frames -> strongest continuity vs previous center,
+                #    while preventing jumps to tiny background people.
+                poses = detection_result.pose_landmarks
+                pose_meta: list[tuple[tuple[float, float], float, float]] = []
+                for p_lms in poses:
+                    xs = [p_lms[i].x for i in range(min(len(p_lms), 33))]
+                    ys = [p_lms[i].y for i in range(min(len(p_lms), 33))]
+                    vis = [
+                        float(p_lms[i].visibility) if hasattr(p_lms[i], "visibility") else 1.0
+                        for i in range(min(len(p_lms), 33))
+                    ]
+                    cx = float(np.mean(xs)) if xs else 0.0
+                    cy = float(np.mean(ys)) if ys else 0.0
+                    area = (max(xs) - min(xs)) * (max(ys) - min(ys)) if xs and ys else 0.0
+                    mean_vis = float(np.mean(vis)) if vis else 0.0
+                    pose_meta.append(((cx, cy), float(area), mean_vis))
 
-                # Update tracked center for next frame
-                _prev_center = (
-                    float(np.mean([lms[i].x for i in range(min(len(lms), 33))])),
-                    float(np.mean([lms[i].y for i in range(min(len(lms), 33))])),
-                )
+                best_idx = 0
+                if len(poses) > 1:
+                    max_area = max(m[1] for m in pose_meta) if pose_meta else 0.0
+                    if _prev_center is None:
+                        # Start with the most prominent/visible subject.
+                        best_idx = max(
+                            range(len(poses)),
+                            key=lambda i: pose_meta[i][1] * max(0.2, pose_meta[i][2]),
+                        )
+                    else:
+                        # Keep temporal continuity, but don't switch to tiny subjects.
+                        candidate_indices = [
+                            i
+                            for i in range(len(poses))
+                            if pose_meta[i][1] >= max_area * 0.45 and pose_meta[i][2] >= 0.20
+                        ]
+                        if not candidate_indices:
+                            candidate_indices = list(range(len(poses)))
+
+                        def _track_cost(i: int) -> float:
+                            (cx, cy), area, mean_vis = pose_meta[i]
+                            dist = (cx - _prev_center[0]) ** 2 + (cy - _prev_center[1]) ** 2
+                            size_penalty = 0.35 * max(0.0, 1.0 - (area / max(max_area, 1e-6)))
+                            vis_penalty = 0.10 * max(0.0, 0.4 - mean_vis)
+                            if _prev_area is not None and _prev_area > 1e-6:
+                                size_jump = abs((area / _prev_area) - 1.0)
+                                size_penalty += min(0.25, 0.08 * size_jump)
+                            return dist + size_penalty + vis_penalty
+
+                        best_idx = min(candidate_indices, key=_track_cost)
+                        # Final guardrail: avoid tiny background lock-on.
+                        if pose_meta[best_idx][1] < max_area * 0.25:
+                            best_idx = max(range(len(poses)), key=lambda i: pose_meta[i][1])
+
+                lms = poses[best_idx]
+                _prev_center = pose_meta[best_idx][0]
+                _prev_area = pose_meta[best_idx][1]
                 landmarks = [
                     _landmark_to_dict(lms[i], LANDMARK_NAMES[i])
                     for i in range(min(len(lms), len(LANDMARK_NAMES)))
