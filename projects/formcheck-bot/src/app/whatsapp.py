@@ -219,14 +219,19 @@ def parse_incoming(body: dict[str, Any]) -> dict[str, Any] | None:
         if num_media > 0:
             media_url = body.get("MediaUrl0", "")
             content_type = body.get("MediaContentType0", "")
+            caption = body.get("Body", "")
             if "video" in content_type:
                 result["type"] = "video"
                 result["media_url"] = media_url
                 result["mime_type"] = content_type
+                if caption:
+                    result["text"] = caption
             elif "image" in content_type:
                 result["type"] = "image"
                 result["media_url"] = media_url
                 result["mime_type"] = content_type
+                if caption:
+                    result["text"] = caption
             else:
                 result["type"] = "unsupported"
         else:

@@ -20,7 +20,8 @@ WELCOME = (
     "2. Camera fixe, bon eclairage\n"
     "3. 3 a 8 reps completes\n"
     "4. Video max 16 MB sur WhatsApp (desactive HD/4K)\n"
-    "5. Si plus lourd, coupe en 2-4 clips plus courts\n\n"
+    "5. Si plus lourd, coupe en 2-4 clips plus courts\n"
+    "6. Envoie-les en notant 1/3, 2/3, 3/3\n\n"
     "*1 analyse offerte.* Envoie ta video."
 )
 
@@ -266,13 +267,15 @@ UNSUPPORTED_MESSAGE = (
 HELP_TEXT = (
     "Envoie-moi une *video* de ton exercice (max 16 MB).\n"
     "Tape *menu* pour les options et *guide* pour les conseils de tournage.\n"
-    "Si ta video est lourde, coupe-la en plusieurs clips et envoie-les sur WhatsApp."
+    "Si ta video est lourde, coupe-la en clips 1/3, 2/3, 3/3.\n"
+    "Tape *clips* pour le mode multi-clips."
 )
 
 MENU_TEXT = (
     "*FORMCHECK by ACHZOD*\n\n"
     "Envoie une *video* pour une analyse (max 16 MB).\n\n"
     "*guide* — Conseils de tournage\n"
+    "*clips* — Mode multi-clips (1/3, 2/3, 3/3)\n"
     "*upload* — Rappel des regles pour videos lourdes sur WhatsApp\n"
     "*credits* — Analyses restantes\n"
     "*forfaits* — Recharger\n"
@@ -283,8 +286,16 @@ UPLOAD_INSTRUCTIONS = (
     "Mode 100% WhatsApp pour videos longues/lourdes:\n\n"
     "1. Coupe ta serie en 2 a 4 clips de 10 a 30 sec\n"
     "2. Desactive HD/4K, reste en 720p ou 1080p\n"
-    "3. Envoie les clips un par un sur WhatsApp\n"
-    "4. J'analyse chaque clip des reception"
+    "3. Ecris le numero du clip dans le message: 1/3 puis 2/3 puis 3/3\n"
+    "4. J'attends tous les clips puis je fais un seul rapport final"
+)
+
+CLIPS_INSTRUCTIONS = (
+    "Mode multi-clips WhatsApp:\n\n"
+    "1. Coupe ta serie en 2 a 4 clips\n"
+    "2. Envoie-les avec numerotation: 1/3, 2/3, 3/3\n"
+    "3. J'assemble les clips et je lance une seule analyse finale\n\n"
+    "Important: garde le meme angle/cadrage entre les clips."
 )
 
 # ── ERREURS ──────────────────────────────────────────────────────────────────

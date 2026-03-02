@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass, field
 import logging
 import os
 from pathlib import Path
+import re
+import time
+import uuid
 
 from app import database as db
 from app import messages as msg
 from app import whatsapp as wa
 from app.config import settings as app_settings
 from app.media_handler import (
+    VIDEOS_DIR,
     cleanup_video,
     publish_annotated_frames,
     save_video,
@@ -37,6 +42,180 @@ _FRAME_LABELS: dict[str, str] = {
     "mid": "Pic de contraction",
     "end": "Lockout / Retour",
 }
+_LOCAL_VIDEO_MAX_BYTES = 24 * 1024 * 1024
+_CLIP_BATCH_TIMEOUT_S = 30 * 60
+_MAX_CLIPS_PER_BATCH = 6
+_CLIP_HINT_TTL_S = 180
+_CLIP_HINT_PATTERNS = (
+    re.compile(r"\b([1-9]\d?)\s*/\s*([1-9]\d?)\b"),
+    re.compile(r"\b([1-9]\d?)\s+sur\s+([1-9]\d?)\b"),
+)
+
+
+@dataclass
+class ClipBatch:
+    total_clips: int
+    clips: dict[int, str] = field(default_factory=dict)
+    created_at: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
+
+
+_pending_clip_batches: dict[str, ClipBatch] = {}
+_pending_clip_hints: dict[str, tuple[int, int, float]] = {}
+
+
+def _is_analysis_locked(phone: str) -> bool:
+    active_since = _active_analyses.get(phone, 0.0)
+    return bool(active_since and (time.time() - active_since) < _ANALYSIS_TIMEOUT)
+
+
+def _acquire_analysis_lock(phone: str) -> bool:
+    if _is_analysis_locked(phone):
+        return False
+    _active_analyses[phone] = time.time()
+    return True
+
+
+def _parse_clip_hint(text: str) -> tuple[int, int] | None:
+    cleaned = (text or "").strip().lower()
+    if not cleaned:
+        return None
+    for pattern in _CLIP_HINT_PATTERNS:
+        match = pattern.search(cleaned)
+        if not match:
+            continue
+        clip_index = int(match.group(1))
+        clip_total = int(match.group(2))
+        if clip_total < 2 or clip_total > _MAX_CLIPS_PER_BATCH:
+            return None
+        if clip_index < 1 or clip_index > clip_total:
+            return None
+        return clip_index, clip_total
+    return None
+
+
+def _infer_video_extension(mime_type: str | None) -> str:
+    mt = (mime_type or "").lower()
+    if "quicktime" in mt:
+        return ".mov"
+    if "webm" in mt:
+        return ".webm"
+    if "x-matroska" in mt or "mkv" in mt:
+        return ".mkv"
+    if "avi" in mt:
+        return ".avi"
+    if "mp4" in mt:
+        return ".mp4"
+    return ".mp4"
+
+
+def _cleanup_clip_batch(batch: ClipBatch) -> None:
+    for clip_path in batch.clips.values():
+        cleanup_video(clip_path)
+
+
+def _cleanup_stale_clip_batches() -> None:
+    now = time.time()
+    stale_phones: list[str] = []
+    for phone, batch in _pending_clip_batches.items():
+        if (now - batch.updated_at) > _CLIP_BATCH_TIMEOUT_S:
+            stale_phones.append(phone)
+    for phone in stale_phones:
+        batch = _pending_clip_batches.pop(phone, None)
+        if batch:
+            _cleanup_clip_batch(batch)
+
+
+def _register_clip(phone: str, clip_index: int, clip_total: int, clip_path: str) -> tuple[ClipBatch, bool]:
+    _cleanup_stale_clip_batches()
+    batch = _pending_clip_batches.get(phone)
+
+    if batch is None or batch.total_clips != clip_total:
+        if batch is not None:
+            _cleanup_clip_batch(batch)
+        batch = ClipBatch(total_clips=clip_total)
+        _pending_clip_batches[phone] = batch
+
+    previous_path = batch.clips.get(clip_index)
+    if previous_path:
+        cleanup_video(previous_path)
+
+    batch.clips[clip_index] = clip_path
+    batch.updated_at = time.time()
+
+    is_complete = all(i in batch.clips for i in range(1, batch.total_clips + 1))
+    return batch, is_complete
+
+
+def _store_pending_clip_hint(phone: str, clip_index: int, clip_total: int) -> None:
+    _pending_clip_hints[phone] = (clip_index, clip_total, time.time())
+
+
+def _consume_pending_clip_hint(phone: str) -> tuple[int, int] | None:
+    hint = _pending_clip_hints.pop(phone, None)
+    if not hint:
+        return None
+    clip_index, clip_total, ts = hint
+    if (time.time() - ts) > _CLIP_HINT_TTL_S:
+        return None
+    return clip_index, clip_total
+
+
+async def _merge_clips_to_video(clip_paths: list[str]) -> str:
+    if not clip_paths:
+        raise ValueError("no_clip_paths")
+    if len(clip_paths) == 1:
+        return clip_paths[0]
+
+    out_path = VIDEOS_DIR / "{}_merged.mp4".format(uuid.uuid4())
+    inputs: list[str] = []
+    normalize_filters: list[str] = []
+    concat_inputs: list[str] = []
+    for idx, clip_path in enumerate(clip_paths):
+        inputs.extend(["-i", clip_path])
+        normalize_filters.append(
+            "[{i}:v:0]scale=trunc(iw/2)*2:trunc(ih/2)*2,"
+            "setsar=1,fps=30,format=yuv420p[v{i}]".format(i=idx)
+        )
+        concat_inputs.append("[v{}]".format(idx))
+    filter_complex = "{};{}concat=n={}:v=1:a=0[vout]".format(
+        ";".join(normalize_filters),
+        "".join(concat_inputs),
+        len(clip_paths),
+    )
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        *inputs,
+        "-filter_complex",
+        filter_complex,
+        "-map",
+        "[vout]",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-movflags",
+        "+faststart",
+        str(out_path),
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await asyncio.wait_for(proc.communicate(), timeout=240)
+    if proc.returncode != 0:
+        cleanup_video(str(out_path))
+        error_tail = stderr.decode("utf-8", errors="ignore")[-1600:]
+        raise RuntimeError("ffmpeg_merge_failed: {}".format(error_tail))
+    return str(out_path)
 
 
 async def handle_incoming_message(data: dict) -> None:
@@ -121,10 +300,25 @@ async def handle_text(user: db.User, data: dict) -> None:
         await wa.send_text(phone, msg.HELP_TEXT)
         return
 
+    clip_hint = _parse_clip_hint(text)
+    if clip_hint is not None:
+        clip_index, clip_total = clip_hint
+        _store_pending_clip_hint(phone, clip_index, clip_total)
+        await wa.send_text(
+            phone,
+            "OK, envoie maintenant la video du clip {}/{}.".format(
+                clip_index,
+                clip_total,
+            ),
+        )
+        return
+
     if text in ("aide", "help", "?", "menu"):
         await wa.send_text(phone, msg.MENU_TEXT)
     elif text in ("guide", "tournage", "filmer", "comment filmer"):
         await wa.send_text(phone, msg.FILMING_GUIDE)
+    elif text in ("clips", "clip", "multi clips", "multiclips", "multi-clip"):
+        await wa.send_text(phone, msg.CLIPS_INSTRUCTIONS)
     elif text in ("upload", "video longue", "video lourde", "grosse video", "gros fichier", "longue", "lourde"):
         await wa.send_text(phone, msg.UPLOAD_INSTRUCTIONS)
     elif text in ("crédits", "credits", "solde"):
@@ -142,7 +336,7 @@ async def handle_text(user: db.User, data: dict) -> None:
         await wa.send_text(
             phone,
             "Yo ! Envoie-moi une *video* de ton exercice (max 16 MB sur WhatsApp) pour une analyse biomecanique.\n"
-            "Si ta video est plus lourde, coupe-la en 2-4 clips et envoie-les.\n"
+            "Si ta video est plus lourde, coupe-la en 2-4 clips (1/3, 2/3, 3/3).\n"
             "Tape *menu* pour voir toutes les options.",
         )
     else:
@@ -154,6 +348,8 @@ async def handle_video(user: db.User, data: dict) -> None:
     phone = user.phone
     lock_acquired = False
     analysis_dispatched = False
+    saved_video_path: str | None = None
+    keep_saved_video = False
 
     try:
         # Refresh user data (prevent stale credit count)
@@ -165,29 +361,6 @@ async def handle_video(user: db.User, data: dict) -> None:
         if not app_settings.test_mode and not app_settings.test_mode_free and not await db.has_credits(user):
             await handle_no_credits(user)
             return
-
-        # Suggerer le profil morpho si le client n'en a pas (une seule fois)
-        has_morpho = await db.has_morpho_profile(user.id)
-        if not has_morpho:
-            await wa.send_text(
-                phone,
-                "Tu n'as pas encore de profil morphologique. "
-                "L'analyse utilisera des seuils generiques.\n"
-                "Tape *morpho* apres cette analyse pour creer ton profil "
-                "et avoir des analyses personnalisees.",
-            )
-
-        # Rate limit — one analysis at a time per user (with auto-expiry)
-        import time
-        active_since = _active_analyses.get(phone, 0)
-        if active_since and (time.time() - active_since) < _ANALYSIS_TIMEOUT:
-            await wa.send_text(phone, msg.RATE_LIMIT)
-            return
-        _active_analyses[phone] = time.time()
-        lock_acquired = True
-
-        # Acknowledge
-        await wa.send_text(phone, msg.VIDEO_RECEIVED)
 
         # Download video from Twilio (media_url from webhook)
         media_url: str = data.get("media_url", "")
@@ -203,9 +376,8 @@ async def handle_video(user: db.User, data: dict) -> None:
             await wa.send_text(phone, msg.ERROR_GENERIC)
             return
 
-        # Validate video size (WhatsApp via Twilio limit: 16MB)
-        MAX_VIDEO_SIZE = 16 * 1024 * 1024
-        if len(video_bytes) > MAX_VIDEO_SIZE:
+        # Local safeguard limit (Twilio may deliver slightly above 16MB).
+        if len(video_bytes) > _LOCAL_VIDEO_MAX_BYTES:
             await wa.send_text(phone, msg.ERROR_VIDEO_TOO_LARGE)
             return
 
@@ -213,18 +385,119 @@ async def handle_video(user: db.User, data: dict) -> None:
             await wa.send_text(phone, msg.ERROR_VIDEO_TOO_SHORT)
             return
 
-        # Save locally
-        video_path = save_video(video_bytes)
+        clip_hint = _parse_clip_hint(data.get("text", ""))
+        if clip_hint is None:
+            clip_hint = _consume_pending_clip_hint(phone)
+        extension = _infer_video_extension(data.get("mime_type"))
+        saved_video_path = str(save_video(video_bytes, extension=extension))
 
-        # Create analysis record
-        analysis = await db.create_analysis(user_id=user.id, video_path=str(video_path))
+        # Multi-clips mode (caption like 1/3, 2/3, 3/3).
+        if clip_hint is not None:
+            clip_index, clip_total = clip_hint
+            batch, is_complete = _register_clip(
+                phone=phone,
+                clip_index=clip_index,
+                clip_total=clip_total,
+                clip_path=saved_video_path,
+            )
+            keep_saved_video = True
 
-        # Launch async analysis in background
+            if not is_complete:
+                await wa.send_text(
+                    phone,
+                    "Clip {idx}/{total} recu ({received}/{total}). "
+                    "Envoie le clip suivant.".format(
+                        idx=clip_index,
+                        total=clip_total,
+                        received=len(batch.clips),
+                    ),
+                )
+                return
+
+            if not _acquire_analysis_lock(phone):
+                await wa.send_text(phone, msg.RATE_LIMIT)
+                return
+            lock_acquired = True
+
+            has_morpho = await db.has_morpho_profile(user.id)
+            if not has_morpho:
+                await wa.send_text(
+                    phone,
+                    "Tu n'as pas encore de profil morphologique. "
+                    "L'analyse utilisera des seuils generiques.\n"
+                    "Tape *morpho* apres cette analyse pour creer ton profil "
+                    "et avoir des analyses personnalisees.",
+                )
+
+            await wa.send_text(
+                phone,
+                "Clips recus ({}/{}). Fusion puis analyse en cours...".format(
+                    batch.total_clips,
+                    batch.total_clips,
+                ),
+            )
+            ordered_clip_paths = [
+                batch.clips[i] for i in range(1, batch.total_clips + 1)
+            ]
+            try:
+                merged_video_path = await _merge_clips_to_video(ordered_clip_paths)
+            except Exception:
+                logger.exception("Clip fusion failed for %s", phone)
+                await wa.send_text(phone, msg.ERROR_GENERIC)
+                _cleanup_clip_batch(batch)
+                _pending_clip_batches.pop(phone, None)
+                keep_saved_video = False
+                return
+
+            _cleanup_clip_batch(batch)
+            _pending_clip_batches.pop(phone, None)
+            keep_saved_video = False
+
+            analysis = await db.create_analysis(user_id=user.id, video_path=merged_video_path)
+            asyncio.create_task(
+                _run_analysis(phone, user.id, analysis.id, merged_video_path)
+            )
+            analysis_dispatched = True
+            return
+
+        # If user started a clip batch but forgot x/y syntax on next clip.
+        existing_batch = _pending_clip_batches.get(phone)
+        if existing_batch:
+            keep_saved_video = False
+            await wa.send_text(
+                phone,
+                "J'attends un format clip (ex: 2/{}). "
+                "Renvoie ce clip avec sa numerotation.".format(existing_batch.total_clips),
+            )
+            return
+
+        if not _acquire_analysis_lock(phone):
+            await wa.send_text(phone, msg.RATE_LIMIT)
+            return
+        lock_acquired = True
+
+        # Suggerer le profil morpho si le client n'en a pas (une seule fois).
+        has_morpho = await db.has_morpho_profile(user.id)
+        if not has_morpho:
+            await wa.send_text(
+                phone,
+                "Tu n'as pas encore de profil morphologique. "
+                "L'analyse utilisera des seuils generiques.\n"
+                "Tape *morpho* apres cette analyse pour creer ton profil "
+                "et avoir des analyses personnalisees.",
+            )
+
+        await wa.send_text(phone, msg.VIDEO_RECEIVED)
+
+        keep_saved_video = True
+        analysis = await db.create_analysis(user_id=user.id, video_path=saved_video_path)
         asyncio.create_task(
-            _run_analysis(phone, user.id, analysis.id, str(video_path))
+            _run_analysis(phone, user.id, analysis.id, saved_video_path)
         )
         analysis_dispatched = True
     finally:
+        if saved_video_path and not analysis_dispatched and not keep_saved_video:
+            cleanup_video(saved_video_path)
         # If analysis never started, release lock immediately (avoid 5min stale lock).
         if lock_acquired and not analysis_dispatched:
             _active_analyses.pop(phone, None)
