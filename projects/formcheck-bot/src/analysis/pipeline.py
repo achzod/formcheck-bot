@@ -28,7 +28,13 @@ from typing import Any, Callable
 
 from analysis.angle_calculator import AngleResult, angles_to_dict, compute_angles
 from analysis.confidence import AnalysisConfidence, compute_confidence
-from analysis.exercise_detector import DetectionResult, Exercise, detect_exercise
+from analysis.exercise_detector import (
+    DetectionResult,
+    Exercise,
+    _get_candidate_exercises,
+    detect_by_pattern,
+    detect_exercise,
+)
 from analysis.frame_annotator import annotate_key_frames
 from analysis.pose_extractor import (
     ExtractionResult,
@@ -36,7 +42,7 @@ from analysis.pose_extractor import (
     extraction_to_json,
     save_extraction_json,
 )
-from analysis.rep_segmenter import RepSegmentation, segment_reps
+from analysis.rep_segmenter import PRIMARY_ANGLE_MAP, RepSegmentation, segment_reps
 from analysis.report_generator import Report, generate_report, report_to_dict
 from analysis.smoothing import smooth_landmarks
 from analysis.video_validator import VideoValidation, validate_video
@@ -72,6 +78,48 @@ _USER_ERRORS = {
         "Réessaie dans quelques instants — si le problème persiste, "
         "contacte le support."
     ),
+}
+
+_GEMINI_EXERCISE_ALIASES: dict[str, str] = {
+    "dumbbell_bicep_curl": "dumbbell_curl",
+    "dumbbell_biceps_curl": "dumbbell_curl",
+    "barbell_bicep_curl": "curl",
+    "barbell_biceps_curl": "curl",
+    "barbell_curl": "curl",
+    "bicep_curl": "curl",
+    "biceps_curl": "curl",
+    "ez_bar_curl": "curl",
+    "cable_bicep_curl": "cable_curl",
+    "cable_biceps_curl": "cable_curl",
+    "dumbbell_bicep_curl_with_supination": "dumbbell_curl",
+    "dumbbell_shoulder_press": "ohp",
+    "overhead_press": "ohp",
+    "military_press": "ohp",
+    "barbell_bench_press": "bench_press",
+    "flat_bench_press": "bench_press",
+    "incline_dumbbell_press": "incline_bench",
+    "barbell_squat": "squat",
+    "back_squat": "squat",
+    "conventional_deadlift": "deadlift",
+    "barbell_row": "barbell_row",
+    "bent_over_row": "barbell_row",
+    "barre_au_torse": "barbell_row",
+    "tirage_horizontal_barre": "barbell_row",
+    "pull_up": "pullup",
+    "chin_up": "pullup",
+    "lat_pull_down": "lat_pulldown",
+    "dumbbell_lateral_raise": "lateral_raise",
+    "dumbbell_front_raise": "front_raise",
+    "tricep_pushdown": "tricep_extension",
+    "rope_pushdown": "tricep_extension",
+    "face_pull": "face_pull",
+    "hip_thrust": "hip_thrust",
+    "barbell_hip_thrust": "hip_thrust",
+    "leg_press": "leg_press",
+    "leg_extension": "leg_extension",
+    "leg_curl": "leg_curl",
+    "calf_raise": "calf_raise",
+    "standing_calf_raise": "calf_raise",
 }
 
 # Nombre total d'étapes pour le suivi de progression
@@ -157,6 +205,116 @@ def _notify_progress(cfg: PipelineConfig, step: int, desc: str) -> None:
             cfg.progress_callback(step, TOTAL_STEPS, desc)
         except Exception:
             pass  # Le callback de progression ne doit jamais bloquer le pipeline
+
+
+def _normalize_exercise_name(name: str | None) -> str:
+    return (name or "").strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _exercise_group(exercise_name: str) -> str:
+    """Retourne la famille biomécanique principale d'un exercice."""
+    attr = PRIMARY_ANGLE_MAP.get(exercise_name, "")
+    if "knee" in attr or "hip" in attr:
+        return "lower"
+    if "elbow" in attr or "shoulder" in attr:
+        return "upper"
+    if "trunk" in attr:
+        return "core"
+    return "mixed"
+
+
+def _motion_profile(angles: AngleResult) -> dict[str, float | str]:
+    """Déduit la famille de mouvement dominante depuis les ROM articulaires."""
+    stats = getattr(angles, "stats", {}) or {}
+
+    def _rom(key: str) -> float:
+        s = stats.get(key)
+        if not s:
+            return 0.0
+        return float(getattr(s, "range_of_motion", 0.0) or 0.0)
+
+    knee = max(_rom("left_knee_flexion"), _rom("right_knee_flexion"))
+    hip = max(_rom("left_hip_flexion"), _rom("right_hip_flexion"))
+    elbow = max(_rom("left_elbow_flexion"), _rom("right_elbow_flexion"))
+    shoulder = max(
+        _rom("left_shoulder_flexion"),
+        _rom("right_shoulder_flexion"),
+        _rom("left_shoulder_abduction"),
+        _rom("right_shoulder_abduction"),
+    )
+    trunk = _rom("trunk_inclination")
+
+    lower_total = knee + hip
+    upper_total = elbow + shoulder
+    dominant = "mixed"
+    if lower_total >= max(25.0, upper_total * 1.25):
+        dominant = "lower"
+    elif upper_total >= max(20.0, lower_total * 1.25):
+        dominant = "upper"
+    elif trunk >= max(18.0, lower_total * 0.8, upper_total * 0.8):
+        dominant = "core"
+
+    return {
+        "dominant": dominant,
+        "knee_rom": round(knee, 1),
+        "hip_rom": round(hip, 1),
+        "elbow_rom": round(elbow, 1),
+        "shoulder_rom": round(shoulder, 1),
+        "trunk_rom": round(trunk, 1),
+        "lower_total": round(lower_total, 1),
+        "upper_total": round(upper_total, 1),
+    }
+
+
+def _detection_candidate_score(
+    candidate: DetectionResult,
+    pattern_result: DetectionResult,
+    motion: dict[str, float | str],
+) -> float:
+    """Score une hypothèse d'exercice avec cohérence biomécanique."""
+    score = float(candidate.confidence)
+    dominant = str(motion.get("dominant", "mixed"))
+    group = _exercise_group(candidate.exercise.value)
+
+    if dominant in {"lower", "upper", "core"}:
+        if group == dominant:
+            score += 0.24
+        elif group != "mixed":
+            score -= 0.22
+
+    if pattern_result.exercise != Exercise.UNKNOWN:
+        if candidate.exercise == pattern_result.exercise:
+            score += 0.12 + (0.08 * max(0.0, min(1.0, pattern_result.confidence)))
+        elif pattern_result.confidence >= 0.75:
+            score -= 0.08
+
+    return score
+
+
+def _needs_detection_crosscheck(
+    gemini_detection: DetectionResult,
+    pattern_result: DetectionResult,
+    motion: dict[str, float | str],
+) -> bool:
+    """Détermine si la détection Gemini doit être contre-vérifiée."""
+    if gemini_detection.confidence < 0.72:
+        return True
+
+    dominant = str(motion.get("dominant", "mixed"))
+    gemini_group = _exercise_group(gemini_detection.exercise.value)
+    if dominant in {"lower", "upper", "core"} and gemini_group not in {dominant, "mixed"}:
+        return True
+
+    if (
+        pattern_result.exercise != Exercise.UNKNOWN
+        and pattern_result.exercise != gemini_detection.exercise
+        and pattern_result.confidence >= 0.60
+    ):
+        pattern_group = _exercise_group(pattern_result.exercise.value)
+        if pattern_group == dominant or pattern_result.confidence >= 0.75:
+            return True
+
+    return False
 
 
 def run_pipeline(
@@ -307,149 +465,184 @@ def run_pipeline(
         return result
 
     # ── Étape 5 : Détection de l'exercice ────────────────────────────────
-    # PRIMARY: Gemini 2.5 Flash video analysis (sees full video, movement, equipment)
-    # FALLBACK: GPT-4o Vision on static frames (original method)
+    # PRIMARY: Gemini 2.5 Flash video analysis
+    # CROSS-CHECK: Pattern + GPT-4o Vision when Gemini is uncertain/incoherent
     _notify_progress(cfg, 5, "Détection de l'exercice")
     logger.info("Étape 5/%d : Détection de l'exercice...", TOTAL_STEPS)
     t0 = time.monotonic()
-    
-    gemini_rep_count = 0  # Will be set if Gemini succeeds
-    
+
+    gemini_rep_count = 0
+    pattern_seed = detect_by_pattern(angles)
+    motion = _motion_profile(angles)
+    logger.info(
+        "  → Pattern seed: %s (conf=%.2f) | motion=%s",
+        pattern_seed.exercise.value,
+        pattern_seed.confidence,
+        motion,
+    )
+
+    # Pré-extraire 3 frames pour cross-check vision (réutilisées si Gemini douteux).
+    det_frames: dict[str, str] = {}
     try:
-        import os as _os_det
-        if _os_det.environ.get("GEMINI_API_KEY", "").strip():
-            # ── Gemini PRIMARY: full video understanding ──
-            logger.info("  → Using Gemini 2.5 Flash (video analysis)...")
-            from analysis.gemini_detector import detect_exercise_gemini
-            gemini_result = detect_exercise_gemini(
-                video_path=str(video),
-            )
-            
-            # Map Gemini result to DetectionResult
-            from analysis.exercise_detector import Exercise
-            exercise_name = gemini_result["exercise"]
-            # Try to map to known Exercise enum
-            try:
-                exercise_enum = Exercise(exercise_name)
-            except ValueError:
-                # Try common aliases
-                _gemini_aliases = {
-                    "dumbbell_bicep_curl": "dumbbell_curl",
-                    "dumbbell_biceps_curl": "dumbbell_curl",
-                    "barbell_bicep_curl": "curl",
-                    "barbell_biceps_curl": "curl",
-                    "barbell_curl": "curl",
-                    "bicep_curl": "curl",
-                    "biceps_curl": "curl",
-                    "ez_bar_curl": "curl",
-                    "cable_bicep_curl": "cable_curl",
-                    "cable_biceps_curl": "cable_curl",
-                    "dumbbell_bicep_curl_with_supination": "dumbbell_curl",
-                    "dumbbell_shoulder_press": "ohp",
-                    "overhead_press": "ohp",
-                    "military_press": "ohp",
-                    "barbell_bench_press": "bench_press",
-                    "flat_bench_press": "bench_press",
-                    "incline_dumbbell_press": "incline_bench",
-                    "barbell_squat": "squat",
-                    "back_squat": "squat",
-                    "conventional_deadlift": "deadlift",
-                    "barbell_row": "barbell_row",
-                    "bent_over_row": "barbell_row",
-                    "pull_up": "pullup",
-                    "chin_up": "pullup",
-                    "lat_pull_down": "lat_pulldown",
-                    "dumbbell_lateral_raise": "lateral_raise",
-                    "dumbbell_front_raise": "front_raise",
-                    "tricep_pushdown": "tricep_extension",
-                    "rope_pushdown": "tricep_extension",
-                    "face_pull": "face_pull",
-                    "hip_thrust": "hip_thrust",
-                    "barbell_hip_thrust": "hip_thrust",
-                    "leg_press": "leg_press",
-                    "leg_extension": "leg_extension",
-                    "leg_curl": "leg_curl",
-                    "calf_raise": "calf_raise",
-                    "standing_calf_raise": "calf_raise",
-                }
-                mapped = _gemini_aliases.get(exercise_name, exercise_name)
-                try:
-                    exercise_enum = Exercise(mapped)
-                except ValueError:
-                    logger.warning("Gemini exercise '%s' (mapped: '%s') not in enum", exercise_name, mapped)
-                    raise ValueError(
-                        "Gemini returned unsupported exercise '{}'(mapped: '{}')".format(
-                            exercise_name, mapped
-                        )
-                    )
+        import cv2 as _cv2_det
 
-            if exercise_enum == Exercise.UNKNOWN:
-                raise ValueError("Gemini returned UNKNOWN exercise, forcing GPT-4o fallback")
-            
-            detection = DetectionResult(
-                exercise=exercise_enum,
-                confidence=gemini_result["confidence"],
-                reasoning=f"[Gemini Video] Equipment: {gemini_result.get('equipment', '?')}. {gemini_result.get('reasoning', '')}",
-            )
-            gemini_rep_count = gemini_result.get("rep_count", 0)
-            
-            result.detection = detection
-            result.timings["detection"] = time.monotonic() - t0
-            logger.info(
-                "  → Gemini: %s (confiance: %.0f%%, reps: %d) (%.1fs)",
-                detection.display_name, detection.confidence * 100,
-                gemini_rep_count, result.timings["detection"],
-            )
-        else:
-            raise ValueError("GEMINI_API_KEY not set — falling back to GPT-4o Vision")
-            
-    except Exception as gemini_err:
-        # ── FALLBACK: GPT-4o Vision on static frames ──
-        logger.error("Gemini detection FAILED: %s", gemini_err, exc_info=True)
-        try:
-            from app.debug_log import log_error as _dbg_gem
-            _dbg_gem("gemini_detection_error", str(gemini_err), {"traceback": str(gemini_err)})
-        except Exception:
-            pass
-        logger.warning("Falling back to GPT-4o Vision")
-        try:
-            import cv2 as _cv2_det
-            _det_cap = _cv2_det.VideoCapture(str(video))
-            _det_total = int(_det_cap.get(_cv2_det.CAP_PROP_FRAME_COUNT))
-            _det_frames = {}
-            for _pct, _lbl in [(0.25, "start"), (0.50, "mid"), (0.75, "end")]:
-                _fidx = int(_det_total * _pct)
-                _det_cap.set(_cv2_det.CAP_PROP_POS_FRAMES, _fidx)
-                _ret, _frm = _det_cap.read()
-                if _ret and _frm is not None:
-                    _det_path = out_dir / "detect_frame_{}.jpg".format(_lbl)
-                    _cv2_det.imwrite(str(_det_path), _frm)
-                    _det_frames[_lbl] = str(_det_path)
-            _det_cap.release()
+        _det_cap = _cv2_det.VideoCapture(str(video))
+        _det_total = int(_det_cap.get(_cv2_det.CAP_PROP_FRAME_COUNT))
+        for _pct, _lbl in [(0.25, "start"), (0.50, "mid"), (0.75, "end")]:
+            _fidx = int(_det_total * _pct)
+            _det_cap.set(_cv2_det.CAP_PROP_POS_FRAMES, _fidx)
+            _ret, _frm = _det_cap.read()
+            if _ret and _frm is not None:
+                _det_path = out_dir / "detect_frame_{}.jpg".format(_lbl)
+                _cv2_det.imwrite(str(_det_path), _frm)
+                det_frames[_lbl] = str(_det_path)
+        _det_cap.release()
+    except Exception as _det_err:
+        logger.warning("Detection frame extraction failed: %s", _det_err)
 
-            mid_frame_path = _det_frames.get("mid") or extraction.key_frame_images.get("mid")
-            start_frame_path = _det_frames.get("start") or extraction.key_frame_images.get("start")
-            end_frame_path = _det_frames.get("end") or extraction.key_frame_images.get("end")
-            
-            detection = detect_exercise(
+    mid_frame_path = det_frames.get("mid") or extraction.key_frame_images.get("mid")
+    start_frame_path = det_frames.get("start") or extraction.key_frame_images.get("start")
+    end_frame_path = det_frames.get("end") or extraction.key_frame_images.get("end")
+
+    def _run_vision_detection(*, fail_hard: bool) -> DetectionResult | None:
+        try:
+            det = detect_exercise(
                 angles=angles,
                 mid_frame_path=mid_frame_path,
                 use_vision_backup=cfg.use_vision_backup,
                 start_frame_path=start_frame_path,
                 end_frame_path=end_frame_path,
             )
-            result.detection = detection
-            result.timings["detection"] = time.monotonic() - t0
             logger.info(
-                "  → GPT-4o fallback: %s (confiance: %.0f%%) (%.1fs)",
-                detection.display_name, detection.confidence * 100,
-                result.timings["detection"],
+                "  → Vision/pattern detection: %s (conf=%.2f, vision_reps=%d)",
+                det.exercise.value,
+                det.confidence,
+                int(getattr(det, "vision_rep_count", 0) or 0),
             )
+            return det
+        except Exception as det_err:
+            if fail_hard:
+                raise det_err
+            logger.warning("Vision cross-check failed (non bloquant): %s", det_err)
+            return None
+
+    gemini_detection: DetectionResult | None = None
+
+    try:
+        import os as _os_det
+
+        if not _os_det.environ.get("GEMINI_API_KEY", "").strip():
+            raise ValueError("GEMINI_API_KEY not set — forcing fallback")
+
+        logger.info("  → Using Gemini 2.5 Flash (video analysis)...")
+        from analysis.gemini_detector import detect_exercise_gemini
+
+        candidate_exercises = _get_candidate_exercises(pattern_seed, n=18)
+        gemini_result = detect_exercise_gemini(
+            video_path=str(video),
+            candidate_exercises=candidate_exercises,
+        )
+
+        exercise_name = _normalize_exercise_name(gemini_result.get("exercise"))
+        mapped_name = _GEMINI_EXERCISE_ALIASES.get(exercise_name, exercise_name)
+        try:
+            exercise_enum = Exercise(mapped_name)
+        except ValueError as map_err:
+            raise ValueError(
+                "Gemini returned unsupported exercise '{}' (mapped '{}')".format(
+                    exercise_name,
+                    mapped_name,
+                )
+            ) from map_err
+
+        if exercise_enum == Exercise.UNKNOWN:
+            raise ValueError("Gemini returned UNKNOWN exercise, forcing fallback")
+
+        gemini_detection = DetectionResult(
+            exercise=exercise_enum,
+            confidence=float(gemini_result.get("confidence", 0.0) or 0.0),
+            reasoning="[Gemini Video] Equipment: {}. {}".format(
+                gemini_result.get("equipment", "?"),
+                gemini_result.get("reasoning", ""),
+            ),
+        )
+        gemini_rep_count = int(gemini_result.get("rep_count", 0) or 0)
+        logger.info(
+            "  → Gemini raw: %s (conf=%.2f, reps=%d)",
+            gemini_detection.exercise.value,
+            gemini_detection.confidence,
+            gemini_rep_count,
+        )
+    except Exception as gemini_err:
+        logger.error("Gemini detection FAILED: %s", gemini_err, exc_info=True)
+        try:
+            from app.debug_log import log_error as _dbg_gem
+
+            _dbg_gem(
+                "gemini_detection_error",
+                str(gemini_err),
+                {"traceback": str(gemini_err)},
+            )
+        except Exception:
+            pass
+
+    fallback_detection: DetectionResult | None = None
+    if gemini_detection is None:
+        logger.warning("Falling back to GPT-4o Vision/pattern (Gemini indisponible)")
+        try:
+            fallback_detection = _run_vision_detection(fail_hard=True)
         except Exception as e:
             result.errors.append(f"Détection d'exercice échouée: {e}")
             result.user_messages.append(_USER_ERRORS["detection_failed"])
             logger.error("Détection échouée: %s", e)
             return result
+        detection = fallback_detection
+        gemini_rep_count = 0
+    else:
+        if _needs_detection_crosscheck(gemini_detection, pattern_seed, motion):
+            logger.warning(
+                "Gemini flagged for cross-check (gemini=%s conf=%.2f, pattern=%s conf=%.2f)",
+                gemini_detection.exercise.value,
+                gemini_detection.confidence,
+                pattern_seed.exercise.value,
+                pattern_seed.confidence,
+            )
+            fallback_detection = _run_vision_detection(fail_hard=False)
+
+        candidates: list[tuple[str, DetectionResult]] = [("gemini", gemini_detection)]
+        if fallback_detection and fallback_detection.exercise != Exercise.UNKNOWN:
+            candidates.append(("vision", fallback_detection))
+        if pattern_seed.exercise != Exercise.UNKNOWN and pattern_seed.confidence >= 0.45:
+            pattern_vote = DetectionResult(
+                exercise=pattern_seed.exercise,
+                confidence=min(0.95, max(0.45, pattern_seed.confidence)),
+                reasoning="[Pattern biomecanique] {}".format(pattern_seed.reasoning),
+            )
+            candidates.append(("pattern", pattern_vote))
+
+        source, detection = max(
+            candidates,
+            key=lambda item: _detection_candidate_score(item[1], pattern_seed, motion),
+        )
+        logger.info(
+            "  → Detection fusion winner: %s (source=%s, conf=%.2f)",
+            detection.exercise.value,
+            source,
+            detection.confidence,
+        )
+
+        # Si Gemini n'est pas retenu, ne pas propager son rep_count (souvent corrélé à sa mauvaise classe).
+        if source != "gemini":
+            gemini_rep_count = 0
+
+    result.detection = detection
+    result.timings["detection"] = time.monotonic() - t0
+    logger.info(
+        "  → Exercice final: %s (confiance: %.0f%%) (%.1fs)",
+        detection.display_name,
+        detection.confidence * 100,
+        result.timings["detection"],
+    )
 
     # ── Étape 5a-bis : Recalculer key frames avec l'exercice détecté ──
     # Maintenant qu'on connaît l'exercice, on peut choisir la bonne frame
@@ -691,7 +884,7 @@ def run_pipeline(
     _notify_progress(cfg, 10, "Génération du rapport")
     logger.info("Étape 10/%d : Génération du rapport biomécanique...", TOTAL_STEPS)
     t0 = time.monotonic()
-    
+
     # Extract 8 evenly-spaced raw frames for GPT-4o Vision report
     _report_frames = []
     try:
@@ -716,7 +909,7 @@ def run_pipeline(
         logger.info("Extracted %d frames for report generation", len(_report_frames))
     except Exception as _rfe:
         logger.warning("Failed to extract report frames: %s", _rfe)
-    
+
     try:
         report = generate_report(
             exercise=detection,

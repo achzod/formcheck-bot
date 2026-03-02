@@ -452,7 +452,18 @@ async def _run_analysis(
         score = result.report.score
         exercise = result.report.exercise_display
         reps = result.reps.total_reps if result.reps else 0
-        
+        intensity_line = ""
+        if result.reps and result.reps.total_reps >= 2 and result.reps.intensity_score > 0:
+            intensity_line = (
+                "\nIntensite: {score}/100 ({label}) — repos moyen {rest:.2f}s"
+            ).format(
+                score=result.reps.intensity_score,
+                label=result.reps.intensity_label,
+                rest=result.reps.avg_inter_rep_rest_s,
+            )
+        elif result.reps and result.reps.total_reps >= 2:
+            intensity_line = "\nIntensite: estimation limitee sur cette video."
+
         # Credits info inline (no separate message)
         credits_line = ""
         user_updated = await db.get_user_by_phone(phone)
@@ -461,16 +472,18 @@ async def _run_analysis(
                 credits_line = "\n_{} analyse(s) restante(s)_".format(user_updated.credits)
             else:
                 credits_line = "\n_Derniere analyse ! Tape *forfaits* pour recharger._"
-        
+
         short_msg = (
             "*{exercise}* — *{score}/100*"
-            "{reps_line}\n\n"
+            "{reps_line}"
+            "{intensity_line}\n\n"
             "{report_url}"
             "{credits_line}"
         ).format(
             exercise=exercise,
             score=score,
             reps_line=" — {} reps".format(reps) if reps > 0 else "",
+            intensity_line=intensity_line,
             report_url=report_url,
             credits_line=credits_line,
         )

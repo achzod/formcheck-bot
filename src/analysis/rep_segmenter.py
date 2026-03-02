@@ -429,8 +429,11 @@ class RepSegmentation:
     peak_count: int = 0
     autocorr_count: int = 0
     zerocross_count: int = 0
+    extrema_count: int = 0
     robust_count: int = 0
     count_method: str = "peak"
+    segmentation_signal: str = ""
+    auto_signal_selected: bool = False
     # Intensite de serie (densite = repos inter-reps)
     avg_inter_rep_rest_s: float = 0.0
     median_inter_rep_rest_s: float = 0.0
@@ -453,7 +456,10 @@ class RepSegmentation:
                 "peak_count": self.peak_count,
                 "autocorr_count": self.autocorr_count,
                 "zerocross_count": self.zerocross_count,
+                "extrema_count": self.extrema_count,
                 "robust_count": self.robust_count,
+                "segmentation_signal": self.segmentation_signal,
+                "auto_signal_selected": self.auto_signal_selected,
             },
             "intensity": {
                 "score": self.intensity_score,
@@ -494,6 +500,96 @@ def _get_signal(
             values.append(val)
             indices.append(f.frame_index)
     return np.array(values), np.array(indices)
+
+
+def _mirror_attr(attr: str) -> str:
+    if attr.startswith("left_"):
+        return "right_" + attr[len("left_"):]
+    if attr.startswith("right_"):
+        return "left_" + attr[len("right_"):]
+    return attr
+
+
+def _signal_quality(signal: np.ndarray, fps: float) -> float:
+    """Heuristic quality score for rep segmentation suitability."""
+    if len(signal) < 10:
+        return 0.0
+    p95 = float(np.percentile(signal, 95))
+    p05 = float(np.percentile(signal, 5))
+    rom = max(0.0, p95 - p05)
+    if rom <= 0.5:
+        return 0.0
+    smoothed = _smooth_signal(signal, window=max(3, min(5, int(fps * 0.1))))
+    motion = float(np.mean(np.abs(np.diff(smoothed)))) * max(1.0, fps)
+    density_bonus = min(len(signal), 240) / 120.0
+    return rom + (motion * 0.05) + density_bonus
+
+
+def _default_min_rom_for_attr(attr: str) -> float:
+    if "knee" in attr:
+        return 20.0
+    if "hip" in attr:
+        return 15.0
+    if "elbow" in attr:
+        return 18.0
+    if "shoulder" in attr:
+        return 12.0
+    if "trunk" in attr:
+        return 8.0
+    return 10.0
+
+
+def _select_segmentation_signal(
+    angle_frames: list[FrameAngles],
+    exercise: str,
+    fps: float,
+) -> tuple[str, np.ndarray, np.ndarray, bool]:
+    """Select the best angle signal for rep segmentation.
+
+    Starts from the exercise-specific primary angle, but can auto-fallback
+    to a more informative signal when detection is likely wrong or one side
+    is poorly tracked.
+    """
+    preferred = PRIMARY_ANGLE_MAP.get(exercise, "left_knee_flexion")
+    candidates = [
+        preferred,
+        _mirror_attr(preferred),
+        "left_knee_flexion",
+        "right_knee_flexion",
+        "left_hip_flexion",
+        "right_hip_flexion",
+        "left_elbow_flexion",
+        "right_elbow_flexion",
+        "left_shoulder_flexion",
+        "right_shoulder_flexion",
+        "left_shoulder_abduction",
+        "right_shoulder_abduction",
+        "trunk_inclination",
+    ]
+
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for attr in candidates:
+        if attr and attr not in seen:
+            ordered.append(attr)
+            seen.add(attr)
+
+    best_attr = preferred
+    best_signal = np.array([])
+    best_indices = np.array([])
+    best_score = -1.0
+
+    for attr in ordered:
+        signal, indices = _get_signal(angle_frames, attr)
+        score = _signal_quality(signal, fps)
+        if score > best_score:
+            best_score = score
+            best_attr = attr
+            best_signal = signal
+            best_indices = indices
+
+    auto_selected = best_attr != preferred and best_score > 0
+    return best_attr, best_signal, best_indices, auto_selected
 
 
 def _smooth_signal(signal: np.ndarray, window: int = 5) -> np.ndarray:
@@ -737,6 +833,71 @@ def _compute_intensity_metrics(
     }
 
 
+def _estimate_intensity_from_count(
+    rep_count: int,
+    set_duration_s: float,
+) -> dict[str, float | int | str]:
+    """Fallback intensity estimate when per-rep segmentation is unavailable."""
+    base = {
+        "avg_inter_rep_rest_s": 0.0,
+        "median_inter_rep_rest_s": 0.0,
+        "max_inter_rep_rest_s": 0.0,
+        "rest_consistency": 0.0,
+        "set_duration_s": max(0.0, set_duration_s),
+        "reps_per_min": 0.0,
+        "intensity_score": 0,
+        "intensity_label": "indeterminee",
+    }
+    if rep_count < 2 or set_duration_s <= 0:
+        return base
+
+    reps_per_min = (rep_count * 60.0 / set_duration_s) if set_duration_s > 0 else 0.0
+    avg_cycle_s = set_duration_s / max(1, rep_count)
+    # Heuristic: assume ~20% of each cycle is micro-pause between reps.
+    avg_rest = max(0.0, avg_cycle_s * 0.20)
+
+    if avg_rest <= 0.6:
+        score = 84
+    elif avg_rest <= 1.0:
+        score = 76
+    elif avg_rest <= 1.5:
+        score = 66
+    elif avg_rest <= 2.5:
+        score = 54
+    else:
+        score = 42
+
+    if reps_per_min >= 20:
+        score += 4
+    elif reps_per_min >= 14:
+        score += 2
+    elif reps_per_min < 8:
+        score -= 6
+
+    score = int(max(0, min(100, score)))
+    if score >= 85:
+        label = "tres elevee"
+    elif score >= 70:
+        label = "elevee"
+    elif score >= 55:
+        label = "moderee"
+    elif score >= 40:
+        label = "faible"
+    else:
+        label = "tres faible"
+
+    return {
+        "avg_inter_rep_rest_s": avg_rest,
+        "median_inter_rep_rest_s": avg_rest,
+        "max_inter_rep_rest_s": avg_rest * 1.4,
+        "rest_consistency": 0.45,
+        "set_duration_s": set_duration_s,
+        "reps_per_min": reps_per_min,
+        "intensity_score": score,
+        "intensity_label": label,
+    }
+
+
 def _detect_cheat(
     reps: list[Rep],
     angle_frames: list[FrameAngles],
@@ -816,7 +977,7 @@ _JOINT_INDICES = {
 
 def _extract_joint_y_signals(raw_frames: list) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     """Extract Y position time-series for each key joint from raw landmarks.
-    
+
     Returns dict of joint_name -> (y_values, frame_indices).
     Y in image coordinates (higher Y = lower position in image).
     """
@@ -839,7 +1000,7 @@ def _extract_joint_y_signals(raw_frames: list) -> dict[str, tuple[np.ndarray, np
         vis_stats[joint_name] = (len(values), avg_vis)
         if len(values) >= 10:
             signals[joint_name] = (np.array(values), np.array(indices))
-    
+
     logger.info(
         "Joint Y extraction: %d/%d joints usable. Stats: %s",
         len(signals), len(_JOINT_INDICES),
@@ -853,12 +1014,12 @@ def _build_combined_signal(
     fps: float,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Build a variance-weighted combined signal from multi-joint Y positions.
-    
+
     1. For each joint, compute variance of its Y signal
     2. Select top joints by variance (= joints that move the most)
-    3. Normalize each to [0,1] 
+    3. Normalize each to [0,1]
     4. Combine as variance-weighted sum → single 1D signal
-    
+
     This is robust because:
     - Averaging over multiple joints smooths out individual tracking errors
     - Variance weighting focuses on joints that actually participate in the movement
@@ -870,14 +1031,14 @@ def _build_combined_signal(
     # Find common frame indices (intersection of all joints)
     all_indices_sets = [set(idx.tolist()) for _, idx in joint_signals.values()]
     common_indices = sorted(set.intersection(*all_indices_sets)) if all_indices_sets else []
-    
+
     if len(common_indices) < 10:
         # Fallback: use the joint with most frames
         best_joint = max(joint_signals.keys(), key=lambda k: len(joint_signals[k][0]))
         return joint_signals[best_joint]
 
     common_set = set(common_indices)
-    
+
     # Align all signals to common indices
     aligned = {}
     for name, (vals, idxs) in joint_signals.items():
@@ -909,7 +1070,7 @@ def _build_combined_signal(
     # Select top joints by variance (at least 5% of total variance)
     threshold = total_var * 0.05
     selected = {n: v for n, v in aligned.items() if variances[n] >= threshold}
-    
+
     if not selected:
         selected = aligned  # use all if none pass threshold
 
@@ -941,38 +1102,38 @@ def _build_combined_signal(
 
 def _trim_active_region(signal: np.ndarray, fps: float) -> np.ndarray:
     """Trim the signal to only the active (repetitive) region.
-    
+
     Removes the setup phase at the start and the walkaway at the end
     by finding the region with the highest variance (= where reps happen).
     Uses a sliding window of ~2 seconds.
     """
     n = len(signal)
     window = max(5, int(fps * 2.0))
-    
+
     if n <= window:
         return signal
-    
+
     # Compute rolling variance
     variances = []
     for i in range(n - window + 1):
         variances.append(float(np.var(signal[i:i + window])))
     variances = np.array(variances)
-    
+
     if len(variances) == 0 or np.max(variances) < 1e-10:
         return signal
-    
+
     # Threshold: regions where variance > 20% of max variance
     threshold = np.max(variances) * 0.20
     active_mask = variances > threshold
-    
+
     # Find first and last active window
     active_indices = np.where(active_mask)[0]
     if len(active_indices) < 2:
         return signal
-    
+
     start = max(0, active_indices[0])
     end = min(n, active_indices[-1] + window)
-    
+
     trimmed = signal[start:end]
     logger.info(
         "Trimmed signal: %d -> %d frames (removed %d start, %d end)",
@@ -983,7 +1144,7 @@ def _trim_active_region(signal: np.ndarray, fps: float) -> np.ndarray:
 
 def _count_by_autocorrelation(signal: np.ndarray, fps: float) -> int:
     """Count repetitions using autocorrelation to find the dominant period.
-    
+
     Autocorrelation finds periodicity in a signal by correlating it with
     time-shifted versions of itself. The first major peak after lag 0
     indicates the period (duration of one rep).
@@ -993,15 +1154,15 @@ def _count_by_autocorrelation(signal: np.ndarray, fps: float) -> int:
 
     # Trim to active region (remove setup/walkaway)
     sig = _trim_active_region(signal, fps)
-    
+
     # Remove DC component (mean)
     sig = sig - np.mean(sig)
-    
+
     # Compute autocorrelation via numpy
     n = len(sig)
     autocorr = np.correlate(sig, sig, mode='full')
     autocorr = autocorr[n - 1:]  # Keep positive lags only
-    
+
     # Normalize
     if autocorr[0] > 0:
         autocorr = autocorr / autocorr[0]
@@ -1013,7 +1174,7 @@ def _count_by_autocorrelation(signal: np.ndarray, fps: float) -> int:
     # Max lag: at most 5 seconds per rep (slow controlled reps)
     min_lag = max(3, int(fps * 0.3))
     max_lag = min(len(autocorr) - 1, int(fps * 5.0))
-    
+
     if min_lag >= max_lag:
         return 0
 
@@ -1037,7 +1198,7 @@ def _count_by_autocorrelation(signal: np.ndarray, fps: float) -> int:
 
     # The first peak = dominant period
     period_frames = peaks[0] + min_lag
-    
+
     # Validate: the autocorrelation at this peak should be reasonably high
     peak_value = autocorr[period_frames]
     if peak_value < 0.05:
@@ -1046,7 +1207,7 @@ def _count_by_autocorrelation(signal: np.ndarray, fps: float) -> int:
 
     # Count = total active duration / period
     rep_count = round(n / period_frames)
-    
+
     logger.info(
         "Autocorrelation: period=%.1f frames (%.2fs), peak_value=%.3f, "
         "active_signal=%d frames, estimated_reps=%d",
@@ -1055,53 +1216,104 @@ def _count_by_autocorrelation(signal: np.ndarray, fps: float) -> int:
     return max(1, rep_count)
 
 
-def _best_robust_count(autocorr: int, zerocross: int) -> int:
-    """Pick the best rep count from robust methods.
-    
-    If both agree (within 1), trust it.
-    If they disagree, prefer autocorrelation (more accurate for periodic signals).
-    """
-    if autocorr == 0 and zerocross == 0:
+def _count_by_extrema_cycles(signal: np.ndarray, fps: float = 30.0) -> int:
+    """Count reps by turning points (peaks/valleys) on the active region."""
+    if len(signal) < 8:
         return 0
-    if autocorr == 0:
-        return zerocross
-    if zerocross == 0:
-        return autocorr
-    # If within 1 rep of each other, average (rounded)
-    if abs(autocorr - zerocross) <= 1:
-        return round((autocorr + zerocross) / 2)
-    # Disagree: prefer autocorrelation
-    return autocorr
+
+    trimmed = _trim_active_region(signal, fps)
+    if len(trimmed) < 8:
+        return 0
+
+    smoothed = _smooth_signal(trimmed, window=max(3, int(fps * 0.12)))
+    p95 = float(np.percentile(smoothed, 95))
+    p05 = float(np.percentile(smoothed, 5))
+    rom = max(0.0, p95 - p05)
+    if rom <= 1e-3:
+        return 0
+
+    prominence = max(rom * 0.10, 0.01)
+    min_distance = max(3, int(fps * 0.25))
+    peaks, valleys = _find_peaks_valleys(
+        smoothed,
+        min_prominence=prominence,
+        min_distance=min_distance,
+    )
+
+    if len(peaks) == 0 and len(valleys) == 0:
+        return 0
+
+    turning_points = np.sort(np.concatenate([peaks, valleys]))
+    if len(turning_points) < 3:
+        count = max(0, max(len(peaks), len(valleys)) - 1)
+    else:
+        count = max(0, (len(turning_points) - 1) // 2)
+        if len(valleys) >= 2:
+            count = max(count, len(valleys) - 1)
+        if len(peaks) >= 2:
+            count = max(count, len(peaks) - 1)
+
+    logger.info(
+        "Extrema-cycle: peaks=%d valleys=%d turning=%d -> %d reps (trimmed %d->%d)",
+        len(peaks), len(valleys), len(turning_points), count, len(signal), len(trimmed),
+    )
+    return count
+
+
+def _best_robust_count(autocorr: int, zerocross: int, extrema: int = 0) -> int:
+    """Pick robust rep count from multiple estimators.
+
+    Uses robust aggregation biased against undercount outliers.
+    """
+    values = [v for v in (autocorr, zerocross, extrema) if v > 0]
+    if not values:
+        return 0
+    if len(values) == 1:
+        return values[0]
+
+    values.sort()
+    if len(values) == 2:
+        if abs(values[1] - values[0]) <= 2:
+            return round((values[0] + values[1]) / 2)
+        # Large disagreement: avoid low undercount outliers.
+        return values[1]
+
+    # Three methods: if one low outlier, use the top-two mean.
+    if values[2] - values[0] >= 4 and values[1] - values[0] >= 2:
+        return round((values[1] + values[2]) / 2)
+
+    # Otherwise median is stable.
+    return values[1]
 
 
 def _count_by_zero_crossing(signal: np.ndarray, fps: float = 30.0) -> int:
     """Count reps by zero-crossing: each full cycle (2 crossings) = 1 rep.
-    
+
     Robust fallback: simply counts how many times the signal crosses
     its mean value. Less affected by amplitude variations than peak detection.
     """
     if len(signal) < 5:
         return 0
-    
+
     # Trim to active region first
     trimmed = _trim_active_region(signal, fps)
-    
+
     # Smooth slightly to avoid noise crossings
     smoothed = _smooth_signal(trimmed, window=max(3, int(fps * 0.1)))
-    
+
     mean_val = np.mean(smoothed)
     centered = smoothed - mean_val
-    
+
     # Count sign changes
     crossings = 0
     for i in range(1, len(centered)):
         if centered[i-1] * centered[i] < 0:
             crossings += 1
-    
+
     # Each complete rep = 2 crossings (down + up or up + down)
     rep_count = crossings // 2
-    
-    logger.info("Zero-crossing: %d crossings → %d reps (trimmed %d→%d frames)", 
+
+    logger.info("Zero-crossing: %d crossings → %d reps (trimmed %d→%d frames)",
                 crossings, rep_count, len(signal), len(trimmed))
     return max(0, rep_count)
 
@@ -1118,11 +1330,11 @@ def segment_reps(
     1. Multi-joint Y signal + autocorrélation (le plus robuste)
     2. Zero-crossing sur le signal combiné (fallback)
     3. Peak detection sur angle primaire (fallback classique)
-    
+
     La méthode 1 (autocorrélation) donne le nombre de reps le plus fiable.
     Si les méthodes divergent, on prend le maximum cohérent.
-    
-    La segmentation individuelle (tempo, fatigue, triche) utilise le signal 
+
+    La segmentation individuelle (tempo, fatigue, triche) utilise le signal
     angulaire classique car elle a besoin des positions exactes des pics/vallées.
 
     Args:
@@ -1139,60 +1351,97 @@ def segment_reps(
     # ══════════════════════════════════════════════════════════════════════
     # PHASE 1 : COMPTAGE ROBUSTE (multi-joint + autocorrélation + zero-crossing)
     # ══════════════════════════════════════════════════════════════════════
-    
+
     autocorr_count = 0
     zerocross_count = 0
+    extrema_count = 0
     combined_signal = None
     combined_indices = None
+    combined_duration_s = 0.0
     params = {}
     signal = None
+    smoothed = np.array([])
+    frame_indices = np.array([])
     peaks = np.array([])
     valleys = np.array([])
-    
+
     if raw_frames and len(raw_frames) >= 10:
         joint_signals = _extract_joint_y_signals(raw_frames)
         if joint_signals:
             combined_signal, combined_indices = _build_combined_signal(joint_signals, fps)
-            
+
             if len(combined_signal) >= 15:
+                if len(combined_indices) >= 2 and fps > 0:
+                    combined_duration_s = max(
+                        0.0,
+                        float(combined_indices[-1] - combined_indices[0]) / fps,
+                    )
                 # Smooth the combined signal
                 smooth_win = min(7, max(3, int(fps * 0.15)))
                 smoothed_combined = _smooth_signal(combined_signal, window=smooth_win)
-                
+
                 # Method 1: Autocorrelation
                 autocorr_count = _count_by_autocorrelation(smoothed_combined, fps)
-                
+
                 # Method 2: Zero-crossing
                 zerocross_count = _count_by_zero_crossing(smoothed_combined, fps)
-                
+
+                # Method 3: turning points (helps when tempo varies)
+                extrema_count = _count_by_extrema_cycles(smoothed_combined, fps)
+
                 logger.info(
-                    "Robust counting: autocorr=%d, zerocross=%d",
-                    autocorr_count, zerocross_count,
+                    "Robust counting: autocorr=%d, zerocross=%d, extrema=%d",
+                    autocorr_count, zerocross_count, extrema_count,
                 )
 
     # ══════════════════════════════════════════════════════════════════════
     # PHASE 2 : SEGMENTATION PAR PEAK DETECTION (pour tempo/fatigue/triche)
     # ══════════════════════════════════════════════════════════════════════
 
-    # Déterminer l'angle principal
-    attr = PRIMARY_ANGLE_MAP.get(exercise)
-    if not attr:
-        logger.warning("Exercice '%s' non mappe, essai avec left_knee_flexion.", exercise)
-        attr = "left_knee_flexion"
+    # Déterminer le meilleur signal articulaire pour segmenter les reps.
+    preferred_attr = PRIMARY_ANGLE_MAP.get(exercise, "left_knee_flexion")
+    if exercise not in PRIMARY_ANGLE_MAP:
+        logger.warning("Exercice '%s' non mappe, fallback %s.", exercise, preferred_attr)
 
-    signal, frame_indices = _get_signal(angles.frames, attr)
+    attr, signal, frame_indices, auto_signal = _select_segmentation_signal(
+        angles.frames,
+        exercise,
+        fps,
+    )
+    result.segmentation_signal = attr
+    result.auto_signal_selected = auto_signal
+    if auto_signal:
+        logger.warning(
+            "Auto signal fallback: preferred=%s -> selected=%s (exercise=%s)",
+            preferred_attr, attr, exercise,
+        )
+
     if len(signal) < 10:
         logger.info("Primary angle signal too short (%d pts).", len(signal))
         # If we have a robust count but no angle signal, return count-only result
-        robust_count = _best_robust_count(autocorr_count, zerocross_count)
+        robust_count = _best_robust_count(autocorr_count, zerocross_count, extrema_count)
         result.autocorr_count = autocorr_count
         result.zerocross_count = zerocross_count
+        result.extrema_count = extrema_count
         result.robust_count = robust_count
         if robust_count > 0:
             result.total_reps = robust_count
             result.complete_reps = robust_count
             result.peak_count = 0
             result.count_method = "robust_only_no_angle"
+            duration_hint_s = combined_duration_s
+            if duration_hint_s <= 0 and len(frame_indices) >= 2 and fps > 0:
+                duration_hint_s = max(0.0, float(frame_indices[-1] - frame_indices[0]) / fps)
+            intensity = _estimate_intensity_from_count(robust_count, duration_hint_s)
+            result.avg_inter_rep_rest_s = float(intensity["avg_inter_rep_rest_s"])
+            result.median_inter_rep_rest_s = float(intensity["median_inter_rep_rest_s"])
+            result.max_inter_rep_rest_s = float(intensity["max_inter_rep_rest_s"])
+            result.rest_consistency = float(intensity["rest_consistency"])
+            result.set_duration_s = float(intensity["set_duration_s"])
+            result.reps_per_min = float(intensity["reps_per_min"])
+            result.intensity_score = int(intensity["intensity_score"])
+            result.intensity_label = str(intensity["intensity_label"])
+            result.intensity_confidence = "limitee"
             logger.info("Using robust count only (no angle data): %d reps", robust_count)
             return result
         return result
@@ -1225,22 +1474,38 @@ def segment_reps(
                 valleys, peaks = peaks, valleys
             elif len(valleys) < 2:
                 # Peak detection failed — use robust count if available
-                robust_count = _best_robust_count(autocorr_count, zerocross_count)
+                robust_count = _best_robust_count(autocorr_count, zerocross_count, extrema_count)
                 result.autocorr_count = autocorr_count
                 result.zerocross_count = zerocross_count
+                result.extrema_count = extrema_count
                 result.robust_count = robust_count
                 if robust_count > 0:
                     result.total_reps = robust_count
                     result.complete_reps = robust_count
                     result.peak_count = 0
                     result.count_method = "robust_only_peak_failed"
+                    duration_hint_s = combined_duration_s
+                    if duration_hint_s <= 0 and len(frame_indices) >= 2 and fps > 0:
+                        duration_hint_s = max(0.0, float(frame_indices[-1] - frame_indices[0]) / fps)
+                    intensity = _estimate_intensity_from_count(robust_count, duration_hint_s)
+                    result.avg_inter_rep_rest_s = float(intensity["avg_inter_rep_rest_s"])
+                    result.median_inter_rep_rest_s = float(intensity["median_inter_rep_rest_s"])
+                    result.max_inter_rep_rest_s = float(intensity["max_inter_rep_rest_s"])
+                    result.rest_consistency = float(intensity["rest_consistency"])
+                    result.set_duration_s = float(intensity["set_duration_s"])
+                    result.reps_per_min = float(intensity["reps_per_min"])
+                    result.intensity_score = int(intensity["intensity_score"])
+                    result.intensity_label = str(intensity["intensity_label"])
+                    result.intensity_confidence = "limitee"
                     logger.info("Peak detection failed, using robust count: %d reps", robust_count)
                     return result
                 logger.warning("All methods failed to detect reps.")
                 return result
 
-    # ROM minimum pour cet exercice
-    min_rom = MIN_ROM_THRESHOLD.get(exercise, 10.0)
+    # ROM minimum: exercice détecté + garde-fou si auto-signal différent.
+    min_rom = MIN_ROM_THRESHOLD.get(exercise, _default_min_rom_for_attr(attr))
+    if attr != preferred_attr:
+        min_rom = min(min_rom, _default_min_rom_for_attr(attr))
 
     # Construire les reps : valley[i] → bottom (peak entre) → valley[i+1]
     reps: list[Rep] = []
@@ -1411,37 +1676,53 @@ def segment_reps(
     # ══════════════════════════════════════════════════════════════════════
     # PHASE 3 : RECONCILIATION — robust count overrides if peak detection undercount
     # ══════════════════════════════════════════════════════════════════════
-    robust_count = _best_robust_count(autocorr_count, zerocross_count)
+    robust_count = _best_robust_count(autocorr_count, zerocross_count, extrema_count)
     peak_count = result.total_reps
     result.peak_count = peak_count
     result.autocorr_count = autocorr_count
     result.zerocross_count = zerocross_count
+    result.extrema_count = extrema_count
     result.robust_count = robust_count
+    robust_values = sorted(v for v in (autocorr_count, zerocross_count, extrema_count) if v > 0)
+    robust_reliable = False
+    if len(robust_values) >= 2:
+        if robust_values[-1] - robust_values[0] <= 2:
+            robust_reliable = True
+        elif len(robust_values) == 3 and abs(robust_values[-1] - robust_values[-2]) <= 2:
+            robust_reliable = True
 
     if robust_count > peak_count and robust_count > 0:
-        logger.info(
-            "Robust override: peak_detection=%d, autocorr=%d, zerocross=%d → using %d",
-            peak_count, autocorr_count, zerocross_count, robust_count,
-        )
-        result.total_reps = robust_count
-        # Adjust complete/partial counts proportionally
-        if peak_count > 0:
-            extra = robust_count - peak_count
-            result.complete_reps += extra
+        if robust_reliable or (robust_count - peak_count) <= max(3, int(peak_count * 0.6) + 1):
+            logger.info(
+                "Robust up-override: peak=%d, autocorr=%d, zerocross=%d, extrema=%d -> %d",
+                peak_count, autocorr_count, zerocross_count, extrema_count, robust_count,
+            )
+            result.total_reps = robust_count
+            # Adjust complete/partial counts proportionally
+            if peak_count > 0:
+                extra = robust_count - peak_count
+                result.complete_reps += extra
+            else:
+                result.complete_reps = robust_count
+                result.partial_reps = 0
+            result.count_method = "robust_up_override"
         else:
-            result.complete_reps = robust_count
-            result.partial_reps = 0
-        result.count_method = "robust_up_override"
+            logger.info(
+                "Robust up override skipped (uncertain): peak=%d, robust=%d, values=%s",
+                peak_count, robust_count, robust_values,
+            )
+            result.count_method = "peak_keep_robust_uncertain"
     elif (
         robust_count > 0
+        and robust_reliable
         and peak_count >= int(robust_count * 1.6)
         and (peak_count - robust_count) >= 5
     ):
         # Peak detection can grossly overcount noisy micro-movements (common on long sets).
         # In that case, robust periodic estimators are more trustworthy.
         logger.info(
-            "Robust down-override: peak_detection=%d, autocorr=%d, zerocross=%d → using %d",
-            peak_count, autocorr_count, zerocross_count, robust_count,
+            "Robust down-override: peak=%d, autocorr=%d, zerocross=%d, extrema=%d -> %d",
+            peak_count, autocorr_count, zerocross_count, extrema_count, robust_count,
         )
         result.total_reps = robust_count
         result.complete_reps = min(result.complete_reps, robust_count)
@@ -1449,15 +1730,26 @@ def segment_reps(
         result.count_method = "robust_down_override"
     elif robust_count > 0:
         logger.info(
-            "Counts aligned: peak=%d, robust=%d — keeping peak segmentation.",
-            peak_count, robust_count,
+            "Counts aligned: peak=%d, robust=%d (reliable=%s) — keeping peak segmentation.",
+            peak_count, robust_count, robust_reliable,
         )
         result.count_method = "peak_aligned_with_robust"
     else:
         result.count_method = "peak_only"
 
     # Intensite de serie (densite des reps).
-    intensity = _compute_intensity_metrics(reps, fps)
+    if len(reps) >= 2:
+        intensity = _compute_intensity_metrics(reps, fps)
+        intensity_conf = "elevee" if abs(len(reps) - result.total_reps) <= 2 else "limitee"
+    else:
+        duration_hint_s = combined_duration_s
+        if duration_hint_s <= 0 and len(frame_indices) >= 2 and fps > 0:
+            duration_hint_s = max(0.0, float(frame_indices[-1] - frame_indices[0]) / fps)
+        if duration_hint_s <= 0 and len(reps) >= 1 and fps > 0:
+            duration_hint_s = max(0.0, float(reps[-1].end_frame - reps[0].start_frame) / fps)
+        intensity = _estimate_intensity_from_count(result.total_reps, duration_hint_s)
+        intensity_conf = "limitee"
+
     result.avg_inter_rep_rest_s = float(intensity["avg_inter_rep_rest_s"])
     result.median_inter_rep_rest_s = float(intensity["median_inter_rep_rest_s"])
     result.max_inter_rep_rest_s = float(intensity["max_inter_rep_rest_s"])
@@ -1466,20 +1758,24 @@ def segment_reps(
     result.reps_per_min = float(intensity["reps_per_min"])
     result.intensity_score = int(intensity["intensity_score"])
     result.intensity_label = str(intensity["intensity_label"])
-    result.intensity_confidence = "elevee" if abs(len(reps) - result.total_reps) <= 2 else "limitee"
+    result.intensity_confidence = intensity_conf
 
     # Debug log for visibility in /debug/errors endpoint
     _debug_log("rep_counting", "Rep counting results", {
         "autocorr_count": autocorr_count,
         "zerocross_count": zerocross_count,
+        "extrema_count": extrema_count,
         "peak_count": peak_count,
         "final_count": result.total_reps,
         "robust_count": robust_count,
+        "robust_reliable": robust_reliable,
         "raw_frames_provided": raw_frames is not None,
         "raw_frames_count": len(raw_frames) if raw_frames else 0,
         "combined_signal_len": len(combined_signal) if combined_signal is not None else 0,
         "fps": fps,
         "exercise": exercise,
+        "segmentation_signal": attr,
+        "auto_signal_selected": auto_signal,
         "angle_signal_len": len(signal) if signal is not None else 0,
         "num_peaks": len(peaks) if peaks is not None else 0,
         "num_valleys": len(valleys) if valleys is not None else 0,
@@ -1495,10 +1791,10 @@ def segment_reps(
     logger.info(
         "Segmentation: %d reps (%d completes, %d partielles), "
         "tempo=%s, ROM_deg=%.0f%%, fatigue_onset=rep%d, triche=%d%%, set_complete=%s "
-        "[autocorr=%d, zerocross=%d]",
+        "[signal=%s, auto=%s, autocorr=%d, zerocross=%d, extrema=%d]",
         result.total_reps, result.complete_reps, result.partial_reps,
         result.avg_tempo, result.rom_degradation, result.fatigue_onset_rep,
         result.cheat_percentage, result.set_complete,
-        autocorr_count, zerocross_count,
+        attr, auto_signal, autocorr_count, zerocross_count, extrema_count,
     )
     return result
