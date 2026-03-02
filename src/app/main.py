@@ -33,6 +33,35 @@ _import_errors: list[str] = []
 
 
 # Health check always works
+@app.get("/", response_class=HTMLResponse)
+async def home() -> HTMLResponse:
+    return HTMLResponse(
+        """<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FormCheck Bot</title>
+  <style>
+    body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; background:#f8fafc; color:#0f172a; margin:0; }
+    .box { max-width:720px; margin:48px auto; background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:24px; }
+    h1 { margin:0 0 12px; font-size:26px; }
+    p { line-height:1.5; color:#334155; }
+    code { background:#f1f5f9; padding:2px 6px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <main class="box">
+    <h1>FORMCHECK by ACHZOD</h1>
+    <p>Service en ligne. L'analyse se fait sur WhatsApp, pas via ce site.</p>
+    <p>Commandes utiles: <code>menu</code>, <code>guide</code>, <code>clips</code>.</p>
+    <p>Etat API: <a href="/health">/health</a></p>
+  </main>
+</body>
+</html>"""
+    )
+
+
 @app.get("/health")
 async def health() -> dict:
     return {
