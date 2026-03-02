@@ -1368,6 +1368,21 @@ def _is_robust_count_reliable(autocorr: int, zerocross: int, extrema: int = 0) -
     return False
 
 
+def _should_apply_robust_down_override(
+    peak_count: int,
+    robust_count: int,
+    robust_reliable: bool,
+) -> bool:
+    """True when peak segmentation likely overcounted micro-oscillations."""
+    if robust_count <= 0 or not robust_reliable:
+        return False
+    if peak_count < robust_count:
+        return False
+    if peak_count >= int(robust_count * 1.35) and (peak_count - robust_count) >= 4:
+        return True
+    return False
+
+
 def _retune_extrema_for_target(
     smoothed: np.ndarray,
     fps: float,
@@ -1901,12 +1916,7 @@ def segment_reps(
                 peak_count, robust_count, robust_values,
             )
             result.count_method = "peak_keep_robust_uncertain"
-    elif (
-        robust_count > 0
-        and robust_reliable
-        and peak_count >= int(robust_count * 1.6)
-        and (peak_count - robust_count) >= 5
-    ):
+    elif _should_apply_robust_down_override(peak_count, robust_count, robust_reliable):
         # Peak detection can grossly overcount noisy micro-movements (common on long sets).
         # In that case, robust periodic estimators are more trustworthy.
         logger.info(

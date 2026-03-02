@@ -37,6 +37,10 @@ from analysis.exercise_detector import (
     detect_by_pattern,
     detect_exercise,
 )
+from analysis.fusion_utils import (
+    apply_gemini_vision_consensus_override,
+    estimate_intensity_from_fused_count,
+)
 from analysis.frame_annotator import annotate_key_frames
 from analysis.pose_extractor import (
     ExtractionResult,
@@ -461,47 +465,59 @@ def _compute_press_profile(
     )
 
     ohp_signal = 0.0
-    if overhead_ratio >= 0.20:
-        ohp_signal += 0.42
-    elif overhead_ratio >= 0.12:
-        ohp_signal += 0.28
-    elif overhead_ratio >= 0.08:
-        ohp_signal += 0.16
-
-    if elbow_lockout_ratio >= 0.20 or elbow_max >= 155.0:
-        ohp_signal += 0.30
-    elif elbow_max >= 148.0:
+    if overhead_ratio >= 0.32:
+        ohp_signal += 0.45
+    elif overhead_ratio >= 0.24:
+        ohp_signal += 0.32
+    elif overhead_ratio >= 0.18:
         ohp_signal += 0.18
 
-    if elbow_rom >= 20.0:
+    if elbow_lockout_ratio >= 0.24 or elbow_max >= 162.0:
+        ohp_signal += 0.24
+    elif elbow_lockout_ratio >= 0.14 or elbow_max >= 154.0:
         ohp_signal += 0.14
-    if wrist_travel >= 0.05:
-        ohp_signal += 0.12
-    if shoulder_flex_rom >= max(15.0, shoulder_abd_rom - 5.0):
-        ohp_signal += 0.06
+
+    if elbow_rom >= 28.0:
+        ohp_signal += 0.10
+    if wrist_travel >= 0.07:
+        ohp_signal += 0.10
+    if shoulder_flex_rom >= max(18.0, shoulder_abd_rom - 3.0) and overhead_ratio >= 0.16:
+        ohp_signal += 0.05
+    if overhead_ratio < 0.12:
+        ohp_signal -= 0.12
     ohp_signal = max(0.0, min(1.0, ohp_signal))
 
     upright_signal = 0.0
-    if overhead_ratio <= 0.06:
-        upright_signal += 0.34
+    if overhead_ratio <= 0.05:
+        upright_signal += 0.36
     elif overhead_ratio <= 0.10:
-        upright_signal += 0.20
+        upright_signal += 0.24
+    elif overhead_ratio <= 0.16:
+        upright_signal += 0.10
 
     if elbow_max <= 145.0:
-        upright_signal += 0.25
+        upright_signal += 0.22
     if elbow_lockout_ratio <= 0.08:
+        upright_signal += 0.14
+    if shoulder_abd_rom >= 24.0:
+        upright_signal += 0.14
+    if wrist_travel <= 0.045:
         upright_signal += 0.12
-    if shoulder_abd_rom >= 20.0:
-        upright_signal += 0.16
-    if wrist_travel <= 0.04:
-        upright_signal += 0.12
+    if overhead_ratio >= 0.24:
+        upright_signal -= 0.12
     upright_signal = max(0.0, min(1.0, upright_signal))
 
     strong_ohp_signal = bool(
-        ohp_signal >= 0.62 and overhead_ratio >= 0.10 and elbow_max >= 148.0
+        ohp_signal >= 0.66
+        and overhead_ratio >= 0.22
+        and (elbow_lockout_ratio >= 0.14 or elbow_max >= 154.0)
+        and wrist_travel >= 0.05
     )
     strong_upright_signal = bool(
-        upright_signal >= 0.62 and overhead_ratio <= 0.08 and elbow_max <= 148.0
+        upright_signal >= 0.64
+        and overhead_ratio <= 0.12
+        and elbow_max <= 150.0
+        and elbow_lockout_ratio <= 0.12
     )
 
     return {
@@ -539,23 +555,31 @@ def _detection_candidate_score(
 
     if pattern_result.exercise != Exercise.UNKNOWN:
         if candidate.exercise == pattern_result.exercise:
-            score += 0.05 + (0.05 * max(0.0, min(1.0, pattern_result.confidence)))
+            score += 0.02 + (0.03 * max(0.0, min(1.0, pattern_result.confidence)))
         elif pattern_result.confidence >= 0.75:
-            score -= 0.05
+            score -= 0.02
 
     if press_profile:
         ohp_signal = float(press_profile.get("ohp_signal", 0.0) or 0.0)
         upright_signal = float(press_profile.get("upright_signal", 0.0) or 0.0)
         strong_ohp = bool(press_profile.get("strong_ohp_signal", False))
+        overhead_ratio = float(press_profile.get("overhead_ratio", 0.0) or 0.0)
 
         if candidate.exercise in {Exercise.OHP, Exercise.DUMBBELL_OHP}:
-            score += 0.32 * ohp_signal
-            score -= 0.35 * upright_signal
+            score += 0.20 * ohp_signal
+            score -= 0.30 * upright_signal
+            if overhead_ratio < 0.18:
+                score -= 0.22
         elif candidate.exercise == Exercise.UPRIGHT_ROW:
-            score += 0.20 * upright_signal
-            score -= 0.45 * ohp_signal
+            score += 0.16 * upright_signal
+            score -= 0.32 * ohp_signal
             if strong_ohp:
                 score -= 0.25
+        elif candidate.exercise in {Exercise.LATERAL_RAISE, Exercise.FRONT_RAISE}:
+            if overhead_ratio <= 0.22:
+                score += 0.10
+            elif overhead_ratio >= 0.30:
+                score -= 0.10
 
     if unilateral_profile:
         unilateral_signal = float(unilateral_profile.get("unilateral_signal", 0.0) or 0.0)
@@ -946,9 +970,10 @@ def run_pipeline(
         if fallback_detection and fallback_detection.exercise != Exercise.UNKNOWN:
             candidates.append(("vision", fallback_detection))
         if pattern_seed.exercise != Exercise.UNKNOWN and pattern_seed.confidence >= 0.45:
+            pattern_conf = min(0.80, max(0.40, float(pattern_seed.confidence) * 0.86))
             pattern_vote = DetectionResult(
                 exercise=pattern_seed.exercise,
-                confidence=min(0.95, max(0.45, pattern_seed.confidence)),
+                confidence=pattern_conf,
                 reasoning="[Pattern biomecanique] {}".format(pattern_seed.reasoning),
             )
             candidates.append(("pattern", pattern_vote))
@@ -965,6 +990,13 @@ def run_pipeline(
             scored_candidates.append((src_name, cand, cand_score))
 
         source, detection, winning_score = max(scored_candidates, key=lambda item: item[2])
+        source, detection, winning_score = apply_gemini_vision_consensus_override(
+            source,
+            detection,
+            winning_score,
+            scored_candidates,
+            press_profile=press_profile,
+        )
         logger.info(
             "  → Detection fusion winner: %s (source=%s, conf=%.2f, score=%.3f)",
             detection.exercise.value,
@@ -1231,6 +1263,7 @@ def run_pipeline(
 
     if result.reps and final_rep_count > 0:
         if final_rep_count != result.reps.total_reps:
+            segmented_rep_count = len(result.reps.reps or [])
             logger.info(
                 "Rep fusion override: signal=%d, robust=%d, gemini=%d, vision=%d -> final=%d",
                 signal_rep_count,
@@ -1240,8 +1273,31 @@ def run_pipeline(
                 final_rep_count,
             )
             result.reps.total_reps = final_rep_count
-            result.reps.complete_reps = min(result.reps.complete_reps, final_rep_count)
+            if segmented_rep_count > final_rep_count and result.reps.reps:
+                # Keep report-level coherence when segmentation overcounted noisy micro-cycles.
+                result.reps.reps = result.reps.reps[:final_rep_count]
+            if result.reps.complete_reps <= 0:
+                result.reps.complete_reps = final_rep_count
+            else:
+                result.reps.complete_reps = min(result.reps.complete_reps, final_rep_count)
             result.reps.partial_reps = max(0, final_rep_count - result.reps.complete_reps)
+
+            duration_hint_s = float(getattr(result.reps, "set_duration_s", 0.0) or 0.0)
+            if duration_hint_s <= 0:
+                duration_hint_s = duration_s
+
+            mismatch_after_fusion = abs(segmented_rep_count - final_rep_count)
+            if mismatch_after_fusion >= max(2, int(final_rep_count * 0.20)):
+                fused_intensity = estimate_intensity_from_fused_count(final_rep_count, duration_hint_s)
+                result.reps.avg_inter_rep_rest_s = float(fused_intensity["avg_inter_rep_rest_s"])
+                result.reps.median_inter_rep_rest_s = float(fused_intensity["median_inter_rep_rest_s"])
+                result.reps.max_inter_rep_rest_s = float(fused_intensity["max_inter_rep_rest_s"])
+                result.reps.rest_consistency = float(fused_intensity["rest_consistency"])
+                result.reps.set_duration_s = float(fused_intensity["set_duration_s"])
+                result.reps.reps_per_min = float(fused_intensity["reps_per_min"])
+                result.reps.intensity_score = int(fused_intensity["intensity_score"])
+                result.reps.intensity_label = str(fused_intensity["intensity_label"])
+                result.reps.intensity_confidence = "limitee (fusion count)"
 
     # Debug log for visibility in /debug/errors endpoint.
     try:

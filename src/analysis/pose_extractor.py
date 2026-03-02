@@ -14,12 +14,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import cv2
-import mediapipe as mp
 import numpy as np
 
-from mediapipe.tasks import python as mp_python
-from mediapipe.tasks.python import vision
+try:
+    import cv2
+except ImportError:  # pragma: no cover - optional in unit tests without CV deps
+    cv2 = None
+
+try:
+    import mediapipe as mp
+    from mediapipe.tasks import python as mp_python
+    from mediapipe.tasks.python import vision
+except ImportError:  # pragma: no cover - optional in unit tests without CV deps
+    mp = None
+    mp_python = None
+    vision = None
 
 # ── Modèle pose ─────────────────────────────────────────────────────────
 
@@ -157,6 +166,8 @@ def _detect_key_frames(frames: list[FrameLandmarks], exercise: str = "") -> dict
 
 
 def _save_key_frame(video_path: str, frame_index: int, label: str, output_dir: Path) -> str:
+    if cv2 is None:
+        return ""
     cap = cv2.VideoCapture(video_path)
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
     ret, frame = cap.read()
@@ -177,6 +188,8 @@ def extract_pose(
     sample_every_n: int = 1,
 ) -> ExtractionResult:
     """Extract pose landmarks from a video using MediaPipe Tasks API."""
+    if cv2 is None or mp is None or mp_python is None or vision is None:
+        raise RuntimeError("cv2/mediapipe requis pour extract_pose.")
     video = Path(video_path)
     if not video.exists():
         raise FileNotFoundError(f"Vidéo introuvable : {video_path}")
