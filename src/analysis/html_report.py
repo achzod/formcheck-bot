@@ -1031,13 +1031,19 @@ def _build_reps_timeline(reps: Any) -> str:
     # If peak detection found a wildly different number than the authoritative count,
     # don't show per-rep bars (they'd be misleading). Just show the count.
     if not rep_list or abs(len(rep_list) - reps.total_reps) > 2:
+        intensity_score = int(getattr(reps, "intensity_score", 0) or 0)
+        intensity_label = str(getattr(reps, "intensity_label", "indeterminee"))
+        avg_rest = float(getattr(reps, "avg_inter_rep_rest_s", 0.0) or 0.0)
         return '''
     <div class="card fade-in" style="animation-delay:0.38s">
         <div class="card-header">{} repetitions detectees</div>
         <div style="font-size:0.9em;color:#8a8070;padding:12px 0">
             Comptage par analyse vidéo avancée.
         </div>
-    </div>'''.format(reps.total_reps)
+        <div style="font-size:0.82em;color:#8a8070">
+            Intensite serie : <span style="color:#1a1a1a;font-weight:700">{}/100 ({})</span> • Repos inter-reps moyen : <span style="color:#1a1a1a;font-weight:600">{:.2f}s</span>
+        </div>
+    </div>'''.format(reps.total_reps, intensity_score, intensity_label, avg_rest)
 
     # Trouver le max ROM pour normaliser la hauteur des barres
     max_rom = max(r.rom for r in rep_list) if rep_list else 1
@@ -1067,6 +1073,17 @@ def _build_reps_timeline(reps: Any) -> str:
 
     avg_ecc = sum(r.eccentric_duration_ms for r in rep_list) / len(rep_list) / 1000
     avg_conc = sum(r.concentric_duration_ms for r in rep_list) / len(rep_list) / 1000
+    intensity_score = int(getattr(reps, "intensity_score", 0) or 0)
+    intensity_label = str(getattr(reps, "intensity_label", "indeterminee"))
+    avg_rest = float(getattr(reps, "avg_inter_rep_rest_s", 0.0) or 0.0)
+    intensity_conf = str(getattr(reps, "intensity_confidence", "faible"))
+
+    if intensity_score >= 80:
+        intensity_color = "#2d7a4f"
+    elif intensity_score >= 60:
+        intensity_color = "#8a6a2f"
+    else:
+        intensity_color = "#c45a2d"
 
     return f'''
     <div class="card fade-in" style="animation-delay:0.38s">
@@ -1074,6 +1091,8 @@ def _build_reps_timeline(reps: Any) -> str:
         <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
             <div style="font-size:0.82em;color:#8a8070">Tempo moyen : <span style="color:#1a1a1a;font-weight:600">{avg_ecc:.1f}s ecc / {avg_conc:.1f}s conc</span></div>
             <div style="font-size:0.82em;color:#8a8070">Consistance : <span style="color:#1a1a1a;font-weight:600">{reps.tempo_consistency:.0%}</span></div>
+            <div style="font-size:0.82em;color:#8a8070">Intensite serie : <span style="color:{intensity_color};font-weight:700">{intensity_score}/100 ({intensity_label})</span></div>
+            <div style="font-size:0.82em;color:#8a8070">Repos inter-reps : <span style="color:#1a1a1a;font-weight:600">{avg_rest:.2f}s</span> <span style="color:#b5a998">({intensity_conf})</span></div>
         </div>
         <div class="reps-bar" style="margin-bottom:28px">
             {"".join(bars)}

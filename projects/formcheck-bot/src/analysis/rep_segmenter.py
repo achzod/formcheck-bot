@@ -431,6 +431,16 @@ class RepSegmentation:
     zerocross_count: int = 0
     robust_count: int = 0
     count_method: str = "peak"
+    # Intensite de serie (densite = repos inter-reps)
+    avg_inter_rep_rest_s: float = 0.0
+    median_inter_rep_rest_s: float = 0.0
+    max_inter_rep_rest_s: float = 0.0
+    rest_consistency: float = 0.0  # 0-1 (1 = repos tres regulier)
+    set_duration_s: float = 0.0
+    reps_per_min: float = 0.0
+    intensity_score: int = 0  # 0-100
+    intensity_label: str = "indeterminee"
+    intensity_confidence: str = "faible"
 
     def to_dict(self) -> dict[str, Any]:
         d = {
@@ -444,6 +454,17 @@ class RepSegmentation:
                 "autocorr_count": self.autocorr_count,
                 "zerocross_count": self.zerocross_count,
                 "robust_count": self.robust_count,
+            },
+            "intensity": {
+                "score": self.intensity_score,
+                "label": self.intensity_label,
+                "confidence": self.intensity_confidence,
+                "avg_inter_rep_rest_s": round(self.avg_inter_rep_rest_s, 2),
+                "median_inter_rep_rest_s": round(self.median_inter_rep_rest_s, 2),
+                "max_inter_rep_rest_s": round(self.max_inter_rep_rest_s, 2),
+                "rest_consistency": round(self.rest_consistency, 3),
+                "set_duration_s": round(self.set_duration_s, 2),
+                "reps_per_min": round(self.reps_per_min, 1),
             },
             "avg_tempo": "NON DISPONIBLE — mesure automatique non fiable",
             "tempo_consistency": "NON DISPONIBLE — mesure automatique non fiable",
@@ -617,6 +638,103 @@ def _compute_fatigue(reps: list[Rep]) -> None:
 
         # Pondération : ROM 40%, vitesse 35%, ralentissement concentrique 25%
         rep.fatigue_index = min(1.0, rom_loss * 0.40 + vel_loss * 0.35 + conc_increase * 0.25)
+
+
+def _compute_intensity_metrics(
+    reps: list[Rep],
+    fps: float,
+) -> dict[str, float | int | str]:
+    """Estimate set intensity from rest between consecutive reps.
+
+    Higher intensity = shorter and more regular inter-rep rests.
+    """
+    base = {
+        "avg_inter_rep_rest_s": 0.0,
+        "median_inter_rep_rest_s": 0.0,
+        "max_inter_rep_rest_s": 0.0,
+        "rest_consistency": 0.0,
+        "set_duration_s": 0.0,
+        "reps_per_min": 0.0,
+        "intensity_score": 0,
+        "intensity_label": "indeterminee",
+    }
+    if not reps or len(reps) < 2 or fps <= 0:
+        return base
+
+    rests_s: list[float] = []
+    for i in range(len(reps) - 1):
+        gap_frames = max(0, reps[i + 1].start_frame - reps[i].end_frame)
+        rests_s.append(gap_frames / fps)
+
+    if not rests_s:
+        return base
+
+    rests_arr = np.array(rests_s, dtype=float)
+    avg_rest = float(np.mean(rests_arr))
+    med_rest = float(np.median(rests_arr))
+    max_rest = float(np.max(rests_arr))
+    rest_std = float(np.std(rests_arr))
+    rest_cv = (rest_std / avg_rest) if avg_rest > 1e-6 else 1.0
+    rest_consistency = max(0.0, min(1.0, 1.0 - rest_cv))
+
+    set_duration_s = max(0.0, (reps[-1].end_frame - reps[0].start_frame) / fps)
+    reps_per_min = (len(reps) * 60.0 / set_duration_s) if set_duration_s > 0 else 0.0
+
+    # Base score from average intra-set rest.
+    if avg_rest <= 0.6:
+        score = 96
+    elif avg_rest <= 1.0:
+        score = 90
+    elif avg_rest <= 1.5:
+        score = 80
+    elif avg_rest <= 2.0:
+        score = 70
+    elif avg_rest <= 3.0:
+        score = 58
+    elif avg_rest <= 4.5:
+        score = 45
+    else:
+        score = 30
+
+    # Consistency adjustment (irregular pacing reduces usable intensity).
+    if rest_cv > 0.7:
+        score -= 12
+    elif rest_cv > 0.5:
+        score -= 8
+    elif rest_cv > 0.35:
+        score -= 4
+
+    # Density adjustment from cadence.
+    if reps_per_min >= 20:
+        score += 4
+    elif reps_per_min >= 14:
+        score += 2
+    elif reps_per_min < 8:
+        score -= 6
+
+    score = int(max(0, min(100, score)))
+
+    if score >= 85:
+        label = "tres elevee"
+    elif score >= 70:
+        label = "elevee"
+    elif score >= 55:
+        label = "moderee"
+    elif score >= 40:
+        label = "faible"
+    else:
+        label = "tres faible"
+
+    return {
+        "avg_inter_rep_rest_s": avg_rest,
+        "median_inter_rep_rest_s": med_rest,
+        "max_inter_rep_rest_s": max_rest,
+        "rest_consistency": rest_consistency,
+        "set_duration_s": set_duration_s,
+        "reps_per_min": reps_per_min,
+        "intensity_score": score,
+        "intensity_label": label,
+    }
 
 
 def _detect_cheat(
@@ -1338,6 +1456,18 @@ def segment_reps(
     else:
         result.count_method = "peak_only"
 
+    # Intensite de serie (densite des reps).
+    intensity = _compute_intensity_metrics(reps, fps)
+    result.avg_inter_rep_rest_s = float(intensity["avg_inter_rep_rest_s"])
+    result.median_inter_rep_rest_s = float(intensity["median_inter_rep_rest_s"])
+    result.max_inter_rep_rest_s = float(intensity["max_inter_rep_rest_s"])
+    result.rest_consistency = float(intensity["rest_consistency"])
+    result.set_duration_s = float(intensity["set_duration_s"])
+    result.reps_per_min = float(intensity["reps_per_min"])
+    result.intensity_score = int(intensity["intensity_score"])
+    result.intensity_label = str(intensity["intensity_label"])
+    result.intensity_confidence = "elevee" if abs(len(reps) - result.total_reps) <= 2 else "limitee"
+
     # Debug log for visibility in /debug/errors endpoint
     _debug_log("rep_counting", "Rep counting results", {
         "autocorr_count": autocorr_count,
@@ -1357,6 +1487,9 @@ def segment_reps(
         "min_prominence": round(params["min_prominence"], 2) if params else 0,
         "min_distance": params["min_distance"] if params else 0,
         "count_method": result.count_method,
+        "intensity_score": result.intensity_score,
+        "avg_inter_rep_rest_s": round(result.avg_inter_rep_rest_s, 2),
+        "reps_per_min": round(result.reps_per_min, 1),
     })
 
     logger.info(
