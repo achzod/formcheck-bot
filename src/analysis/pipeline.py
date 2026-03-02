@@ -26,6 +26,8 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Callable
 
+import numpy as np
+
 from analysis.angle_calculator import AngleResult, angles_to_dict, compute_angles
 from analysis.confidence import AnalysisConfidence, compute_confidence
 from analysis.exercise_detector import (
@@ -283,8 +285,17 @@ def _motion_profile(angles: AngleResult) -> dict[str, float | str]:
     }
 
 
-def _compute_unilateral_profile(angles: AngleResult) -> dict[str, float | bool]:
-    """Profile asymétrie G/D pour distinguer bilatéral vs unilatéral."""
+def _compute_unilateral_profile(
+    angles: AngleResult,
+    extraction: ExtractionResult | None = None,
+) -> dict[str, float | bool]:
+    """Profile asymétrie G/D pour distinguer bilatéral vs unilatéral.
+
+    Combine:
+    - asymétrie ROM genou/hanche
+    - split stance persistant (distance horizontale chevilles)
+    - asymétrie de hauteur des chevilles (pied arrière surélevé, typique bulgare)
+    """
     stats = getattr(angles, "stats", {}) or {}
 
     def _rom(key: str) -> float:
@@ -303,13 +314,52 @@ def _compute_unilateral_profile(angles: AngleResult) -> dict[str, float | bool]:
     knee_asym = abs(left_knee - right_knee) / knee_max if knee_max > 5.0 else 0.0
     hip_asym = abs(left_hip - right_hip) / hip_max if hip_max > 5.0 else 0.0
 
+    split_stance_ratio = 0.0
+    ankle_height_asym_ratio = 0.0
+    ankle_height_p75 = 0.0
+    ankle_width_median = 0.0
+    if extraction and extraction.frames:
+        ankle_dx: list[float] = []
+        ankle_dy: list[float] = []
+        for frame in extraction.frames:
+            by_name = {lm.get("name"): lm for lm in frame.landmarks}
+            left_ankle = by_name.get("left_ankle")
+            right_ankle = by_name.get("right_ankle")
+            if not left_ankle or not right_ankle:
+                continue
+            left_vis = float(left_ankle.get("visibility", 0.0))
+            right_vis = float(right_ankle.get("visibility", 0.0))
+            if left_vis < 0.20 or right_vis < 0.20:
+                continue
+            ankle_dx.append(abs(float(left_ankle.get("x", 0.0)) - float(right_ankle.get("x", 0.0))))
+            ankle_dy.append(abs(float(left_ankle.get("y", 0.0)) - float(right_ankle.get("y", 0.0))))
+        if ankle_dx:
+            dx = np.array(ankle_dx, dtype=float)
+            dy = np.array(ankle_dy, dtype=float)
+            split_stance_ratio = float(np.mean(dx >= 0.15))
+            ankle_height_asym_ratio = float(np.mean(dy >= 0.06))
+            ankle_height_p75 = float(np.percentile(dy, 75))
+            ankle_width_median = float(np.median(dx))
+
+    ankle_height_signal = min(1.0, ankle_height_p75 / 0.10) * 0.75
+
     unilateral_signal = max(
         knee_asym,
         hip_asym * 0.9,
         (knee_asym * 0.65) + (hip_asym * 0.35),
+        split_stance_ratio * 0.85,
+        ankle_height_asym_ratio * 0.95,
+        ankle_height_signal,
     )
     strong_unilateral = bool(
-        unilateral_signal >= 0.24 and (knee_asym >= 0.22 or hip_asym >= 0.20)
+        unilateral_signal >= 0.24
+        and (
+            knee_asym >= 0.20
+            or hip_asym >= 0.18
+            or split_stance_ratio >= 0.34
+            or ankle_height_asym_ratio >= 0.28
+            or ankle_height_p75 >= 0.055
+        )
     )
 
     return {
@@ -319,6 +369,10 @@ def _compute_unilateral_profile(angles: AngleResult) -> dict[str, float | bool]:
         "right_hip_rom": round(right_hip, 1),
         "knee_asym": round(knee_asym, 3),
         "hip_asym": round(hip_asym, 3),
+        "split_stance_ratio": round(split_stance_ratio, 3),
+        "ankle_height_asym_ratio": round(ankle_height_asym_ratio, 3),
+        "ankle_height_p75": round(ankle_height_p75, 3),
+        "ankle_width_median": round(ankle_width_median, 3),
         "unilateral_signal": round(unilateral_signal, 3),
         "strong_unilateral_signal": strong_unilateral,
     }
@@ -506,15 +560,21 @@ def _detection_candidate_score(
     if unilateral_profile:
         unilateral_signal = float(unilateral_profile.get("unilateral_signal", 0.0) or 0.0)
         strong_unilateral = bool(unilateral_profile.get("strong_unilateral_signal", False))
+        split_stance_ratio = float(unilateral_profile.get("split_stance_ratio", 0.0) or 0.0)
+        ankle_height_ratio = float(unilateral_profile.get("ankle_height_asym_ratio", 0.0) or 0.0)
 
         if candidate.exercise in _UNILATERAL_LOWER_EXERCISES:
             score += 0.42 * unilateral_signal
+            score += 0.16 * split_stance_ratio
+            score += 0.18 * ankle_height_ratio
             if strong_unilateral:
                 score += 0.12
             if unilateral_signal < 0.12:
                 score -= 0.10
         elif candidate.exercise in _BILATERAL_SQUAT_EXERCISES:
             score -= 0.48 * unilateral_signal
+            score -= 0.22 * split_stance_ratio
+            score -= 0.25 * ankle_height_ratio
             if strong_unilateral:
                 score -= 0.18
 
@@ -561,7 +621,14 @@ def _needs_detection_crosscheck(
     if unilateral_profile:
         strong_unilateral = bool(unilateral_profile.get("strong_unilateral_signal", False))
         unilateral_signal = float(unilateral_profile.get("unilateral_signal", 0.0) or 0.0)
+        split_stance_ratio = float(unilateral_profile.get("split_stance_ratio", 0.0) or 0.0)
+        ankle_height_ratio = float(unilateral_profile.get("ankle_height_asym_ratio", 0.0) or 0.0)
         if strong_unilateral and gemini_detection.exercise in _BILATERAL_SQUAT_EXERCISES:
+            return True
+        if (
+            gemini_detection.exercise in _BILATERAL_SQUAT_EXERCISES
+            and (split_stance_ratio >= 0.32 or ankle_height_ratio >= 0.24)
+        ):
             return True
         if (
             gemini_detection.exercise in _UNILATERAL_LOWER_EXERCISES
@@ -731,7 +798,7 @@ def run_pipeline(
     pattern_seed = detect_by_pattern(angles)
     motion = _motion_profile(angles)
     press_profile = _compute_press_profile(extraction, angles)
-    unilateral_profile = _compute_unilateral_profile(angles)
+    unilateral_profile = _compute_unilateral_profile(angles, extraction=extraction)
     logger.info(
         "  → Pattern seed: %s (conf=%.2f) | motion=%s | press_profile=%s | unilateral=%s",
         pattern_seed.exercise.value,
@@ -947,6 +1014,41 @@ def run_pipeline(
             )
             source = "gemini_unilateral_override"
             detection = gemini_detection
+
+        # Fallback unilatéral:
+        # même si Gemini se trompe (squat), basculer vers la meilleure hypothèse
+        # unilatérale quand le signal biomécanique est clairement split/elevated.
+        if (
+            detection.exercise in _BILATERAL_SQUAT_EXERCISES
+            and bool(unilateral_profile.get("strong_unilateral_signal", False))
+        ):
+            best_unilateral: tuple[str, DetectionResult, float] | None = None
+            for src_name, cand, cand_score in scored_candidates:
+                if cand.exercise not in _UNILATERAL_LOWER_EXERCISES:
+                    continue
+                if best_unilateral is None or cand_score > best_unilateral[2]:
+                    best_unilateral = (src_name, cand, cand_score)
+            if best_unilateral is not None:
+                split_stance_ratio = float(unilateral_profile.get("split_stance_ratio", 0.0) or 0.0)
+                ankle_height_ratio = float(unilateral_profile.get("ankle_height_asym_ratio", 0.0) or 0.0)
+                should_override = (
+                    best_unilateral[2] + 0.04 >= winning_score
+                    or best_unilateral[1].confidence >= 0.70
+                    or split_stance_ratio >= 0.36
+                    or ankle_height_ratio >= 0.30
+                )
+                if should_override:
+                    logger.warning(
+                        "Unilateral fallback override: %s -> %s (source=%s, score=%.3f, split=%.3f, ankle_height=%.3f)",
+                        detection.exercise.value,
+                        best_unilateral[1].exercise.value,
+                        best_unilateral[0],
+                        best_unilateral[2],
+                        split_stance_ratio,
+                        ankle_height_ratio,
+                    )
+                    source = "unilateral_fallback_override"
+                    detection = best_unilateral[1]
 
         # Si Gemini n'est pas retenu, ne pas propager son rep_count (souvent corrélé à sa mauvaise classe).
         if not source.startswith("gemini"):

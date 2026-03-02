@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # App
     debug: bool = False
-    base_url: str = "https://formcheck.fr"  # For media URLs
+    base_url: str = "https://formcheck-bot.onrender.com"  # For media/report URLs
     test_mode: bool = False  # Bypass credit checks for testing
     verify_twilio_signature: bool = True  # Reject unsigned/invalid webhook calls
     upload_max_mb: int = 1024  # Web upload fallback for heavy videos

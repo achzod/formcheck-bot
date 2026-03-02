@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
@@ -43,6 +44,20 @@ def _token_sidecar_path(analysis_id: str) -> Path:
     return REPORTS_DIR / ".{}.token".format(analysis_id)
 
 
+def _resolve_base_url(base_url: str) -> str:
+    candidates = [
+        base_url,
+        os.environ.get("BASE_URL", ""),
+        os.environ.get("RENDER_EXTERNAL_URL", ""),
+        "https://formcheck-bot.onrender.com",
+    ]
+    for candidate in candidates:
+        value = (candidate or "").strip()
+        if value.startswith("https://") or value.startswith("http://"):
+            return value.rstrip("/")
+    return "https://formcheck-bot.onrender.com"
+
+
 def save_report(analysis_id: str, token: str, html_content: str) -> Path:
     """Sauvegarde un rapport HTML et enregistre son token.
 
@@ -50,8 +65,14 @@ def save_report(analysis_id: str, token: str, html_content: str) -> Path:
         Path du fichier sauvegardé.
     """
     filepath = REPORTS_DIR / f"{analysis_id}.html"
-    filepath.write_text(html_content, encoding="utf-8")
-    _token_sidecar_path(analysis_id).write_text(token, encoding="utf-8")
+    html_tmp = filepath.with_suffix(".html.tmp")
+    html_tmp.write_text(html_content, encoding="utf-8")
+    html_tmp.replace(filepath)
+
+    sidecar_path = _token_sidecar_path(analysis_id)
+    sidecar_tmp = Path(str(sidecar_path) + ".tmp")
+    sidecar_tmp.write_text(token, encoding="utf-8")
+    sidecar_tmp.replace(sidecar_path)
 
     tokens = _load_tokens()
     tokens[analysis_id] = token
@@ -63,7 +84,8 @@ def save_report(analysis_id: str, token: str, html_content: str) -> Path:
 
 def get_report_url(base_url: str, analysis_id: str, token: str) -> str:
     """Construit l'URL publique du rapport."""
-    return f"{base_url.rstrip('/')}/report/{analysis_id}?t={token}"
+    resolved = _resolve_base_url(base_url)
+    return f"{resolved}/report/{analysis_id}?t={token}"
 
 
 @router.get("/report/{analysis_id}", response_class=HTMLResponse)

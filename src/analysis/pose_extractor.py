@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import inspect
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -201,12 +202,20 @@ def extract_pose(
 
     # Create PoseLandmarker
     base_options = mp_python.BaseOptions(model_asset_path=model_path)
-    options = vision.PoseLandmarkerOptions(
-        base_options=base_options,
-        running_mode=vision.RunningMode.VIDEO,
-        min_pose_detection_confidence=min_detection_confidence,
-        min_tracking_confidence=min_tracking_confidence,
-    )
+    options_kwargs = {
+        "base_options": base_options,
+        "running_mode": vision.RunningMode.VIDEO,
+        "min_pose_detection_confidence": min_detection_confidence,
+        "min_tracking_confidence": min_tracking_confidence,
+    }
+    # MediaPipe Pose defaults to 1 pose if num_poses is omitted.
+    # For gym videos, we need multiple candidates to avoid locking onto background people.
+    try:
+        if "num_poses" in inspect.signature(vision.PoseLandmarkerOptions).parameters:
+            options_kwargs["num_poses"] = max(1, int(os.environ.get("POSE_NUM_POSES", "4")))
+    except Exception:
+        pass
+    options = vision.PoseLandmarkerOptions(**options_kwargs)
 
     with vision.PoseLandmarker.create_from_options(options) as landmarker:
         frame_idx = 0

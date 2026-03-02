@@ -1357,6 +1357,85 @@ def _best_robust_count(autocorr: int, zerocross: int, extrema: int = 0) -> int:
     return values[1]
 
 
+def _is_robust_count_reliable(autocorr: int, zerocross: int, extrema: int = 0) -> bool:
+    values = sorted(v for v in (autocorr, zerocross, extrema) if v > 0)
+    if len(values) < 2:
+        return False
+    if values[-1] - values[0] <= 2:
+        return True
+    if len(values) == 3 and abs(values[-1] - values[-2]) <= 2:
+        return True
+    return False
+
+
+def _retune_extrema_for_target(
+    smoothed: np.ndarray,
+    fps: float,
+    target_reps: int,
+    base_prominence: float,
+    base_min_distance: int,
+) -> tuple[np.ndarray, np.ndarray, bool]:
+    """Retry extrema extraction with target-driven params to recover missed reps."""
+    if target_reps < 2 or len(smoothed) < 12:
+        return np.array([]), np.array([]), False
+
+    approx_period = max(3, int(len(smoothed) / max(1, target_reps)))
+    distance_candidates = sorted(
+        {
+            max(3, int(approx_period * 0.65)),
+            max(3, int(approx_period * 0.55)),
+            max(3, int(approx_period * 0.45)),
+            max(3, int(base_min_distance)),
+            max(3, int(base_min_distance * 0.7)),
+            max(3, int(base_min_distance * 0.5)),
+        },
+        reverse=True,
+    )
+    prominence_candidates = [
+        max(0.01, base_prominence * mul)
+        for mul in (0.90, 0.75, 0.60, 0.45, 0.35, 0.25, 0.18)
+    ]
+
+    best_peaks = np.array([])
+    best_valleys = np.array([])
+    best_error = 1_000_000
+
+    for prom in prominence_candidates:
+        for dist in distance_candidates:
+            peaks, valleys = _find_peaks_valleys(
+                smoothed,
+                min_prominence=prom,
+                min_distance=dist,
+            )
+            if len(valleys) < 2 and len(peaks) >= 2:
+                valleys, peaks = peaks, valleys
+            if len(valleys) < 2:
+                continue
+            candidate_reps = max(0, len(valleys) - 1)
+            err = abs(candidate_reps - target_reps)
+            if err < best_error:
+                best_error = err
+                best_peaks = peaks
+                best_valleys = valleys
+            if err <= 1:
+                logger.info(
+                    "Rescue extrema hit target: reps=%d target=%d prom=%.3f dist=%d",
+                    candidate_reps, target_reps, prom, dist,
+                )
+                return peaks, valleys, True
+
+    if len(best_valleys) >= 2:
+        candidate_reps = max(0, len(best_valleys) - 1)
+        if best_error <= max(2, int(target_reps * 0.30)):
+            logger.info(
+                "Rescue extrema close target: reps=%d target=%d err=%d",
+                candidate_reps, target_reps, best_error,
+            )
+            return best_peaks, best_valleys, True
+
+    return np.array([]), np.array([]), False
+
+
 def _count_by_zero_crossing(signal: np.ndarray, fps: float = 30.0) -> int:
     """Count reps by zero-crossing: each full cycle (2 crossings) = 1 rep.
 
@@ -1523,6 +1602,9 @@ def segment_reps(
     # Lisser le signal
     smoothed = _smooth_signal(signal, window=int(params["smooth_window"]))
 
+    robust_count_hint = _best_robust_count(autocorr_count, zerocross_count, extrema_count)
+    robust_hint_reliable = _is_robust_count_reliable(autocorr_count, zerocross_count, extrema_count)
+
     # Détecter pics et vallées — try multiple prominence levels
     peaks, valleys = _find_peaks_valleys(
         smoothed,
@@ -1572,6 +1654,32 @@ def segment_reps(
                     return result
                 logger.warning("All methods failed to detect reps.")
                 return result
+
+    # Rescue segmentation:
+    # when robust periodic estimators agree on a higher count, retune extrema
+    # parameters to recover missed cycles instead of accepting undercount.
+    initial_cycle_count = max(0, len(valleys) - 1)
+    if (
+        robust_count_hint >= 3
+        and robust_hint_reliable
+        and initial_cycle_count < max(2, int(robust_count_hint * 0.70))
+    ):
+        rescue_peaks, rescue_valleys, rescued = _retune_extrema_for_target(
+            smoothed=smoothed,
+            fps=fps,
+            target_reps=robust_count_hint,
+            base_prominence=float(params["min_prominence"]),
+            base_min_distance=int(params["min_distance"]),
+        )
+        if rescued and len(rescue_valleys) >= 2:
+            logger.info(
+                "Rescue segmentation override: valleys %d->%d (target=%d)",
+                len(valleys),
+                len(rescue_valleys),
+                robust_count_hint,
+            )
+            peaks = rescue_peaks
+            valleys = rescue_valleys
 
     # ROM minimum: exercice détecté + garde-fou si auto-signal différent.
     min_rom = MIN_ROM_THRESHOLD.get(exercise, _default_min_rom_for_attr(attr))
@@ -1761,12 +1869,7 @@ def segment_reps(
     result.extrema_count = extrema_count
     result.robust_count = robust_count
     robust_values = sorted(v for v in (autocorr_count, zerocross_count, extrema_count) if v > 0)
-    robust_reliable = False
-    if len(robust_values) >= 2:
-        if robust_values[-1] - robust_values[0] <= 2:
-            robust_reliable = True
-        elif len(robust_values) == 3 and abs(robust_values[-1] - robust_values[-2]) <= 2:
-            robust_reliable = True
+    robust_reliable = _is_robust_count_reliable(autocorr_count, zerocross_count, extrema_count)
 
     if group_mismatch and robust_count > 0:
         logger.warning(
@@ -1824,10 +1927,16 @@ def segment_reps(
         result.count_method = "peak_only"
 
     # Intensite de serie (densite des reps).
-    use_rep_level_intensity = len(reps) >= 2 and not group_mismatch
+    rep_coverage_ok = abs(len(reps) - result.total_reps) <= max(1, int(result.total_reps * 0.25))
+    use_rep_level_intensity = len(reps) >= 2 and not group_mismatch and rep_coverage_ok
     if use_rep_level_intensity:
         intensity = _compute_intensity_metrics(reps, fps)
-        intensity_conf = "elevee" if abs(len(reps) - result.total_reps) <= 2 else "limitee"
+        if abs(len(reps) - result.total_reps) <= 1:
+            intensity_conf = "elevee"
+        elif abs(len(reps) - result.total_reps) <= 3:
+            intensity_conf = "moyenne"
+        else:
+            intensity_conf = "limitee"
     else:
         duration_hint_s = combined_duration_s
         if duration_hint_s <= 0 and len(frame_indices) >= 2 and fps > 0:
@@ -1875,6 +1984,7 @@ def segment_reps(
         "min_prominence": round(params["min_prominence"], 2) if params else 0,
         "min_distance": params["min_distance"] if params else 0,
         "count_method": result.count_method,
+        "rep_coverage_ok": rep_coverage_ok,
         "intensity_score": result.intensity_score,
         "avg_inter_rep_rest_s": round(result.avg_inter_rep_rest_s, 2),
         "reps_per_min": round(result.reps_per_min, 1),
