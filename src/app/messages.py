@@ -18,7 +18,8 @@ WELCOME = (
     "Comment filmer :\n"
     "1. De profil, corps entier visible\n"
     "2. Camera fixe, bon eclairage\n"
-    "3. 3 a 8 reps completes\n\n"
+    "3. 3 a 8 reps completes\n"
+    "4. Video max 16 MB (desactive HD/4K)\n\n"
     "*1 analyse offerte.* Envoie ta video."
 )
 
@@ -56,7 +57,8 @@ FILMING_GUIDE = (
     "4. *Vetements* — Ajustes si possible (pas de jogging ultra large qui cache les genoux)\n"
     "5. *Personne* — Pas de passage entre toi et la camera\n"
     "6. *Resolution* — 1080p suffit, pas besoin de 4K\n"
-    "7. *Duree* — 10 secondes a 3 minutes (une serie complete)\n\n"
+    "7. *Duree* — 10 secondes a 3 minutes (une serie complete)\n"
+    "8. *Taille fichier* — Maximum 16 MB (sinon WhatsApp bloque l'envoi)\n\n"
     "Plus la video est propre, plus l'analyse sera precise et detaillee."
 )
 
@@ -260,13 +262,13 @@ UNSUPPORTED_MESSAGE = (
 )
 
 HELP_TEXT = (
-    "Envoie-moi une *video* de ton exercice.\n"
+    "Envoie-moi une *video* de ton exercice (max 16 MB).\n"
     "Tape *menu* pour les options, *guide* pour les conseils de tournage."
 )
 
 MENU_TEXT = (
     "*FORMCHECK by ACHZOD*\n\n"
-    "Envoie une *video* pour une analyse.\n\n"
+    "Envoie une *video* pour une analyse (max 16 MB).\n\n"
     "*guide* — Conseils de tournage\n"
     "*credits* — Analyses restantes\n"
     "*forfaits* — Recharger\n"
@@ -298,8 +300,8 @@ ERROR_VIDEO_QUALITY = (
 )
 
 ERROR_VIDEO_TOO_LARGE = (
-    "Video trop lourde (max 25 MB).\n"
-    "Filme en 1080p au lieu de 4K, ou reduis la duree."
+    "Video trop lourde (max 16 MB sur WhatsApp).\n"
+    "Desactive HD/4K, filme en 1080p et reduis la duree."
 )
 
 ERROR_VIDEO_TOO_SHORT = (

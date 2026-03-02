@@ -138,7 +138,7 @@ async def handle_text(user: db.User, data: dict) -> None:
     elif text in ("salut", "hello", "bonjour", "yo", "hey", "hi", "coucou", "slt"):
         await wa.send_text(
             phone,
-            "Yo ! Envoie-moi une *video* de ton exercice pour une analyse biomecanique.\n"
+            "Yo ! Envoie-moi une *video* de ton exercice (max 16 MB) pour une analyse biomecanique.\n"
             "Tape *menu* pour voir toutes les options.",
         )
     else:
@@ -200,8 +200,8 @@ async def handle_video(user: db.User, data: dict) -> None:
             await wa.send_text(phone, msg.ERROR_GENERIC)
             return
 
-        # Validate video size (max 25MB — WhatsApp limit)
-        MAX_VIDEO_SIZE = 25 * 1024 * 1024
+        # Validate video size (WhatsApp via Twilio limit: 16MB)
+        MAX_VIDEO_SIZE = 16 * 1024 * 1024
         if len(video_bytes) > MAX_VIDEO_SIZE:
             await wa.send_text(phone, msg.ERROR_VIDEO_TOO_LARGE)
             return
