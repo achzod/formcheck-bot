@@ -359,6 +359,45 @@ MIN_ROM_THRESHOLD: dict[str, float] = {
 }
 
 
+def _attr_group(attr: str) -> str:
+    if "knee" in attr or "hip" in attr:
+        return "lower"
+    if "elbow" in attr or "shoulder" in attr:
+        return "upper"
+    if "trunk" in attr:
+        return "core"
+    return "mixed"
+
+
+def _exercise_motion_group(exercise: str) -> str:
+    preferred = PRIMARY_ANGLE_MAP.get(exercise, "")
+    if preferred:
+        return _attr_group(preferred)
+    return "mixed"
+
+
+def _joint_names_for_exercise(exercise: str) -> set[str]:
+    group = _exercise_motion_group(exercise)
+    if group == "lower":
+        return {
+            "left_hip", "right_hip",
+            "left_knee", "right_knee",
+            "left_ankle", "right_ankle",
+        }
+    if group == "upper":
+        return {
+            "left_shoulder", "right_shoulder",
+            "left_elbow", "right_elbow",
+            "left_wrist", "right_wrist",
+        }
+    if group == "core":
+        return {
+            "left_shoulder", "right_shoulder",
+            "left_hip", "right_hip",
+        }
+    return set(_JOINT_INDICES.keys())
+
+
 @dataclass
 class Rep:
     """Une répétition individuelle."""
@@ -551,9 +590,31 @@ def _select_segmentation_signal(
     is poorly tracked.
     """
     preferred = PRIMARY_ANGLE_MAP.get(exercise, "left_knee_flexion")
-    candidates = [
-        preferred,
-        _mirror_attr(preferred),
+    target_group = _exercise_motion_group(exercise)
+    group_candidates: dict[str, list[str]] = {
+        "lower": [
+            "left_knee_flexion",
+            "right_knee_flexion",
+            "left_hip_flexion",
+            "right_hip_flexion",
+            "trunk_inclination",
+        ],
+        "upper": [
+            "left_elbow_flexion",
+            "right_elbow_flexion",
+            "left_shoulder_flexion",
+            "right_shoulder_flexion",
+            "left_shoulder_abduction",
+            "right_shoulder_abduction",
+            "trunk_inclination",
+        ],
+        "core": [
+            "trunk_inclination",
+            "left_hip_flexion",
+            "right_hip_flexion",
+        ],
+    }
+    fallback_all = [
         "left_knee_flexion",
         "right_knee_flexion",
         "left_hip_flexion",
@@ -566,6 +627,10 @@ def _select_segmentation_signal(
         "right_shoulder_abduction",
         "trunk_inclination",
     ]
+    if target_group in group_candidates:
+        candidates = [preferred, _mirror_attr(preferred)] + group_candidates[target_group]
+    else:
+        candidates = [preferred, _mirror_attr(preferred)] + fallback_all
 
     seen: set[str] = set()
     ordered: list[str] = []
@@ -975,15 +1040,21 @@ _JOINT_INDICES = {
 }
 
 
-def _extract_joint_y_signals(raw_frames: list) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+def _extract_joint_y_signals(
+    raw_frames: list,
+    exercise: str = "",
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     """Extract Y position time-series for each key joint from raw landmarks.
 
     Returns dict of joint_name -> (y_values, frame_indices).
     Y in image coordinates (higher Y = lower position in image).
     """
     signals = {}
+    selected_joints = _joint_names_for_exercise(exercise)
     vis_stats = {}
     for joint_name, lm_idx in _JOINT_INDICES.items():
+        if joint_name not in selected_joints:
+            continue
         values = []
         indices = []
         vis_values = []
@@ -1002,8 +1073,8 @@ def _extract_joint_y_signals(raw_frames: list) -> dict[str, tuple[np.ndarray, np
             signals[joint_name] = (np.array(values), np.array(indices))
 
     logger.info(
-        "Joint Y extraction: %d/%d joints usable. Stats: %s",
-        len(signals), len(_JOINT_INDICES),
+        "Joint Y extraction: %d/%d joints usable (exercise=%s). Stats: %s",
+        len(signals), len(selected_joints), exercise,
         {k: "{}pts/{:.2f}vis".format(v[0], v[1]) for k, v in vis_stats.items()},
     )
     return signals
@@ -1366,7 +1437,7 @@ def segment_reps(
     valleys = np.array([])
 
     if raw_frames and len(raw_frames) >= 10:
-        joint_signals = _extract_joint_y_signals(raw_frames)
+        joint_signals = _extract_joint_y_signals(raw_frames, exercise=exercise)
         if joint_signals:
             combined_signal, combined_indices = _build_combined_signal(joint_signals, fps)
 
@@ -1678,6 +1749,12 @@ def segment_reps(
     # ══════════════════════════════════════════════════════════════════════
     robust_count = _best_robust_count(autocorr_count, zerocross_count, extrema_count)
     peak_count = result.total_reps
+    expected_group = _exercise_motion_group(exercise)
+    selected_group = _attr_group(attr)
+    group_mismatch = (
+        expected_group in {"lower", "upper", "core"}
+        and selected_group != expected_group
+    )
     result.peak_count = peak_count
     result.autocorr_count = autocorr_count
     result.zerocross_count = zerocross_count
@@ -1691,7 +1768,16 @@ def segment_reps(
         elif len(robust_values) == 3 and abs(robust_values[-1] - robust_values[-2]) <= 2:
             robust_reliable = True
 
-    if robust_count > peak_count and robust_count > 0:
+    if group_mismatch and robust_count > 0:
+        logger.warning(
+            "Group guard override: exercise=%s expects=%s, signal=%s (%s) -> robust=%d",
+            exercise, expected_group, attr, selected_group, robust_count,
+        )
+        result.total_reps = robust_count
+        result.complete_reps = min(result.complete_reps, robust_count) if result.complete_reps > 0 else robust_count
+        result.partial_reps = max(0, robust_count - result.complete_reps)
+        result.count_method = "robust_group_guard"
+    elif robust_count > peak_count and robust_count > 0:
         if robust_reliable or (robust_count - peak_count) <= max(3, int(peak_count * 0.6) + 1):
             logger.info(
                 "Robust up-override: peak=%d, autocorr=%d, zerocross=%d, extrema=%d -> %d",
@@ -1738,7 +1824,8 @@ def segment_reps(
         result.count_method = "peak_only"
 
     # Intensite de serie (densite des reps).
-    if len(reps) >= 2:
+    use_rep_level_intensity = len(reps) >= 2 and not group_mismatch
+    if use_rep_level_intensity:
         intensity = _compute_intensity_metrics(reps, fps)
         intensity_conf = "elevee" if abs(len(reps) - result.total_reps) <= 2 else "limitee"
     else:
@@ -1749,6 +1836,8 @@ def segment_reps(
             duration_hint_s = max(0.0, float(reps[-1].end_frame - reps[0].start_frame) / fps)
         intensity = _estimate_intensity_from_count(result.total_reps, duration_hint_s)
         intensity_conf = "limitee"
+        if group_mismatch:
+            intensity_conf = "limitee (signal non cohérent)"
 
     result.avg_inter_rep_rest_s = float(intensity["avg_inter_rep_rest_s"])
     result.median_inter_rep_rest_s = float(intensity["median_inter_rep_rest_s"])
@@ -1774,6 +1863,9 @@ def segment_reps(
         "combined_signal_len": len(combined_signal) if combined_signal is not None else 0,
         "fps": fps,
         "exercise": exercise,
+        "expected_group": expected_group,
+        "selected_group": selected_group,
+        "group_mismatch": group_mismatch,
         "segmentation_signal": attr,
         "auto_signal_selected": auto_signal,
         "angle_signal_len": len(signal) if signal is not None else 0,

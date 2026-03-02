@@ -223,6 +223,23 @@ def _exercise_group(exercise_name: str) -> str:
     return "mixed"
 
 
+_UNILATERAL_LOWER_EXERCISES: set[Exercise] = {
+    Exercise.BULGARIAN_SPLIT_SQUAT,
+    Exercise.LUNGE,
+    Exercise.WALKING_LUNGE,
+    Exercise.STEP_UP,
+    Exercise.SINGLE_LEG_RDL,
+}
+
+_BILATERAL_SQUAT_EXERCISES: set[Exercise] = {
+    Exercise.SQUAT,
+    Exercise.FRONT_SQUAT,
+    Exercise.GOBLET_SQUAT,
+    Exercise.HACK_SQUAT,
+    Exercise.SISSY_SQUAT,
+}
+
+
 def _motion_profile(angles: AngleResult) -> dict[str, float | str]:
     """Déduit la famille de mouvement dominante depuis les ROM articulaires."""
     stats = getattr(angles, "stats", {}) or {}
@@ -263,6 +280,47 @@ def _motion_profile(angles: AngleResult) -> dict[str, float | str]:
         "trunk_rom": round(trunk, 1),
         "lower_total": round(lower_total, 1),
         "upper_total": round(upper_total, 1),
+    }
+
+
+def _compute_unilateral_profile(angles: AngleResult) -> dict[str, float | bool]:
+    """Profile asymétrie G/D pour distinguer bilatéral vs unilatéral."""
+    stats = getattr(angles, "stats", {}) or {}
+
+    def _rom(key: str) -> float:
+        item = stats.get(key)
+        if not item:
+            return 0.0
+        return float(getattr(item, "range_of_motion", 0.0) or 0.0)
+
+    left_knee = _rom("left_knee_flexion")
+    right_knee = _rom("right_knee_flexion")
+    left_hip = _rom("left_hip_flexion")
+    right_hip = _rom("right_hip_flexion")
+
+    knee_max = max(left_knee, right_knee)
+    hip_max = max(left_hip, right_hip)
+    knee_asym = abs(left_knee - right_knee) / knee_max if knee_max > 5.0 else 0.0
+    hip_asym = abs(left_hip - right_hip) / hip_max if hip_max > 5.0 else 0.0
+
+    unilateral_signal = max(
+        knee_asym,
+        hip_asym * 0.9,
+        (knee_asym * 0.65) + (hip_asym * 0.35),
+    )
+    strong_unilateral = bool(
+        unilateral_signal >= 0.24 and (knee_asym >= 0.22 or hip_asym >= 0.20)
+    )
+
+    return {
+        "left_knee_rom": round(left_knee, 1),
+        "right_knee_rom": round(right_knee, 1),
+        "left_hip_rom": round(left_hip, 1),
+        "right_hip_rom": round(right_hip, 1),
+        "knee_asym": round(knee_asym, 3),
+        "hip_asym": round(hip_asym, 3),
+        "unilateral_signal": round(unilateral_signal, 3),
+        "strong_unilateral_signal": strong_unilateral,
     }
 
 
@@ -412,6 +470,7 @@ def _detection_candidate_score(
     pattern_result: DetectionResult,
     motion: dict[str, float | str],
     press_profile: dict[str, float | bool] | None = None,
+    unilateral_profile: dict[str, float | bool] | None = None,
 ) -> float:
     """Score une hypothèse d'exercice avec cohérence biomécanique."""
     score = float(candidate.confidence)
@@ -426,9 +485,9 @@ def _detection_candidate_score(
 
     if pattern_result.exercise != Exercise.UNKNOWN:
         if candidate.exercise == pattern_result.exercise:
-            score += 0.12 + (0.08 * max(0.0, min(1.0, pattern_result.confidence)))
+            score += 0.05 + (0.05 * max(0.0, min(1.0, pattern_result.confidence)))
         elif pattern_result.confidence >= 0.75:
-            score -= 0.08
+            score -= 0.05
 
     if press_profile:
         ohp_signal = float(press_profile.get("ohp_signal", 0.0) or 0.0)
@@ -444,6 +503,21 @@ def _detection_candidate_score(
             if strong_ohp:
                 score -= 0.25
 
+    if unilateral_profile:
+        unilateral_signal = float(unilateral_profile.get("unilateral_signal", 0.0) or 0.0)
+        strong_unilateral = bool(unilateral_profile.get("strong_unilateral_signal", False))
+
+        if candidate.exercise in _UNILATERAL_LOWER_EXERCISES:
+            score += 0.42 * unilateral_signal
+            if strong_unilateral:
+                score += 0.12
+            if unilateral_signal < 0.12:
+                score -= 0.10
+        elif candidate.exercise in _BILATERAL_SQUAT_EXERCISES:
+            score -= 0.48 * unilateral_signal
+            if strong_unilateral:
+                score -= 0.18
+
     return score
 
 
@@ -452,6 +526,7 @@ def _needs_detection_crosscheck(
     pattern_result: DetectionResult,
     motion: dict[str, float | str],
     press_profile: dict[str, float | bool] | None = None,
+    unilateral_profile: dict[str, float | bool] | None = None,
 ) -> bool:
     """Détermine si la détection Gemini doit être contre-vérifiée."""
     if gemini_detection.confidence < 0.72:
@@ -480,6 +555,18 @@ def _needs_detection_crosscheck(
         if (
             gemini_detection.exercise in {Exercise.OHP, Exercise.DUMBBELL_OHP}
             and bool(press_profile.get("strong_upright_signal", False))
+        ):
+            return True
+
+    if unilateral_profile:
+        strong_unilateral = bool(unilateral_profile.get("strong_unilateral_signal", False))
+        unilateral_signal = float(unilateral_profile.get("unilateral_signal", 0.0) or 0.0)
+        if strong_unilateral and gemini_detection.exercise in _BILATERAL_SQUAT_EXERCISES:
+            return True
+        if (
+            gemini_detection.exercise in _UNILATERAL_LOWER_EXERCISES
+            and unilateral_signal < 0.10
+            and gemini_detection.confidence < 0.90
         ):
             return True
 
@@ -644,12 +731,14 @@ def run_pipeline(
     pattern_seed = detect_by_pattern(angles)
     motion = _motion_profile(angles)
     press_profile = _compute_press_profile(extraction, angles)
+    unilateral_profile = _compute_unilateral_profile(angles)
     logger.info(
-        "  → Pattern seed: %s (conf=%.2f) | motion=%s | press_profile=%s",
+        "  → Pattern seed: %s (conf=%.2f) | motion=%s | press_profile=%s | unilateral=%s",
         pattern_seed.exercise.value,
         pattern_seed.confidence,
         motion,
         press_profile,
+        unilateral_profile,
     )
 
     # Pré-extraire 3 frames pour cross-check vision (réutilisées si Gemini douteux).
@@ -775,6 +864,7 @@ def run_pipeline(
             pattern_seed,
             motion,
             press_profile=press_profile,
+            unilateral_profile=unilateral_profile,
         ):
             logger.warning(
                 "Gemini flagged for cross-check (gemini=%s conf=%.2f, pattern=%s conf=%.2f)",
@@ -803,6 +893,7 @@ def run_pipeline(
                 pattern_seed,
                 motion,
                 press_profile=press_profile,
+                unilateral_profile=unilateral_profile,
             )
             scored_candidates.append((src_name, cand, cand_score))
 
@@ -837,8 +928,28 @@ def run_pipeline(
                 )
                 source, detection = best_ohp
 
+        # Garde-fou unilatéral:
+        # éviter qu'un pattern "squat" écrase une fente bulgare/lunge claire.
+        if (
+            detection.exercise in _BILATERAL_SQUAT_EXERCISES
+            and gemini_detection is not None
+            and gemini_detection.exercise in _UNILATERAL_LOWER_EXERCISES
+            and gemini_detection.confidence >= 0.70
+            and bool(unilateral_profile.get("strong_unilateral_signal", False))
+        ):
+            logger.warning(
+                "Unilateral disambiguation override: %s -> %s (knee_asym=%.3f, hip_asym=%.3f, gemini_conf=%.2f)",
+                detection.exercise.value,
+                gemini_detection.exercise.value,
+                float(unilateral_profile.get("knee_asym", 0.0) or 0.0),
+                float(unilateral_profile.get("hip_asym", 0.0) or 0.0),
+                gemini_detection.confidence,
+            )
+            source = "gemini_unilateral_override"
+            detection = gemini_detection
+
         # Si Gemini n'est pas retenu, ne pas propager son rep_count (souvent corrélé à sa mauvaise classe).
-        if source != "gemini":
+        if not source.startswith("gemini"):
             gemini_rep_count = 0
 
         try:
@@ -854,6 +965,7 @@ def run_pipeline(
                 "vision_exercise": fallback_detection.exercise.value if fallback_detection else "none",
                 "vision_confidence": round(float(fallback_detection.confidence), 3) if fallback_detection else 0.0,
                 "press_profile": press_profile,
+                "unilateral_profile": unilateral_profile,
                 "candidate_scores": ";".join(
                     "{}:{}:{:.3f}".format(src_name, cand.exercise.value, cand_score)
                     for src_name, cand, cand_score in scored_candidates

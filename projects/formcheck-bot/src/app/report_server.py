@@ -34,7 +34,13 @@ def _load_tokens() -> dict[str, str]:
 
 
 def _save_tokens(tokens: dict[str, str]) -> None:
-    _TOKENS_FILE.write_text(json.dumps(tokens))
+    tmp = _TOKENS_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(tokens), encoding="utf-8")
+    tmp.replace(_TOKENS_FILE)
+
+
+def _token_sidecar_path(analysis_id: str) -> Path:
+    return REPORTS_DIR / ".{}.token".format(analysis_id)
 
 
 def save_report(analysis_id: str, token: str, html_content: str) -> Path:
@@ -45,6 +51,7 @@ def save_report(analysis_id: str, token: str, html_content: str) -> Path:
     """
     filepath = REPORTS_DIR / f"{analysis_id}.html"
     filepath.write_text(html_content, encoding="utf-8")
+    _token_sidecar_path(analysis_id).write_text(token, encoding="utf-8")
 
     tokens = _load_tokens()
     tokens[analysis_id] = token
@@ -66,8 +73,16 @@ async def serve_report(analysis_id: str, t: str = Query("")) -> HTMLResponse:
     if "/" in analysis_id or "\\" in analysis_id or ".." in analysis_id:
         raise HTTPException(400, "Invalid ID")
 
-    tokens = _load_tokens()
-    expected = tokens.get(analysis_id)
+    expected = ""
+    sidecar = _token_sidecar_path(analysis_id)
+    if sidecar.exists():
+        try:
+            expected = sidecar.read_text(encoding="utf-8").strip()
+        except Exception:
+            expected = ""
+    if not expected:
+        tokens = _load_tokens()
+        expected = tokens.get(analysis_id, "")
     if not expected or t != expected:
         raise HTTPException(403, "Lien invalide ou expiré")
 
