@@ -136,14 +136,7 @@ try:
                         continue
 
                     _remember_failed_sid(sid)
-                    upload_url = _build_upload_url(phone)
-                    await wa.send_text(
-                        phone,
-                        msg.UPLOAD_AUTO_FALLBACK.format(
-                            upload_url=upload_url,
-                            max_mb=_upload_max_mb,
-                        ),
-                    )
+                    await wa.send_text(phone, msg.UPLOAD_AUTO_FALLBACK)
                     logger.info(
                         "Auto-fallback sent for failed inbound media sid=%s phone=%s",
                         sid,
@@ -279,119 +272,20 @@ try:
 
     @app.get("/upload")
     async def upload_page(request: Request) -> HTMLResponse:
-        phone_prefill_raw = (request.query_params.get("phone", "") or "").strip()
-        phone_prefill = ""
-        if phone_prefill_raw:
-            try:
-                phone_prefill = _normalize_phone(phone_prefill_raw)
-            except ValueError:
-                phone_prefill = phone_prefill_raw
-        return HTMLResponse(_render_upload_page(phone_prefill=phone_prefill))
+        return HTMLResponse(
+            "<html><body><p>Mode upload externe desactive. Envoie tes videos uniquement sur WhatsApp.</p></body></html>",
+            status_code=410,
+        )
 
     @app.post("/upload")
     async def upload_video(phone: str = Form(""), video: UploadFile = File(...)) -> HTMLResponse:
         try:
-            normalized_phone = _normalize_phone(phone)
-        except ValueError:
-            return HTMLResponse(
-                _render_upload_page(
-                    "Numero invalide. Utilise le format international (+33...).",
-                    is_error=True,
-                    phone_prefill=phone,
-                ),
-                status_code=400,
-            )
-
-        content_type = (video.content_type or "").lower()
-        if content_type and not content_type.startswith("video/"):
-            try:
-                await video.close()
-            except Exception:
-                pass
-            return HTMLResponse(
-                _render_upload_page(
-                    "Fichier invalide: envoie un format video.",
-                    is_error=True,
-                    phone_prefill=normalized_phone,
-                ),
-                status_code=400,
-            )
-
-        original_name = video.filename or "upload.mp4"
-        extension = Path(original_name).suffix.lower()
-        if extension not in _ALLOWED_UPLOAD_EXTENSIONS:
-            extension = ".mp4"
-
-        dest = VIDEOS_DIR / "{}{}".format(uuid.uuid4(), extension)
-        total_bytes = 0
-
-        try:
-            with dest.open("wb") as out:
-                while True:
-                    chunk = await video.read(_UPLOAD_CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    total_bytes += len(chunk)
-                    if total_bytes > _UPLOAD_MAX_BYTES:
-                        raise ValueError("too_large")
-                    out.write(chunk)
-        except ValueError:
-            cleanup_video(str(dest))
-            return HTMLResponse(
-                _render_upload_page(
-                    "Video trop lourde. Maximum {} MB.".format(_UPLOAD_MAX_BYTES // (1024 * 1024)),
-                    is_error=True,
-                    phone_prefill=normalized_phone,
-                ),
-                status_code=413,
-            )
+            await video.close()
         except Exception:
-            cleanup_video(str(dest))
-            logger.exception("Upload failed for %s", normalized_phone)
-            return HTMLResponse(
-                _render_upload_page(
-                    "Upload impossible. Reessaie dans quelques instants.",
-                    is_error=True,
-                    phone_prefill=normalized_phone,
-                ),
-                status_code=500,
-            )
-        finally:
-            try:
-                await video.close()
-            except Exception:
-                pass
-
-        if total_bytes < 10_000:
-            cleanup_video(str(dest))
-            return HTMLResponse(
-                _render_upload_page(
-                    "Video trop courte ou corrompue.",
-                    is_error=True,
-                    phone_prefill=normalized_phone,
-                ),
-                status_code=400,
-            )
-
-        queued, reason = await enqueue_uploaded_video(normalized_phone, str(dest))
-        if queued:
-            return HTMLResponse(
-                _render_upload_page(
-                    "Upload recu. Analyse lancee, rapport envoye sur WhatsApp.",
-                    phone_prefill=normalized_phone,
-                ),
-                status_code=200,
-            )
-
-        if reason == "rate_limited":
-            message = "Une analyse est deja en cours sur ce numero. Attends le resultat WhatsApp."
-        elif reason == "no_credits":
-            message = "Plus de credits pour ce numero. Ecris 'forfaits' sur WhatsApp."
-        else:
-            message = "Impossible de lancer l'analyse pour le moment. Reessaie."
+            pass
         return HTMLResponse(
-            _render_upload_page(message, is_error=True, phone_prefill=normalized_phone),
-            status_code=400,
+            "<html><body><p>Mode upload externe desactive. Envoie tes videos uniquement sur WhatsApp.</p></body></html>",
+            status_code=410,
         )
 
     _processed_sids: dict[str, bool] = {}

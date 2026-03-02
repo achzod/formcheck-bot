@@ -20,7 +20,7 @@ WELCOME = (
     "2. Camera fixe, bon eclairage\n"
     "3. 3 a 8 reps completes\n"
     "4. Video max 16 MB sur WhatsApp (desactive HD/4K)\n"
-    "5. Si plus lourd, tape *upload*\n\n"
+    "5. Si plus lourd, coupe en 2-4 clips plus courts\n\n"
     "*1 analyse offerte.* Envoie ta video."
 )
 
@@ -60,7 +60,7 @@ FILMING_GUIDE = (
     "6. *Resolution* — 1080p suffit, pas besoin de 4K\n"
     "7. *Duree* — 10 secondes a 3 minutes (une serie complete)\n"
     "8. *Taille fichier* — Maximum 16 MB sur WhatsApp (sinon WhatsApp bloque)\n"
-    "9. *Video lourde* — Tape *upload* pour passer par l'upload direct\n\n"
+    "9. *Video lourde* — Coupe ta serie en plusieurs clips sur WhatsApp\n\n"
     "Plus la video est propre, plus l'analyse sera precise et detaillee."
 )
 
@@ -265,28 +265,26 @@ UNSUPPORTED_MESSAGE = (
 
 HELP_TEXT = (
     "Envoie-moi une *video* de ton exercice (max 16 MB).\n"
-    "Tape *menu* pour les options, *guide* pour les conseils de tournage, "
-    "ou *upload* pour une video lourde."
+    "Tape *menu* pour les options et *guide* pour les conseils de tournage.\n"
+    "Si ta video est lourde, coupe-la en plusieurs clips et envoie-les sur WhatsApp."
 )
 
 MENU_TEXT = (
     "*FORMCHECK by ACHZOD*\n\n"
     "Envoie une *video* pour une analyse (max 16 MB).\n\n"
     "*guide* — Conseils de tournage\n"
-    "*upload* — Video lourde (jusqu'a 1 GB)\n"
+    "*upload* — Rappel des regles pour videos lourdes sur WhatsApp\n"
     "*credits* — Analyses restantes\n"
     "*forfaits* — Recharger\n"
     "*morpho* — Profil morphologique"
 )
 
 UPLOAD_INSTRUCTIONS = (
-    "Pour les videos longues/lourdes qui depassent 16 MB, utilise l'upload direct:\n"
-    "{upload_url}\n\n"
-    "Etapes:\n"
-    "1. Ouvre le lien\n"
-    "2. Entre ton numero WhatsApp (format +33...)\n"
-    "3. Upload ta video (max {max_mb} MB)\n\n"
-    "Je lance l'analyse et j'envoie le rapport sur WhatsApp."
+    "Mode 100% WhatsApp pour videos longues/lourdes:\n\n"
+    "1. Coupe ta serie en 2 a 4 clips de 10 a 30 sec\n"
+    "2. Desactive HD/4K, reste en 720p ou 1080p\n"
+    "3. Envoie les clips un par un sur WhatsApp\n"
+    "4. J'analyse chaque clip des reception"
 )
 
 # ── ERREURS ──────────────────────────────────────────────────────────────────
@@ -314,17 +312,15 @@ ERROR_VIDEO_QUALITY = (
 )
 
 ERROR_VIDEO_TOO_LARGE = (
-    "Video trop lourde (max 16 MB sur WhatsApp).\n"
-    "Desactive HD/4K, filme en 1080p et reduis la duree.\n"
-    "Alternative directe (video lourde jusqu'a {max_mb} MB):\n"
-    "{upload_url}"
+    "Video bloquee: limite WhatsApp API = 16 MB.\n"
+    "Desactive HD/4K, filme en 720p/1080p et reduis la duree.\n"
+    "Si besoin, coupe la serie en 2-4 clips et envoie-les sur WhatsApp."
 )
 
 UPLOAD_AUTO_FALLBACK = (
-    "WhatsApp a bloque ta video (limite 16 MB).\n"
-    "Envoie-la ici en mode video lourde (jusqu'a {max_mb} MB):\n"
-    "{upload_url}\n\n"
-    "Je lance l'analyse et je t'envoie le rapport sur WhatsApp."
+    "WhatsApp a bloque ta video (limite 16 MB via API).\n"
+    "Renvoie-la en 720p/1080p sans HD, ou coupe-la en 2-4 clips.\n"
+    "Je reste en mode 100% WhatsApp."
 )
 
 ERROR_VIDEO_TOO_SHORT = (

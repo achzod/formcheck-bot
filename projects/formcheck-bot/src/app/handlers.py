@@ -6,7 +6,6 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from urllib.parse import quote
 
 from app import database as db
 from app import messages as msg
@@ -38,14 +37,6 @@ _FRAME_LABELS: dict[str, str] = {
     "mid": "Pic de contraction",
     "end": "Lockout / Retour",
 }
-_UPLOAD_MAX_MB = max(50, int(app_settings.upload_max_mb or 0))
-
-
-def _build_upload_url(phone: str | None = None) -> str:
-    base = app_settings.base_url.rstrip("/") + "/upload"
-    if phone:
-        return "{}?phone={}".format(base, quote(phone, safe=""))
-    return base
 
 
 async def handle_incoming_message(data: dict) -> None:
@@ -135,14 +126,7 @@ async def handle_text(user: db.User, data: dict) -> None:
     elif text in ("guide", "tournage", "filmer", "comment filmer"):
         await wa.send_text(phone, msg.FILMING_GUIDE)
     elif text in ("upload", "video longue", "video lourde", "grosse video", "gros fichier", "longue", "lourde"):
-        upload_url = _build_upload_url(phone)
-        await wa.send_text(
-            phone,
-            msg.UPLOAD_INSTRUCTIONS.format(
-                upload_url=upload_url,
-                max_mb=_UPLOAD_MAX_MB,
-            ),
-        )
+        await wa.send_text(phone, msg.UPLOAD_INSTRUCTIONS)
     elif text in ("crédits", "credits", "solde"):
         await _send_credits_status(user)
     elif text in ("forfaits", "plans", "acheter", "buy"):
@@ -158,7 +142,7 @@ async def handle_text(user: db.User, data: dict) -> None:
         await wa.send_text(
             phone,
             "Yo ! Envoie-moi une *video* de ton exercice (max 16 MB sur WhatsApp) pour une analyse biomecanique.\n"
-            "Si ta video est plus lourde, tape *upload*.\n"
+            "Si ta video est plus lourde, coupe-la en 2-4 clips et envoie-les.\n"
             "Tape *menu* pour voir toutes les options.",
         )
     else:
@@ -222,13 +206,7 @@ async def handle_video(user: db.User, data: dict) -> None:
         # Validate video size (WhatsApp via Twilio limit: 16MB)
         MAX_VIDEO_SIZE = 16 * 1024 * 1024
         if len(video_bytes) > MAX_VIDEO_SIZE:
-            await wa.send_text(
-                phone,
-                msg.ERROR_VIDEO_TOO_LARGE.format(
-                    upload_url=_build_upload_url(phone),
-                    max_mb=_UPLOAD_MAX_MB,
-                ),
-            )
+            await wa.send_text(phone, msg.ERROR_VIDEO_TOO_LARGE)
             return
 
         if len(video_bytes) < 10_000:  # < 10KB = probably corrupt
