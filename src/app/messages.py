@@ -263,16 +263,28 @@ UNSUPPORTED_MESSAGE = (
 
 HELP_TEXT = (
     "Envoie-moi une *video* de ton exercice (max 16 MB).\n"
-    "Tape *menu* pour les options, *guide* pour les conseils de tournage."
+    "Tape *menu* pour les options, *guide* pour les conseils de tournage, "
+    "ou *upload* pour une video lourde."
 )
 
 MENU_TEXT = (
     "*FORMCHECK by ACHZOD*\n\n"
     "Envoie une *video* pour une analyse (max 16 MB).\n\n"
     "*guide* — Conseils de tournage\n"
+    "*upload* — Video lourde (jusqu'a 300 MB)\n"
     "*credits* — Analyses restantes\n"
     "*forfaits* — Recharger\n"
     "*morpho* — Profil morphologique"
+)
+
+UPLOAD_INSTRUCTIONS = (
+    "Pour les videos longues/lourdes qui depassent 16 MB, utilise l'upload direct:\n"
+    "{upload_url}\n\n"
+    "Etapes:\n"
+    "1. Ouvre le lien\n"
+    "2. Entre ton numero WhatsApp (format +33...)\n"
+    "3. Upload ta video (max 300 MB)\n\n"
+    "Je lance l'analyse et j'envoie le rapport sur WhatsApp."
 )
 
 # ── ERREURS ──────────────────────────────────────────────────────────────────
@@ -301,7 +313,8 @@ ERROR_VIDEO_QUALITY = (
 
 ERROR_VIDEO_TOO_LARGE = (
     "Video trop lourde (max 16 MB sur WhatsApp).\n"
-    "Desactive HD/4K, filme en 1080p et reduis la duree."
+    "Desactive HD/4K, filme en 1080p et reduis la duree.\n"
+    "Alternative: tape *upload* pour envoyer jusqu'a 300 MB."
 )
 
 ERROR_VIDEO_TOO_SHORT = (

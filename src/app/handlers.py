@@ -124,6 +124,10 @@ async def handle_text(user: db.User, data: dict) -> None:
         await wa.send_text(phone, msg.MENU_TEXT)
     elif text in ("guide", "tournage", "filmer", "comment filmer"):
         await wa.send_text(phone, msg.FILMING_GUIDE)
+    elif text in ("upload", "video longue", "video lourde", "grosse video", "gros fichier", "longue", "lourde"):
+        from app.config import settings as app_settings
+        upload_url = app_settings.base_url.rstrip("/") + "/upload"
+        await wa.send_text(phone, msg.UPLOAD_INSTRUCTIONS.format(upload_url=upload_url))
     elif text in ("crédits", "credits", "solde"):
         await _send_credits_status(user)
     elif text in ("forfaits", "plans", "acheter", "buy"):
@@ -223,6 +227,60 @@ async def handle_video(user: db.User, data: dict) -> None:
         analysis_dispatched = True
     finally:
         # If analysis never started, release lock immediately (avoid 5min stale lock).
+        if lock_acquired and not analysis_dispatched:
+            _active_analyses.pop(phone, None)
+
+
+async def enqueue_uploaded_video(phone: str, video_path: str) -> tuple[bool, str]:
+    """Queue analysis for a video uploaded via web form (outside WhatsApp limits)."""
+    lock_acquired = False
+    analysis_dispatched = False
+    try:
+        user = await db.get_user_by_phone(phone)
+        if not user:
+            user, _ = await db.get_or_create_user(phone, None)
+
+        from app.config import settings as app_settings
+        if not app_settings.test_mode and not app_settings.test_mode_free and not await db.has_credits(user):
+            await handle_no_credits(user)
+            return False, "no_credits"
+
+        has_morpho = await db.has_morpho_profile(user.id)
+        if not has_morpho:
+            await wa.send_text(
+                phone,
+                "Tu n'as pas encore de profil morphologique. "
+                "L'analyse utilisera des seuils generiques.\n"
+                "Tape *morpho* apres cette analyse pour creer ton profil "
+                "et avoir des analyses personnalisees.",
+            )
+
+        import time
+        active_since = _active_analyses.get(phone, 0)
+        if active_since and (time.time() - active_since) < _ANALYSIS_TIMEOUT:
+            await wa.send_text(phone, msg.RATE_LIMIT)
+            return False, "rate_limited"
+        _active_analyses[phone] = time.time()
+        lock_acquired = True
+
+        await wa.send_text(
+            phone,
+            "Video lourde recue via upload. Analyse en cours...",
+        )
+        analysis = await db.create_analysis(user_id=user.id, video_path=video_path)
+        asyncio.create_task(_run_analysis(phone, user.id, analysis.id, video_path))
+        analysis_dispatched = True
+        return True, "queued"
+    except Exception:
+        logger.exception("Failed to queue uploaded video for %s", phone)
+        try:
+            await wa.send_text(phone, msg.ERROR_GENERIC)
+        except Exception:
+            pass
+        return False, "error"
+    finally:
+        if not analysis_dispatched:
+            cleanup_video(video_path)
         if lock_acquired and not analysis_dispatched:
             _active_analyses.pop(phone, None)
 

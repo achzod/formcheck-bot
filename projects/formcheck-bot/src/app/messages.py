@@ -276,7 +276,8 @@ UNSUPPORTED_MESSAGE = (
 
 HELP_TEXT = (
     "Envoie-moi une *video* de ton exercice (max 16 MB).\n"
-    "Tape *menu* pour les options, *guide* pour les conseils de tournage."
+    "Tape *menu* pour les options, *guide* pour les conseils de tournage, "
+    "ou *upload* pour une video lourde."
 )
 
 MENU_TEXT = (
@@ -285,8 +286,9 @@ MENU_TEXT = (
     "*Commandes :*\n"
     "1. *menu* — Ce message\n"
     "2. *guide* — Comment bien filmer (par exercice)\n"
-    "3. *credits* — Tes analyses restantes\n"
-    "4. *forfaits* — Les offres\n\n"
+    "3. *upload* — Video lourde (jusqu'a 300 MB)\n"
+    "4. *credits* — Tes analyses restantes\n"
+    "5. *forfaits* — Les offres\n\n"
     "*Forfaits :*\n"
     "1. Starter — 5 analyses — 29,99 EUR\n"
     "2. Pro — 20 analyses — 59,99 EUR\n"
@@ -294,6 +296,16 @@ MENU_TEXT = (
     "70+ exercices supportes.\n"
     "Filme-toi de profil, corps entier visible, camera fixe.\n"
     "Important: desactive HD/4K pour rester sous 16 MB."
+)
+
+UPLOAD_INSTRUCTIONS = (
+    "Pour les videos longues/lourdes qui depassent 16 MB, utilise l'upload direct:\n"
+    "{upload_url}\n\n"
+    "Etapes:\n"
+    "1. Ouvre le lien\n"
+    "2. Entre ton numero WhatsApp (format +33...)\n"
+    "3. Upload ta video (max 300 MB)\n\n"
+    "Je lance l'analyse et j'envoie le rapport sur WhatsApp."
 )
 
 # ── ERREURS ──────────────────────────────────────────────────────────────────
@@ -322,7 +334,8 @@ ERROR_VIDEO_QUALITY = (
 
 ERROR_VIDEO_TOO_LARGE = (
     "Video trop lourde (max 16 MB sur WhatsApp).\n"
-    "Desactive HD/4K, filme en 1080p et reduis la duree."
+    "Desactive HD/4K, filme en 1080p et reduis la duree.\n"
+    "Alternative: tape *upload* pour envoyer jusqu'a 300 MB."
 )
 
 ERROR_VIDEO_TOO_SHORT = (

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import re
 import sys
 import traceback
+import uuid
+from pathlib import Path
 
 # Minimal FastAPI import first
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 
 app = FastAPI(title="FORMCHECK by ACHZOD", version="0.2.0")
 
@@ -42,8 +45,12 @@ try:
     from app.config import settings
     from app.database import init_db
     from app.debug_log import log_error, get_errors
-    from app.handlers import handle_incoming_message, handle_payment_success
-    from app.media_handler import get_media_path
+    from app.handlers import (
+        enqueue_uploaded_video,
+        handle_incoming_message,
+        handle_payment_success,
+    )
+    from app.media_handler import VIDEOS_DIR, cleanup_video, get_media_path
     from app.stripe_handler import (
         PLANS,
         construct_webhook_event,
@@ -60,6 +67,70 @@ try:
     logger = logging.getLogger(__name__)
 
     app.include_router(report_router)
+
+    _UPLOAD_MAX_BYTES = 300 * 1024 * 1024  # 300 MB
+    _UPLOAD_CHUNK_SIZE = 1024 * 1024  # 1 MB
+    _ALLOWED_UPLOAD_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".webm", ".mkv"}
+
+    def _normalize_phone(raw: str) -> str:
+        cleaned = (raw or "").strip().replace(" ", "").replace("-", "")
+        if cleaned.startswith("00"):
+            cleaned = "+" + cleaned[2:]
+        if cleaned and not cleaned.startswith("+"):
+            cleaned = "+" + cleaned
+        if not re.match(r"^\+\d{8,15}$", cleaned):
+            raise ValueError("invalid_phone")
+        return cleaned
+
+    def _render_upload_page(message: str = "", *, is_error: bool = False) -> str:
+        status_color = "#b42318" if is_error else "#027a48"
+        status_html = ""
+        if message:
+            status_html = (
+                "<p style='margin:16px 0;padding:12px;border-radius:8px;"
+                "background:#f8f9fb;color:{};font-weight:600;'>{}</p>"
+            ).format(status_color, message)
+
+        max_mb = _UPLOAD_MAX_BYTES // (1024 * 1024)
+        return """<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FormCheck Upload Video</title>
+  <style>
+    body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; background:#f5f7fb; margin:0; }
+    .box { max-width:680px; margin:40px auto; background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:24px; }
+    h1 { margin:0 0 8px; font-size:24px; }
+    p { color:#475467; line-height:1.45; }
+    label { display:block; margin:14px 0 6px; font-weight:600; color:#101828; }
+    input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #d0d5dd; border-radius:8px; }
+    button { margin-top:18px; width:100%; padding:12px 14px; background:#111827; color:#fff; border:none; border-radius:8px; font-weight:700; cursor:pointer; }
+    .hint { font-size:14px; color:#667085; margin-top:8px; }
+    .steps { margin-top:8px; color:#344054; }
+  </style>
+</head>
+<body>
+  <main class="box">
+    <h1>Upload Video Lourde</h1>
+    <p>Si ta video depasse 16 MB sur WhatsApp, upload-la ici puis je t'envoie le rapport sur WhatsApp.</p>
+    __STATUS__
+    <form action="/upload" method="post" enctype="multipart/form-data">
+      <label for="phone">Numero WhatsApp (format +33...)</label>
+      <input id="phone" name="phone" type="text" required placeholder="+33612345678">
+
+      <label for="video">Video</label>
+      <input id="video" name="video" type="file" accept="video/*" required>
+      <p class="hint">Max __MAX_MB__ MB. Recommande: 20 a 180 sec, 1080p.</p>
+
+      <button type="submit">Lancer l'analyse</button>
+    </form>
+    <div class="steps">
+      <p>Etapes: 1) Upload 2) Analyse automatique 3) Rapport envoye sur WhatsApp.</p>
+    </div>
+  </main>
+</body>
+</html>""".replace("__STATUS__", status_html).replace("__MAX_MB__", str(max_mb))
 
     @app.on_event("startup")
     async def startup() -> None:
@@ -102,6 +173,96 @@ try:
             media_type="image/jpeg",
             headers={"Cache-Control": "public, max-age=3600"},
         )
+
+    @app.get("/upload")
+    async def upload_page() -> HTMLResponse:
+        return HTMLResponse(_render_upload_page())
+
+    @app.post("/upload")
+    async def upload_video(phone: str = Form(""), video: UploadFile = File(...)) -> HTMLResponse:
+        try:
+            normalized_phone = _normalize_phone(phone)
+        except ValueError:
+            return HTMLResponse(
+                _render_upload_page(
+                    "Numero invalide. Utilise le format international (+33...).",
+                    is_error=True,
+                ),
+                status_code=400,
+            )
+
+        content_type = (video.content_type or "").lower()
+        if content_type and not content_type.startswith("video/"):
+            try:
+                await video.close()
+            except Exception:
+                pass
+            return HTMLResponse(
+                _render_upload_page("Fichier invalide: envoie un format video.", is_error=True),
+                status_code=400,
+            )
+
+        original_name = video.filename or "upload.mp4"
+        extension = Path(original_name).suffix.lower()
+        if extension not in _ALLOWED_UPLOAD_EXTENSIONS:
+            extension = ".mp4"
+
+        dest = VIDEOS_DIR / "{}{}".format(uuid.uuid4(), extension)
+        total_bytes = 0
+
+        try:
+            with dest.open("wb") as out:
+                while True:
+                    chunk = await video.read(_UPLOAD_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    total_bytes += len(chunk)
+                    if total_bytes > _UPLOAD_MAX_BYTES:
+                        raise ValueError("too_large")
+                    out.write(chunk)
+        except ValueError:
+            cleanup_video(str(dest))
+            return HTMLResponse(
+                _render_upload_page(
+                    "Video trop lourde. Maximum {} MB.".format(_UPLOAD_MAX_BYTES // (1024 * 1024)),
+                    is_error=True,
+                ),
+                status_code=413,
+            )
+        except Exception:
+            cleanup_video(str(dest))
+            logger.exception("Upload failed for %s", normalized_phone)
+            return HTMLResponse(
+                _render_upload_page("Upload impossible. Reessaie dans quelques instants.", is_error=True),
+                status_code=500,
+            )
+        finally:
+            try:
+                await video.close()
+            except Exception:
+                pass
+
+        if total_bytes < 10_000:
+            cleanup_video(str(dest))
+            return HTMLResponse(
+                _render_upload_page("Video trop courte ou corrompue.", is_error=True),
+                status_code=400,
+            )
+
+        queued, reason = await enqueue_uploaded_video(normalized_phone, str(dest))
+        if queued:
+            return HTMLResponse(
+                _render_upload_page("Upload recu. Analyse lancee, rapport envoye sur WhatsApp."),
+                status_code=200,
+            )
+
+        if reason == "rate_limited":
+            message = "Une analyse est deja en cours sur ce numero. Attends le resultat WhatsApp."
+        elif reason == "no_credits":
+            message = "Plus de credits pour ce numero. Ecris 'forfaits' sur WhatsApp."
+        else:
+            message = "Impossible de lancer l'analyse pour le moment. Reessaie."
+        return HTMLResponse(_render_upload_page(message, is_error=True), status_code=400)
 
     _processed_sids: dict[str, bool] = {}
 
