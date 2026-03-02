@@ -148,74 +148,83 @@ async def handle_text(user: db.User, data: dict) -> None:
 async def handle_video(user: db.User, data: dict) -> None:
     """Handle an incoming video: check credits, download via Twilio, analyse."""
     phone = user.phone
-
-    # Refresh user data (prevent stale credit count)
-    user_fresh = await db.get_user_by_phone(phone)
-    if not user_fresh:
-        return
-    user = user_fresh
-
-    from app.config import settings as app_settings
-    if not app_settings.test_mode and not app_settings.test_mode_free and not await db.has_credits(user):
-        await handle_no_credits(user)
-        return
-
-    # Suggerer le profil morpho si le client n'en a pas (une seule fois)
-    has_morpho = await db.has_morpho_profile(user.id)
-    if not has_morpho:
-        await wa.send_text(
-            phone,
-            "Tu n'as pas encore de profil morphologique. "
-            "L'analyse utilisera des seuils generiques.\n"
-            "Tape *morpho* apres cette analyse pour creer ton profil "
-            "et avoir des analyses personnalisees.",
-        )
-
-    # Rate limit — one analysis at a time per user (with auto-expiry)
-    import time
-    active_since = _active_analyses.get(phone, 0)
-    if active_since and (time.time() - active_since) < _ANALYSIS_TIMEOUT:
-        await wa.send_text(phone, msg.RATE_LIMIT)
-        return
-    _active_analyses[phone] = time.time()
-
-    # Acknowledge
-    await wa.send_text(phone, msg.VIDEO_RECEIVED)
-
-    # Download video from Twilio (media_url from webhook)
-    media_url: str = data.get("media_url", "")
-    if not media_url:
-        logger.error("No media_url in video message data")
-        await wa.send_text(phone, msg.ERROR_GENERIC)
-        return
+    lock_acquired = False
+    analysis_dispatched = False
 
     try:
-        video_bytes = await wa.download_media(media_url)
-    except Exception:
-        logger.exception("Failed to download video from Twilio")
-        await wa.send_text(phone, msg.ERROR_GENERIC)
-        return
+        # Refresh user data (prevent stale credit count)
+        user_fresh = await db.get_user_by_phone(phone)
+        if not user_fresh:
+            return
+        user = user_fresh
 
-    # Validate video size (max 25MB — WhatsApp limit)
-    MAX_VIDEO_SIZE = 25 * 1024 * 1024
-    if len(video_bytes) > MAX_VIDEO_SIZE:
-        await wa.send_text(phone, msg.ERROR_VIDEO_TOO_LARGE)
-        return
+        from app.config import settings as app_settings
+        if not app_settings.test_mode and not app_settings.test_mode_free and not await db.has_credits(user):
+            await handle_no_credits(user)
+            return
 
-    if len(video_bytes) < 10_000:  # < 10KB = probably corrupt
-        await wa.send_text(phone, msg.ERROR_VIDEO_TOO_SHORT)
-        return
+        # Suggerer le profil morpho si le client n'en a pas (une seule fois)
+        has_morpho = await db.has_morpho_profile(user.id)
+        if not has_morpho:
+            await wa.send_text(
+                phone,
+                "Tu n'as pas encore de profil morphologique. "
+                "L'analyse utilisera des seuils generiques.\n"
+                "Tape *morpho* apres cette analyse pour creer ton profil "
+                "et avoir des analyses personnalisees.",
+            )
 
-    # Save locally
-    video_path = save_video(video_bytes)
+        # Rate limit — one analysis at a time per user (with auto-expiry)
+        import time
+        active_since = _active_analyses.get(phone, 0)
+        if active_since and (time.time() - active_since) < _ANALYSIS_TIMEOUT:
+            await wa.send_text(phone, msg.RATE_LIMIT)
+            return
+        _active_analyses[phone] = time.time()
+        lock_acquired = True
 
-    # Create analysis record
-    analysis = await db.create_analysis(user_id=user.id, video_path=str(video_path))
+        # Acknowledge
+        await wa.send_text(phone, msg.VIDEO_RECEIVED)
 
-    # Launch async analysis in background
-    asyncio.create_task(
-        _run_analysis(phone, user.id, analysis.id, str(video_path))
-    )
+        # Download video from Twilio (media_url from webhook)
+        media_url: str = data.get("media_url", "")
+        if not media_url:
+            logger.error("No media_url in video message data")
+            await wa.send_text(phone, msg.ERROR_GENERIC)
+            return
+
+        try:
+            video_bytes = await wa.download_media(media_url)
+        except Exception:
+            logger.exception("Failed to download video from Twilio")
+            await wa.send_text(phone, msg.ERROR_GENERIC)
+            return
+
+        # Validate video size (max 25MB — WhatsApp limit)
+        MAX_VIDEO_SIZE = 25 * 1024 * 1024
+        if len(video_bytes) > MAX_VIDEO_SIZE:
+            await wa.send_text(phone, msg.ERROR_VIDEO_TOO_LARGE)
+            return
+
+        if len(video_bytes) < 10_000:  # < 10KB = probably corrupt
+            await wa.send_text(phone, msg.ERROR_VIDEO_TOO_SHORT)
+            return
+
+        # Save locally
+        video_path = save_video(video_bytes)
+
+        # Create analysis record
+        analysis = await db.create_analysis(user_id=user.id, video_path=str(video_path))
+
+        # Launch async analysis in background
+        asyncio.create_task(
+            _run_analysis(phone, user.id, analysis.id, str(video_path))
+        )
+        analysis_dispatched = True
+    finally:
+        # If analysis never started, release lock immediately (avoid 5min stale lock).
+        if lock_acquired and not analysis_dispatched:
+            _active_analyses.pop(phone, None)
 
 
 async def _run_analysis(
