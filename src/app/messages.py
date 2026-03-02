@@ -19,7 +19,8 @@ WELCOME = (
     "1. De profil, corps entier visible\n"
     "2. Camera fixe, bon eclairage\n"
     "3. 3 a 8 reps completes\n"
-    "4. Video max 16 MB (desactive HD/4K)\n\n"
+    "4. Video max 16 MB sur WhatsApp (desactive HD/4K)\n"
+    "5. Si plus lourd, tape *upload*\n\n"
     "*1 analyse offerte.* Envoie ta video."
 )
 
@@ -58,7 +59,8 @@ FILMING_GUIDE = (
     "5. *Personne* — Pas de passage entre toi et la camera\n"
     "6. *Resolution* — 1080p suffit, pas besoin de 4K\n"
     "7. *Duree* — 10 secondes a 3 minutes (une serie complete)\n"
-    "8. *Taille fichier* — Maximum 16 MB (sinon WhatsApp bloque l'envoi)\n\n"
+    "8. *Taille fichier* — Maximum 16 MB sur WhatsApp (sinon WhatsApp bloque)\n"
+    "9. *Video lourde* — Tape *upload* pour passer par l'upload direct\n\n"
     "Plus la video est propre, plus l'analyse sera precise et detaillee."
 )
 
@@ -271,7 +273,7 @@ MENU_TEXT = (
     "*FORMCHECK by ACHZOD*\n\n"
     "Envoie une *video* pour une analyse (max 16 MB).\n\n"
     "*guide* — Conseils de tournage\n"
-    "*upload* — Video lourde (jusqu'a 300 MB)\n"
+    "*upload* — Video lourde (jusqu'a 1 GB)\n"
     "*credits* — Analyses restantes\n"
     "*forfaits* — Recharger\n"
     "*morpho* — Profil morphologique"
@@ -283,7 +285,7 @@ UPLOAD_INSTRUCTIONS = (
     "Etapes:\n"
     "1. Ouvre le lien\n"
     "2. Entre ton numero WhatsApp (format +33...)\n"
-    "3. Upload ta video (max 300 MB)\n\n"
+    "3. Upload ta video (max {max_mb} MB)\n\n"
     "Je lance l'analyse et j'envoie le rapport sur WhatsApp."
 )
 
@@ -314,7 +316,15 @@ ERROR_VIDEO_QUALITY = (
 ERROR_VIDEO_TOO_LARGE = (
     "Video trop lourde (max 16 MB sur WhatsApp).\n"
     "Desactive HD/4K, filme en 1080p et reduis la duree.\n"
-    "Alternative: tape *upload* pour envoyer jusqu'a 300 MB."
+    "Alternative directe (video lourde jusqu'a {max_mb} MB):\n"
+    "{upload_url}"
+)
+
+UPLOAD_AUTO_FALLBACK = (
+    "WhatsApp a bloque ta video (limite 16 MB).\n"
+    "Envoie-la ici en mode video lourde (jusqu'a {max_mb} MB):\n"
+    "{upload_url}\n\n"
+    "Je lance l'analyse et je t'envoie le rapport sur WhatsApp."
 )
 
 ERROR_VIDEO_TOO_SHORT = (

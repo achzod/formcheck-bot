@@ -6,6 +6,8 @@ import asyncio
 import hashlib
 import hmac
 import logging
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -133,6 +135,62 @@ async def download_media(media_url: str) -> bytes:
         resp = await client.get(media_url, headers=_auth_header())
         resp.raise_for_status()
         return resp.content
+
+
+def _parse_twilio_datetime(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        dt = parsedate_to_datetime(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except Exception:
+        pass
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except Exception:
+        return None
+
+
+async def list_failed_inbound_messages(
+    *,
+    error_code: str = "11751",
+    page_size: int = 50,
+) -> list[dict[str, Any]]:
+    """List recent inbound Twilio messages with a specific error code."""
+    clamped_page_size = min(200, max(1, int(page_size)))
+    params = {"PageSize": str(clamped_page_size)}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(MESSAGES_URL, headers=_auth_header(), params=params)
+        resp.raise_for_status()
+        payload = resp.json()
+
+    out: list[dict[str, Any]] = []
+    for item in payload.get("messages", []):
+        direction = str(item.get("direction", "")).lower()
+        if direction != "inbound":
+            continue
+        code = str(item.get("error_code") or "")
+        if error_code and code != str(error_code):
+            continue
+        from_phone = str(item.get("from", "")).replace("whatsapp:", "")
+        sid = str(item.get("sid", "") or "")
+        if not sid or not from_phone:
+            continue
+        ts = _parse_twilio_datetime(item.get("date_created"))
+        out.append({
+            "sid": sid,
+            "from": from_phone,
+            "error_code": code,
+            "timestamp": ts,
+            "raw": item,
+        })
+    return out
 
 
 def parse_incoming(body: dict[str, Any]) -> dict[str, Any] | None:
