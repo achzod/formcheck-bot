@@ -18,7 +18,12 @@ from analysis.fusion_utils import (
     estimate_intensity_from_fused_count,
     select_reference_rep_count,
 )
-from analysis.pipeline import _derive_key_frames_from_reps, _map_model_exercise_name
+from analysis.pipeline import (
+    _apply_lower_static_upper_override,
+    _derive_key_frames_from_reps,
+    _detection_candidate_score,
+    _map_model_exercise_name,
+)
 from analysis.rep_segmenter import (
     Rep,
     RepSegmentation,
@@ -148,6 +153,62 @@ class UpperPullDisambiguationTests(unittest.TestCase):
         self.assertEqual(out.exercise, Exercise.LAT_PULLDOWN)
 
 
+class DomainHardeningTests(unittest.TestCase):
+    def test_upper_static_override_prevents_lunge_false_positive(self) -> None:
+        gemini = DetectionResult(exercise=Exercise.LAT_PULLDOWN, confidence=0.91, reasoning="gemini")
+        vision = DetectionResult(exercise=Exercise.LAT_PULLDOWN, confidence=0.87, reasoning="vision")
+        pattern = DetectionResult(exercise=Exercise.LUNGE, confidence=0.93, reasoning="pattern")
+        scored = [
+            ("gemini", gemini, 1.22),
+            ("vision", vision, 1.18),
+            ("pattern", pattern, 1.33),
+        ]
+        source, detection, score = _apply_lower_static_upper_override(
+            source="pattern",
+            detection=pattern,
+            winning_score=1.33,
+            scored_candidates=scored,
+            motion={"dominant": "upper", "lower_static_signal": 0.82},
+        )
+        self.assertTrue(source.startswith("upper_static_override:"))
+        self.assertEqual(detection.exercise, Exercise.LAT_PULLDOWN)
+        self.assertAlmostEqual(score, 1.22, places=6)
+
+    def test_upper_static_override_not_applied_when_signal_is_weak(self) -> None:
+        gemini = DetectionResult(exercise=Exercise.LAT_PULLDOWN, confidence=0.91, reasoning="gemini")
+        pattern = DetectionResult(exercise=Exercise.LUNGE, confidence=0.93, reasoning="pattern")
+        scored = [
+            ("gemini", gemini, 1.22),
+            ("pattern", pattern, 1.33),
+        ]
+        source, detection, score = _apply_lower_static_upper_override(
+            source="pattern",
+            detection=pattern,
+            winning_score=1.33,
+            scored_candidates=scored,
+            motion={"dominant": "upper", "lower_static_signal": 0.42},
+        )
+        self.assertEqual(source, "pattern")
+        self.assertEqual(detection.exercise, Exercise.LUNGE)
+        self.assertAlmostEqual(score, 1.33, places=6)
+
+    def test_unilateral_profile_boosts_split_squat_over_back_squat(self) -> None:
+        motion = {"dominant": "lower", "lower_static_signal": 0.05}
+        unilateral_profile = {
+            "unilateral_signal": 0.38,
+            "strong_unilateral_signal": True,
+            "split_stance_ratio": 0.44,
+            "ankle_height_asym_ratio": 0.31,
+        }
+        pattern = DetectionResult(exercise=Exercise.SQUAT, confidence=0.75, reasoning="pattern")
+        split = DetectionResult(exercise=Exercise.BULGARIAN_SPLIT_SQUAT, confidence=0.74, reasoning="gemini")
+        squat = DetectionResult(exercise=Exercise.SQUAT, confidence=0.78, reasoning="pattern")
+
+        split_score = _detection_candidate_score(split, pattern, motion, unilateral_profile=unilateral_profile)
+        squat_score = _detection_candidate_score(squat, pattern, motion, unilateral_profile=unilateral_profile)
+        self.assertGreater(split_score, squat_score)
+
+
 class GenericHardeningTests(unittest.TestCase):
     def test_model_name_mapping_handles_common_variants(self) -> None:
         self.assertEqual(_map_model_exercise_name("smith_machine_shoulder_press"), "ohp")
@@ -194,6 +255,26 @@ class GenericHardeningTests(unittest.TestCase):
         intensity = _compute_intensity_metrics(reps, fps=30.0, transition_rests_s=rests)
         self.assertGreater(float(intensity["avg_inter_rep_rest_s"]), 0.0)
         self.assertGreaterEqual(int(intensity["intensity_score"]), 0)
+
+    def test_transition_rests_capture_pause_when_boundaries_touch(self) -> None:
+        signal = np.concatenate(
+            [
+                np.linspace(0.0, 1.0, 20, dtype=float),
+                np.full(14, 1.0, dtype=float),  # top pause
+                np.linspace(1.0, 0.0, 20, dtype=float),
+                np.linspace(0.0, 1.0, 20, dtype=float),
+                np.full(12, 1.0, dtype=float),  # top pause
+                np.linspace(1.0, 0.0, 20, dtype=float),
+            ]
+        )
+        frame_indices = np.arange(len(signal), dtype=int)
+        reps = [
+            Rep(rep_number=1, start_frame=0, end_frame=54, bottom_frame=30),
+            Rep(rep_number=2, start_frame=54, end_frame=len(signal) - 1, bottom_frame=86),
+        ]
+        rests = _estimate_transition_rests(reps, signal, frame_indices, fps=30.0)
+        self.assertEqual(len(rests), 1)
+        self.assertGreater(rests[0], 0.25)
 
     def test_phase_mapping_swaps_eccentric_for_min_y_exercises(self) -> None:
         ecc_f, conc_f, ecc_ms, conc_ms = _map_rep_phases(

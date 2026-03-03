@@ -296,6 +296,24 @@ _BILATERAL_SQUAT_EXERCISES: set[Exercise] = {
     Exercise.SISSY_SQUAT,
 }
 
+_DYNAMIC_LOWER_EXERCISES: set[Exercise] = {
+    Exercise.SQUAT,
+    Exercise.FRONT_SQUAT,
+    Exercise.GOBLET_SQUAT,
+    Exercise.HACK_SQUAT,
+    Exercise.SISSY_SQUAT,
+    Exercise.BULGARIAN_SPLIT_SQUAT,
+    Exercise.LUNGE,
+    Exercise.WALKING_LUNGE,
+    Exercise.STEP_UP,
+    Exercise.DEADLIFT,
+    Exercise.SUMO_DEADLIFT,
+    Exercise.RDL,
+    Exercise.SINGLE_LEG_RDL,
+    Exercise.GOOD_MORNING,
+    Exercise.KETTLEBELL_SWING,
+}
+
 
 def _derive_key_frames_from_reps(
     reps: RepSegmentation | None,
@@ -378,6 +396,12 @@ def _motion_profile(angles: AngleResult) -> dict[str, float | str]:
             return 0.0
         return float(getattr(s, "range_of_motion", 0.0) or 0.0)
 
+    def _mean(key: str) -> float:
+        s = stats.get(key)
+        if not s:
+            return 0.0
+        return float(getattr(s, "mean_value", 0.0) or 0.0)
+
     knee = max(_rom("left_knee_flexion"), _rom("right_knee_flexion"))
     hip = max(_rom("left_hip_flexion"), _rom("right_hip_flexion"))
     elbow = max(_rom("left_elbow_flexion"), _rom("right_elbow_flexion"))
@@ -388,9 +412,11 @@ def _motion_profile(angles: AngleResult) -> dict[str, float | str]:
         _rom("right_shoulder_abduction"),
     )
     trunk = _rom("trunk_inclination")
+    trunk_mean = _mean("trunk_inclination")
 
     lower_total = knee + hip
     upper_total = elbow + shoulder
+    total_motion = max(1e-6, lower_total + upper_total)
     dominant = "mixed"
     if lower_total >= max(25.0, upper_total * 1.25):
         dominant = "lower"
@@ -399,6 +425,13 @@ def _motion_profile(angles: AngleResult) -> dict[str, float | str]:
     elif trunk >= max(18.0, lower_total * 0.8, upper_total * 0.8):
         dominant = "core"
 
+    knee_static = max(0.0, min(1.0, (18.0 - knee) / 18.0))
+    hip_static = max(0.0, min(1.0, (20.0 - hip) / 20.0))
+    lower_static_signal = (knee_static * 0.55) + (hip_static * 0.45)
+    if trunk_mean > 55.0:
+        # Lying movements (bench/skull crusher) keep lower body static by design.
+        lower_static_signal = max(lower_static_signal, 0.70)
+
     return {
         "dominant": dominant,
         "knee_rom": round(knee, 1),
@@ -406,8 +439,12 @@ def _motion_profile(angles: AngleResult) -> dict[str, float | str]:
         "elbow_rom": round(elbow, 1),
         "shoulder_rom": round(shoulder, 1),
         "trunk_rom": round(trunk, 1),
+        "trunk_mean": round(trunk_mean, 1),
         "lower_total": round(lower_total, 1),
         "upper_total": round(upper_total, 1),
+        "upper_bias": round(upper_total / total_motion, 3),
+        "lower_bias": round(lower_total / total_motion, 3),
+        "lower_static_signal": round(lower_static_signal, 3),
     }
 
 
@@ -478,13 +515,13 @@ def _compute_unilateral_profile(
         ankle_height_signal,
     )
     strong_unilateral = bool(
-        unilateral_signal >= 0.24
+        unilateral_signal >= 0.18
         and (
-            knee_asym >= 0.20
-            or hip_asym >= 0.18
-            or split_stance_ratio >= 0.34
-            or ankle_height_asym_ratio >= 0.28
-            or ankle_height_p75 >= 0.055
+            knee_asym >= 0.14
+            or hip_asym >= 0.14
+            or split_stance_ratio >= 0.28
+            or ankle_height_asym_ratio >= 0.22
+            or ankle_height_p75 >= 0.045
         )
     )
 
@@ -768,6 +805,13 @@ def _detection_candidate_score(
         elif group != "mixed":
             score -= 0.22
 
+    lower_static_signal = float(motion.get("lower_static_signal", 0.0) or 0.0)
+    if lower_static_signal >= 0.55:
+        if candidate.exercise in _DYNAMIC_LOWER_EXERCISES:
+            score -= 0.30 * lower_static_signal
+        elif group == "upper":
+            score += 0.12 * lower_static_signal
+
     if pattern_result.exercise != Exercise.UNKNOWN:
         if candidate.exercise == pattern_result.exercise:
             score += 0.02 + (0.03 * max(0.0, min(1.0, pattern_result.confidence)))
@@ -803,19 +847,19 @@ def _detection_candidate_score(
         ankle_height_ratio = float(unilateral_profile.get("ankle_height_asym_ratio", 0.0) or 0.0)
 
         if candidate.exercise in _UNILATERAL_LOWER_EXERCISES:
-            score += 0.42 * unilateral_signal
-            score += 0.16 * split_stance_ratio
-            score += 0.18 * ankle_height_ratio
+            score += 0.50 * unilateral_signal
+            score += 0.20 * split_stance_ratio
+            score += 0.22 * ankle_height_ratio
             if strong_unilateral:
-                score += 0.12
+                score += 0.14
             if unilateral_signal < 0.12:
                 score -= 0.10
         elif candidate.exercise in _BILATERAL_SQUAT_EXERCISES:
-            score -= 0.48 * unilateral_signal
-            score -= 0.22 * split_stance_ratio
-            score -= 0.25 * ankle_height_ratio
+            score -= 0.56 * unilateral_signal
+            score -= 0.26 * split_stance_ratio
+            score -= 0.30 * ankle_height_ratio
             if strong_unilateral:
-                score -= 0.18
+                score -= 0.20
 
     return score
 
@@ -829,6 +873,13 @@ def _needs_detection_crosscheck(
 ) -> bool:
     """Détermine si la détection Gemini doit être contre-vérifiée."""
     if gemini_detection.confidence < 0.72:
+        return True
+
+    lower_static_signal = float(motion.get("lower_static_signal", 0.0) or 0.0)
+    if (
+        lower_static_signal >= 0.68
+        and gemini_detection.exercise in _DYNAMIC_LOWER_EXERCISES
+    ):
         return True
 
     dominant = str(motion.get("dominant", "mixed"))
@@ -877,6 +928,40 @@ def _needs_detection_crosscheck(
             return True
 
     return False
+
+
+def _apply_lower_static_upper_override(
+    source: str,
+    detection: DetectionResult,
+    winning_score: float,
+    scored_candidates: list[tuple[str, DetectionResult, float]],
+    motion: dict[str, float | str],
+) -> tuple[str, DetectionResult, float]:
+    """Prevent dynamic lower-body false positives when lower body is static.
+
+    Typical failure mode:
+    - true exercise is upper-body (lat pulldown / shoulder press)
+    - noisy pattern detector votes lunge/squat
+    """
+    lower_static_signal = float(motion.get("lower_static_signal", 0.0) or 0.0)
+    dominant = str(motion.get("dominant", "mixed"))
+    if dominant != "upper" or lower_static_signal < 0.68:
+        return source, detection, winning_score
+    if detection.exercise not in _DYNAMIC_LOWER_EXERCISES:
+        return source, detection, winning_score
+
+    upper_candidates = [
+        (src, cand, score)
+        for src, cand, score in scored_candidates
+        if _exercise_group(cand.exercise.value) == "upper"
+    ]
+    if not upper_candidates:
+        return source, detection, winning_score
+
+    best_src, best_det, best_score = max(upper_candidates, key=lambda item: item[2])
+    if best_det.confidence >= 0.72 or (best_score + 0.10) >= winning_score:
+        return "upper_static_override:{}".format(best_src), best_det, best_score
+    return source, detection, winning_score
 
 
 def run_pipeline(
@@ -1214,6 +1299,13 @@ def run_pipeline(
             scored_candidates,
             press_profile=press_profile,
         )
+        source, detection, winning_score = _apply_lower_static_upper_override(
+            source,
+            detection,
+            winning_score,
+            scored_candidates,
+            motion,
+        )
         logger.info(
             "  → Detection fusion winner: %s (source=%s, conf=%.2f, score=%.3f)",
             detection.exercise.value,
@@ -1283,8 +1375,8 @@ def run_pipeline(
                 should_override = (
                     best_unilateral[2] + 0.04 >= winning_score
                     or best_unilateral[1].confidence >= 0.70
-                    or split_stance_ratio >= 0.36
-                    or ankle_height_ratio >= 0.30
+                    or split_stance_ratio >= 0.32
+                    or ankle_height_ratio >= 0.24
                 )
                 if should_override:
                     logger.warning(

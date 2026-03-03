@@ -827,7 +827,7 @@ def _estimate_transition_rests(
     if len(velocities) == 0:
         return []
 
-    vel_threshold = float(np.percentile(velocities, 25))
+    vel_threshold = float(np.percentile(velocities, 20))
     vel_threshold = max(vel_threshold, 1e-4)
     max_span = max(1, int(fps * 1.2))
 
@@ -857,9 +857,21 @@ def _estimate_transition_rests(
         next_start = int(reps[i + 1].start_frame)
         gap_frames = max(0, next_start - transition_frame)
         end_pause_s = _pause_seconds(transition_frame)
+        start_pause_s = _pause_seconds(next_start)
         turnaround_pause_s = _pause_seconds(int(getattr(reps[i], "bottom_frame", transition_frame) or transition_frame))
+        next_turnaround_pause_s = _pause_seconds(
+            int(getattr(reps[i + 1], "bottom_frame", next_start) or next_start)
+        )
 
-        rests_s.append(max(gap_frames / fps, end_pause_s, turnaround_pause_s))
+        rests_s.append(
+            max(
+                gap_frames / fps,
+                end_pause_s,
+                start_pause_s,
+                turnaround_pause_s,
+                next_turnaround_pause_s * 0.8,
+            )
+        )
 
     return rests_s
 
