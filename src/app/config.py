@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./formcheck.db"
+    rules_db_path: str = "database/rules_db.sqlite"
 
     # App
     debug: bool = False

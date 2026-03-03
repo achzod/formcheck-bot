@@ -52,6 +52,7 @@ from analysis.pose_extractor import (
 )
 from analysis.rep_segmenter import PRIMARY_ANGLE_MAP, RepSegmentation, segment_reps
 from analysis.report_generator import Report, generate_report, report_to_dict
+from analysis.rules_db import resolve_to_supported_exercise
 from analysis.smoothing import smooth_landmarks
 from analysis.video_validator import VideoValidation, validate_video
 
@@ -264,6 +265,41 @@ def _map_model_exercise_name(raw_name: str | None) -> str:
         return "tricep_extension"
     if "overhead" in name and "tricep" in name:
         return "overhead_tricep"
+
+    # Open-vocabulary fallback via scraped rules DB (500+ names => internal families).
+    try:
+        mapped, meta = resolve_to_supported_exercise(name)
+        if mapped:
+            logger.info(
+                "Rules DB mapped model exercise '%s' -> '%s' (score=%.3f, pattern=%s)",
+                name,
+                mapped,
+                float(meta.get("score", 0.0) or 0.0),
+                str(meta.get("pattern", "")),
+            )
+            return mapped
+    except Exception as exc:
+        logger.debug("Rules DB mapping failed for '%s': %s", name, exc)
+
+    # Last-resort generic remaps for unseen labels.
+    if "squat" in name:
+        return "squat"
+    if "lunge" in name or "split_squat" in name:
+        return "lunge"
+    if "deadlift" in name:
+        return "deadlift"
+    if "press" in name and ("overhead" in name or "shoulder" in name):
+        return "ohp"
+    if "press" in name or "bench" in name:
+        return "bench_press"
+    if "pulldown" in name or "pull_down" in name:
+        return "lat_pulldown"
+    if "row" in name:
+        return "barbell_row"
+    if "curl" in name:
+        return "curl"
+    if "raise" in name:
+        return "lateral_raise"
 
     return name
 
