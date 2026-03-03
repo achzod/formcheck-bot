@@ -4,6 +4,65 @@ from __future__ import annotations
 
 from analysis.exercise_detector import DetectionResult, Exercise
 
+_LOWER_EXERCISES: set[Exercise] = {
+    Exercise.SQUAT,
+    Exercise.FRONT_SQUAT,
+    Exercise.GOBLET_SQUAT,
+    Exercise.HACK_SQUAT,
+    Exercise.LEG_PRESS,
+    Exercise.BULGARIAN_SPLIT_SQUAT,
+    Exercise.LUNGE,
+    Exercise.WALKING_LUNGE,
+    Exercise.STEP_UP,
+    Exercise.DEADLIFT,
+    Exercise.SUMO_DEADLIFT,
+    Exercise.RDL,
+    Exercise.SINGLE_LEG_RDL,
+    Exercise.HIP_THRUST,
+    Exercise.LEG_EXTENSION,
+    Exercise.LEG_CURL,
+    Exercise.CALF_RAISE,
+}
+
+_UPPER_EXERCISES: set[Exercise] = {
+    Exercise.BENCH_PRESS,
+    Exercise.INCLINE_BENCH,
+    Exercise.OHP,
+    Exercise.DUMBBELL_OHP,
+    Exercise.UPRIGHT_ROW,
+    Exercise.BARBELL_ROW,
+    Exercise.DUMBBELL_ROW,
+    Exercise.CABLE_ROW,
+    Exercise.TBAR_ROW,
+    Exercise.PULLUP,
+    Exercise.CHINUP,
+    Exercise.LAT_PULLDOWN,
+    Exercise.CLOSE_GRIP_PULLDOWN,
+    Exercise.CABLE_PULLOVER,
+    Exercise.CURL,
+    Exercise.DUMBBELL_CURL,
+    Exercise.HAMMER_CURL,
+    Exercise.CABLE_CURL,
+    Exercise.TRICEP_EXTENSION,
+    Exercise.OVERHEAD_TRICEP,
+    Exercise.SKULL_CRUSHER,
+    Exercise.LATERAL_RAISE,
+    Exercise.FRONT_RAISE,
+    Exercise.FACE_PULL,
+    Exercise.REAR_DELT_FLY,
+    Exercise.SHRUG,
+    Exercise.CHEST_FLY,
+    Exercise.CABLE_CROSSOVER,
+}
+
+
+def _movement_group(exercise: Exercise) -> str:
+    if exercise in _LOWER_EXERCISES:
+        return "lower"
+    if exercise in _UPPER_EXERCISES:
+        return "upper"
+    return "mixed"
+
 
 def apply_gemini_vision_consensus_override(
     source: str,
@@ -43,11 +102,20 @@ def apply_gemini_vision_consensus_override(
         detection.exercise in {Exercise.OHP, Exercise.DUMBBELL_OHP, Exercise.UPRIGHT_ROW}
         and consensus_ex in {Exercise.LATERAL_RAISE, Exercise.FRONT_RAISE}
     )
+    detection_group = _movement_group(detection.exercise)
+    consensus_group = _movement_group(consensus_ex)
 
     should_override = False
     if source == "pattern" and margin <= 0.24:
         should_override = True
     if source == "pattern" and shoulder_ambiguity and overhead_ratio < 0.24:
+        should_override = True
+    if (
+        source == "pattern"
+        and consensus_conf >= 0.88
+        and consensus_group != "mixed"
+        and detection_group != consensus_group
+    ):
         should_override = True
 
     if should_override:
@@ -119,3 +187,13 @@ def estimate_intensity_from_fused_count(
         "intensity_label": label,
     }
 
+
+def select_reference_rep_count(
+    signal_rep_count: int,
+    robust_rep_count: int,
+    robust_reliable: bool,
+) -> int:
+    """Choose a safe reference count for late fusion with external counters."""
+    if robust_rep_count > 0 and robust_reliable:
+        return robust_rep_count
+    return max(0, int(signal_rep_count))

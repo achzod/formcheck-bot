@@ -40,6 +40,7 @@ from analysis.exercise_detector import (
 from analysis.fusion_utils import (
     apply_gemini_vision_consensus_override,
     estimate_intensity_from_fused_count,
+    select_reference_rep_count,
 )
 from analysis.frame_annotator import annotate_key_frames
 from analysis.pose_extractor import (
@@ -1183,7 +1184,12 @@ def run_pipeline(
     # sous-échantillonné (ex: vidéos longues avec peu de frames LLM).
     signal_rep_count = result.reps.total_reps if result.reps else 0
     robust_rep_count = int(getattr(result.reps, "robust_count", 0) or 0) if result.reps else 0
-    reference_rep_count = robust_rep_count if robust_rep_count > 0 else signal_rep_count
+    robust_reliable = bool(getattr(result.reps, "robust_reliable", False)) if result.reps else False
+    reference_rep_count = select_reference_rep_count(
+        signal_rep_count=signal_rep_count,
+        robust_rep_count=robust_rep_count,
+        robust_reliable=robust_reliable,
+    )
     duration_s = (
         float(extraction.total_frames) / float(extraction.fps)
         if extraction and extraction.fps and extraction.fps > 0
@@ -1305,6 +1311,7 @@ def run_pipeline(
         _dbg("rep_count_fusion", "Rep count fusion result", {
             "signal_rep_count": signal_rep_count,
             "robust_rep_count": robust_rep_count,
+            "robust_reliable": robust_reliable,
             "reference_rep_count": reference_rep_count,
             "gemini_rep_count": gemini_rep_count,
             "vision_rep_count": vision_rep_count,

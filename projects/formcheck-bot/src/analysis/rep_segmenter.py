@@ -470,6 +470,7 @@ class RepSegmentation:
     zerocross_count: int = 0
     extrema_count: int = 0
     robust_count: int = 0
+    robust_reliable: bool = False
     count_method: str = "peak"
     segmentation_signal: str = ""
     auto_signal_selected: bool = False
@@ -497,6 +498,7 @@ class RepSegmentation:
                 "zerocross_count": self.zerocross_count,
                 "extrema_count": self.extrema_count,
                 "robust_count": self.robust_count,
+                "robust_reliable": self.robust_reliable,
                 "segmentation_signal": self.segmentation_signal,
                 "auto_signal_selected": self.auto_signal_selected,
             },
@@ -1589,6 +1591,7 @@ def segment_reps(
         result.zerocross_count = zerocross_count
         result.extrema_count = extrema_count
         result.robust_count = robust_count
+        result.robust_reliable = _is_robust_count_reliable(autocorr_count, zerocross_count, extrema_count)
         if robust_count > 0:
             result.total_reps = robust_count
             result.complete_reps = robust_count
@@ -1647,6 +1650,7 @@ def segment_reps(
                 result.zerocross_count = zerocross_count
                 result.extrema_count = extrema_count
                 result.robust_count = robust_count
+                result.robust_reliable = _is_robust_count_reliable(autocorr_count, zerocross_count, extrema_count)
                 if robust_count > 0:
                     result.total_reps = robust_count
                     result.complete_reps = robust_count
@@ -1885,6 +1889,7 @@ def segment_reps(
     result.robust_count = robust_count
     robust_values = sorted(v for v in (autocorr_count, zerocross_count, extrema_count) if v > 0)
     robust_reliable = _is_robust_count_reliable(autocorr_count, zerocross_count, extrema_count)
+    result.robust_reliable = robust_reliable
 
     if group_mismatch and robust_count > 0:
         logger.warning(
