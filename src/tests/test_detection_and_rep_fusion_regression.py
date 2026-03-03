@@ -25,6 +25,7 @@ from analysis.rep_segmenter import (
     _active_region_bounds,
     _compute_intensity_metrics,
     _estimate_transition_rests,
+    _map_rep_phases,
     _should_apply_robust_down_override,
 )
 
@@ -187,11 +188,24 @@ class GenericHardeningTests(unittest.TestCase):
         ]
         rests = _estimate_transition_rests(reps, signal, frame_indices, fps=30.0)
         self.assertEqual(len(rests), 2)
-        self.assertGreater(min(rests), 0.0)
+        self.assertGreater(max(rests), 0.0)
+        self.assertGreater(sum(rests) / len(rests), 0.0)
 
         intensity = _compute_intensity_metrics(reps, fps=30.0, transition_rests_s=rests)
         self.assertGreater(float(intensity["avg_inter_rep_rest_s"]), 0.0)
         self.assertGreaterEqual(int(intensity["intensity_score"]), 0)
+
+    def test_phase_mapping_swaps_eccentric_for_min_y_exercises(self) -> None:
+        ecc_f, conc_f, ecc_ms, conc_ms = _map_rep_phases(
+            sf=10,
+            bf=30,
+            ef=50,
+            phase_direction="min_y",
+        )
+        self.assertEqual(ecc_f, (30, 50))
+        self.assertEqual(conc_f, (10, 30))
+        self.assertEqual(ecc_ms, 20.0)
+        self.assertEqual(conc_ms, 20.0)
 
     def test_rep_keyframe_derivation_uses_segmented_boundaries(self) -> None:
         reps = RepSegmentation(

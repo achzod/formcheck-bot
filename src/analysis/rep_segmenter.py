@@ -827,37 +827,71 @@ def _estimate_transition_rests(
     if len(velocities) == 0:
         return []
 
-    vel_threshold = float(np.percentile(velocities, 30))
+    vel_threshold = float(np.percentile(velocities, 25))
     vel_threshold = max(vel_threshold, 1e-4)
-    max_span = max(1, int(fps * 3.0))
+    max_span = max(1, int(fps * 1.2))
 
-    rests_s: list[float] = []
-    for i in range(len(reps) - 1):
-        transition_frame = int(reps[i].end_frame)
-        next_start = int(reps[i + 1].start_frame)
-
-        anchor = int(np.argmin(np.abs(frame_indices - transition_frame)))
+    def _pause_seconds(anchor_frame: int) -> float:
+        anchor = int(np.argmin(np.abs(frame_indices - int(anchor_frame))))
         left = anchor
         right = anchor
 
         while left > 0 and (anchor - left) < max_span:
             v = float(velocities[left - 1]) if left - 1 < len(velocities) else vel_threshold + 1.0
-            if v > vel_threshold:
+            if v > (vel_threshold * 1.25):
                 break
             left -= 1
 
         while right < len(frame_indices) - 1 and (right - anchor) < max_span:
             v = float(velocities[right]) if right < len(velocities) else vel_threshold + 1.0
-            if v > vel_threshold:
+            if v > (vel_threshold * 1.25):
                 break
             right += 1
 
         plateau_frames = max(0, int(frame_indices[right]) - int(frame_indices[left]))
+        return plateau_frames / fps
+
+    rests_s: list[float] = []
+    for i in range(len(reps) - 1):
+        transition_frame = int(reps[i].end_frame)
+        next_start = int(reps[i + 1].start_frame)
         gap_frames = max(0, next_start - transition_frame)
-        rest_frames = max(gap_frames, plateau_frames)
-        rests_s.append(rest_frames / fps)
+        end_pause_s = _pause_seconds(transition_frame)
+        turnaround_pause_s = _pause_seconds(int(getattr(reps[i], "bottom_frame", transition_frame) or transition_frame))
+
+        rests_s.append(max(gap_frames / fps, end_pause_s, turnaround_pause_s))
 
     return rests_s
+
+
+def _map_rep_phases(
+    *,
+    sf: int,
+    bf: int,
+    ef: int,
+    phase_direction: str,
+) -> tuple[tuple[int, int], tuple[int, int], float, float]:
+    """Map raw cycle phases to eccentric/concentric based on exercise phase direction."""
+    phase_a = (sf, bf)
+    phase_b = (bf, ef)
+    phase_a_ms = max(0.0, float(bf - sf))
+    phase_b_ms = max(0.0, float(ef - bf))
+
+    if phase_direction == "min_y":
+        # Peak contraction/lockout in the "high" position:
+        # phase A (start->peak) is concentric, phase B (peak->return) is eccentric.
+        ecc_frames = phase_b
+        conc_frames = phase_a
+        ecc_ms = phase_b_ms
+        conc_ms = phase_a_ms
+    else:
+        # Peak in the "low" position (default): phase A is eccentric, phase B concentric.
+        ecc_frames = phase_a
+        conc_frames = phase_b
+        ecc_ms = phase_a_ms
+        conc_ms = phase_b_ms
+
+    return ecc_frames, conc_frames, ecc_ms, conc_ms
 
 
 def _compute_intensity_metrics(
@@ -1813,6 +1847,15 @@ def segment_reps(
     if attr != preferred_attr:
         min_rom = min(min_rom, _default_min_rom_for_attr(attr))
 
+    phase_direction = "max_y"
+    try:
+        from analysis.exercise_phases import get_phase
+        phase = get_phase(exercise)
+        if phase and getattr(phase, "peak_direction", "") in {"min_y", "max_y"}:
+            phase_direction = str(phase.peak_direction)
+    except Exception:
+        pass
+
     # Construire les reps : valley[i] → bottom (peak entre) → valley[i+1]
     reps: list[Rep] = []
 
@@ -1844,9 +1887,12 @@ def segment_reps(
         ef = int(frame_indices[v_end])
         bf = int(frame_indices[bottom_idx])
 
-        # Durées
-        ecc_ms = (bf - sf) / fps * 1000 if fps > 0 else 0
-        conc_ms = (ef - bf) / fps * 1000 if fps > 0 else 0
+        # Durées: map to eccentric/concentric according to exercise phase direction.
+        ecc_frames, conc_frames, ecc_ms_frames, conc_ms_frames = _map_rep_phases(
+            sf=sf, bf=bf, ef=ef, phase_direction=phase_direction
+        )
+        ecc_ms = (ecc_ms_frames / fps * 1000.0) if fps > 0 else 0.0
+        conc_ms = (conc_ms_frames / fps * 1000.0) if fps > 0 else 0.0
 
         # Filtrer les reps aberrantes (trop courtes ou trop longues)
         total_ms = ecc_ms + conc_ms
@@ -1888,8 +1934,8 @@ def segment_reps(
             start_frame=sf,
             end_frame=ef,
             bottom_frame=bf,
-            eccentric_frames=(sf, bf),
-            concentric_frames=(bf, ef),
+            eccentric_frames=ecc_frames,
+            concentric_frames=conc_frames,
             eccentric_duration_ms=ecc_ms,
             concentric_duration_ms=conc_ms,
             tempo_ratio=tempo_ratio,
@@ -2129,6 +2175,7 @@ def segment_reps(
         "count_method": result.count_method,
         "rep_coverage_ok": rep_coverage_ok,
         "rest_measure_method": result.rest_measure_method,
+        "phase_direction": phase_direction,
         "intensity_score": result.intensity_score,
         "avg_inter_rep_rest_s": round(result.avg_inter_rep_rest_s, 2),
         "reps_per_min": round(result.reps_per_min, 1),
