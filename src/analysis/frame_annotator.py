@@ -530,10 +530,19 @@ def annotate_frame(
 
     # Badge titre (DEBUT / POINT BAS / FIN)
     if label:
+        phase_mid = "PIC"
+        if label == "mid":
+            try:
+                from analysis.exercise_phases import get_phase
+                phase = get_phase(exercise)
+                if phase:
+                    phase_mid = "POINT HAUT" if phase.peak_direction == "min_y" else "POINT BAS"
+            except Exception:
+                pass
         label_map = {
-            "start": "DEBUT",
-            "mid": "POINT BAS",
-            "end": "FIN",
+            "start": "DEPART",
+            "mid": phase_mid,
+            "end": "RETOUR",
             "quarter": "DESCENTE",
             "three_quarter": "REMONTEE",
         }
@@ -673,6 +682,21 @@ def annotate_key_frames(
                 raw_img = cv2.imread(image_path)
                 if raw_img is not None:
                     badge_text = label.upper()
+                    if label in {"start", "mid", "end"}:
+                        try:
+                            from analysis.exercise_phases import get_phase
+                            phase = get_phase(exercise)
+                            if label == "start":
+                                badge_text = "DEPART"
+                            elif label == "end":
+                                badge_text = "RETOUR"
+                            elif label == "mid":
+                                if phase and getattr(phase, "peak_direction", "max_y") == "min_y":
+                                    badge_text = "POINT HAUT"
+                                else:
+                                    badge_text = "POINT BAS"
+                        except Exception:
+                            pass
                     font = cv2.FONT_HERSHEY_SIMPLEX
                     (tw, th), _ = cv2.getTextSize(badge_text, font, 1.0, 2)
                     cv2.rectangle(raw_img, (10, 10), (30 + tw, 20 + th + 10), (0, 0, 0), -1)

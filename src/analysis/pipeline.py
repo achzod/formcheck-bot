@@ -300,6 +300,8 @@ _BILATERAL_SQUAT_EXERCISES: set[Exercise] = {
 def _derive_key_frames_from_reps(
     reps: RepSegmentation | None,
     total_frames: int,
+    exercise_name: str = "",
+    extraction_frames: list[Any] | None = None,
 ) -> dict[str, int] | None:
     """Derive start/mid/end key frames from segmented reps."""
     if reps is None or not reps.reps:
@@ -326,9 +328,30 @@ def _derive_key_frames_from_reps(
     def _clamp(frame_idx: int) -> int:
         return max(0, min(max_frame, int(frame_idx)))
 
+    mid_frame = int(getattr(reference_rep, "bottom_frame", first_rep.start_frame))
+    if extraction_frames and exercise_name:
+        try:
+            from analysis.exercise_phases import get_phase, get_tracking_y
+
+            phase = get_phase(exercise_name)
+            if phase:
+                ref_start = int(getattr(reference_rep, "start_frame", 0) or 0)
+                ref_end = int(getattr(reference_rep, "end_frame", ref_start) or ref_start)
+                rep_frames = [
+                    f for f in extraction_frames
+                    if ref_start <= int(getattr(f, "frame_index", -1)) <= ref_end
+                ]
+                if rep_frames:
+                    y_vals = [float(get_tracking_y(f.landmarks, phase)) for f in rep_frames]
+                    if y_vals:
+                        local_idx = int(np.argmin(y_vals)) if phase.peak_direction == "min_y" else int(np.argmax(y_vals))
+                        mid_frame = int(getattr(rep_frames[local_idx], "frame_index", mid_frame))
+        except Exception:
+            pass
+
     return {
         "start": _clamp(int(first_rep.start_frame)),
-        "mid": _clamp(int(getattr(reference_rep, "bottom_frame", first_rep.start_frame))),
+        "mid": _clamp(mid_frame),
         "end": _clamp(int(last_rep.end_frame)),
     }
 
@@ -1531,7 +1554,12 @@ def run_pipeline(
 
     # Align key frames with segmented reps (true movement start/peak/end) when possible.
     try:
-        rep_keyframes = _derive_key_frames_from_reps(result.reps, extraction.total_frames)
+        rep_keyframes = _derive_key_frames_from_reps(
+            result.reps,
+            extraction.total_frames,
+            exercise_name=detection.exercise.value,
+            extraction_frames=extraction.frames,
+        )
         if rep_keyframes:
             _persist_key_frames(extraction, rep_keyframes)
             logger.info(

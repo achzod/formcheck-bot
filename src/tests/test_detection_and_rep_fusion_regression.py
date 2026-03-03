@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import types
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -206,6 +207,36 @@ class GenericHardeningTests(unittest.TestCase):
         self.assertEqual(keyframes["start"], 15)
         self.assertEqual(keyframes["mid"], 60)
         self.assertEqual(keyframes["end"], 112)
+
+    def test_rep_keyframe_mid_uses_phase_direction_when_landmarks_available(self) -> None:
+        reps = RepSegmentation(
+            reps=[
+                Rep(rep_number=1, start_frame=10, end_frame=40, bottom_frame=20, rom=52.0),
+            ]
+        )
+
+        def _mk_landmarks(wrist_y: float) -> list[dict[str, float]]:
+            lms = [{"x": 0.5, "y": 0.5, "z": 0.0, "visibility": 1.0} for _ in range(33)]
+            lms[15]["y"] = wrist_y
+            lms[16]["y"] = wrist_y
+            return lms
+
+        frames = [
+            SimpleNamespace(frame_index=10, landmarks=_mk_landmarks(0.52)),
+            SimpleNamespace(frame_index=20, landmarks=_mk_landmarks(0.35)),
+            SimpleNamespace(frame_index=30, landmarks=_mk_landmarks(0.22)),  # OHP peak (wrist highest)
+            SimpleNamespace(frame_index=40, landmarks=_mk_landmarks(0.55)),
+        ]
+
+        keyframes = _derive_key_frames_from_reps(
+            reps,
+            total_frames=120,
+            exercise_name="ohp",
+            extraction_frames=frames,
+        )
+        self.assertIsNotNone(keyframes)
+        assert keyframes is not None
+        self.assertEqual(keyframes["mid"], 30)
 
 
 if __name__ == "__main__":
