@@ -39,6 +39,7 @@ from analysis.exercise_detector import (
 )
 from analysis.fusion_utils import (
     apply_gemini_vision_consensus_override,
+    disambiguate_upper_pull_exercise,
     estimate_intensity_from_fused_count,
     select_reference_rep_count,
 )
@@ -536,6 +537,99 @@ def _compute_press_profile(
     }
 
 
+def _compute_upper_pull_profile(
+    extraction: ExtractionResult,
+    angles: AngleResult,
+) -> dict[str, float]:
+    """Profile pour distinguer lat pulldown vs cable pullover."""
+    torso_lean_values: list[float] = []
+    for frame in extraction.frames:
+        by_name = {lm.get("name"): lm for lm in frame.landmarks}
+        side_leans: list[float] = []
+        for side in ("left", "right"):
+            shoulder = by_name.get("{}_shoulder".format(side))
+            hip = by_name.get("{}_hip".format(side))
+            if not shoulder or not hip:
+                continue
+            if (
+                float(shoulder.get("visibility", 0.0)) < 0.2
+                or float(hip.get("visibility", 0.0)) < 0.2
+            ):
+                continue
+            dx = float(shoulder["x"]) - float(hip["x"])
+            dy = float(hip["y"]) - float(shoulder["y"])
+            if abs(dy) < 1e-6:
+                continue
+            lean_deg = float(np.degrees(np.arctan2(abs(dx), abs(dy))))
+            side_leans.append(lean_deg)
+        if side_leans:
+            torso_lean_values.append(float(np.median(side_leans)))
+
+    torso_lean_median = float(np.median(torso_lean_values)) if torso_lean_values else 0.0
+
+    stats = getattr(angles, "stats", {}) or {}
+    elbow_min = min(
+        _stat_value(stats, "left_elbow_flexion", "min_value"),
+        _stat_value(stats, "right_elbow_flexion", "min_value"),
+    )
+    elbow_rom = max(
+        _stat_value(stats, "left_elbow_flexion", "range_of_motion"),
+        _stat_value(stats, "right_elbow_flexion", "range_of_motion"),
+    )
+    shoulder_flex_rom = max(
+        _stat_value(stats, "left_shoulder_flexion", "range_of_motion"),
+        _stat_value(stats, "right_shoulder_flexion", "range_of_motion"),
+    )
+    knee_rom = max(
+        _stat_value(stats, "left_knee_flexion", "range_of_motion"),
+        _stat_value(stats, "right_knee_flexion", "range_of_motion"),
+    )
+
+    pullover_signal = 0.0
+    lat_signal = 0.0
+
+    if torso_lean_median >= 32.0:
+        pullover_signal += 0.40
+    elif torso_lean_median >= 24.0:
+        pullover_signal += 0.24
+    elif torso_lean_median <= 16.0:
+        lat_signal += 0.30
+    elif torso_lean_median <= 22.0:
+        lat_signal += 0.16
+
+    if elbow_min >= 95.0:
+        pullover_signal += 0.22
+    elif elbow_min <= 80.0:
+        lat_signal += 0.18
+
+    if elbow_rom <= 70.0:
+        pullover_signal += 0.18
+    elif elbow_rom >= 85.0:
+        lat_signal += 0.20
+
+    if shoulder_flex_rom >= 55.0:
+        pullover_signal += 0.10
+        lat_signal += 0.10
+
+    if knee_rom <= 55.0:
+        pullover_signal += 0.10
+    elif knee_rom >= 75.0:
+        lat_signal += 0.08
+
+    pullover_signal = max(0.0, min(1.0, pullover_signal))
+    lat_signal = max(0.0, min(1.0, lat_signal))
+
+    return {
+        "torso_lean_median_deg": round(torso_lean_median, 2),
+        "elbow_min": round(elbow_min, 1),
+        "elbow_rom": round(elbow_rom, 1),
+        "shoulder_flex_rom": round(shoulder_flex_rom, 1),
+        "knee_rom": round(knee_rom, 1),
+        "pullover_signal": round(pullover_signal, 3),
+        "lat_pulldown_signal": round(lat_signal, 3),
+    }
+
+
 def _detection_candidate_score(
     candidate: DetectionResult,
     pattern_result: DetectionResult,
@@ -823,13 +917,15 @@ def run_pipeline(
     pattern_seed = detect_by_pattern(angles)
     motion = _motion_profile(angles)
     press_profile = _compute_press_profile(extraction, angles)
+    upper_pull_profile = _compute_upper_pull_profile(extraction, angles)
     unilateral_profile = _compute_unilateral_profile(angles, extraction=extraction)
     logger.info(
-        "  → Pattern seed: %s (conf=%.2f) | motion=%s | press_profile=%s | unilateral=%s",
+        "  → Pattern seed: %s (conf=%.2f) | motion=%s | press_profile=%s | upper_pull=%s | unilateral=%s",
         pattern_seed.exercise.value,
         pattern_seed.confidence,
         motion,
         press_profile,
+        upper_pull_profile,
         unilateral_profile,
     )
 
@@ -1087,6 +1183,14 @@ def run_pipeline(
         if not source.startswith("gemini"):
             gemini_rep_count = 0
 
+        source, detection = disambiguate_upper_pull_exercise(
+            source,
+            detection,
+            upper_pull_profile=upper_pull_profile,
+        )
+        if source == "upper_pull_disambiguation":
+            gemini_rep_count = 0
+
         try:
             from app.debug_log import log_error as _dbg_det
             _dbg_det("exercise_fusion", "Detection fusion result", {
@@ -1100,6 +1204,7 @@ def run_pipeline(
                 "vision_exercise": fallback_detection.exercise.value if fallback_detection else "none",
                 "vision_confidence": round(float(fallback_detection.confidence), 3) if fallback_detection else 0.0,
                 "press_profile": press_profile,
+                "upper_pull_profile": upper_pull_profile,
                 "unilateral_profile": unilateral_profile,
                 "candidate_scores": ";".join(
                     "{}:{}:{:.3f}".format(src_name, cand.exercise.value, cand_score)

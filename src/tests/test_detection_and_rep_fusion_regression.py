@@ -5,6 +5,7 @@ import unittest
 from analysis.exercise_detector import DetectionResult, Exercise
 from analysis.fusion_utils import (
     apply_gemini_vision_consensus_override,
+    disambiguate_upper_pull_exercise,
     estimate_intensity_from_fused_count,
     select_reference_rep_count,
 )
@@ -105,6 +106,28 @@ class RepFusionRegressionTests(unittest.TestCase):
             select_reference_rep_count(signal_rep_count=19, robust_rep_count=6, robust_reliable=True),
             6,
         )
+
+
+class UpperPullDisambiguationTests(unittest.TestCase):
+    def test_lat_pulldown_relabelled_to_cable_pullover_when_profile_says_so(self) -> None:
+        det = DetectionResult(exercise=Exercise.LAT_PULLDOWN, confidence=0.95, reasoning="base")
+        source, out = disambiguate_upper_pull_exercise(
+            "gemini_vision_consensus_override",
+            det,
+            upper_pull_profile={"pullover_signal": 0.76, "lat_pulldown_signal": 0.52},
+        )
+        self.assertEqual(source, "upper_pull_disambiguation")
+        self.assertEqual(out.exercise, Exercise.CABLE_PULLOVER)
+
+    def test_no_relabel_when_profile_not_decisive(self) -> None:
+        det = DetectionResult(exercise=Exercise.LAT_PULLDOWN, confidence=0.95, reasoning="base")
+        source, out = disambiguate_upper_pull_exercise(
+            "gemini_vision_consensus_override",
+            det,
+            upper_pull_profile={"pullover_signal": 0.56, "lat_pulldown_signal": 0.52},
+        )
+        self.assertEqual(source, "gemini_vision_consensus_override")
+        self.assertEqual(out.exercise, Exercise.LAT_PULLDOWN)
 
 
 if __name__ == "__main__":

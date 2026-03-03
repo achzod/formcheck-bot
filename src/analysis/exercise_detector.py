@@ -127,7 +127,8 @@ def _get_candidate_exercises(
         "curl", "lat_pulldown", "hip_thrust", "rdl", "dumbbell_row",
         "lateral_raise", "tricep_extension", "pullup", "dip",
         "leg_curl", "leg_extension", "leg_press", "cable_row",
-        "overhead_tricep", "face_pull",
+        "overhead_tricep", "face_pull", "cable_pullover",
+        "pullover", "close_grip_pulldown",
     ]
     for ex in _ALWAYS_INCLUDE:
         if ex not in candidates:

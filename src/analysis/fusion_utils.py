@@ -197,3 +197,49 @@ def select_reference_rep_count(
     if robust_rep_count > 0 and robust_reliable:
         return robust_rep_count
     return max(0, int(signal_rep_count))
+
+
+def disambiguate_upper_pull_exercise(
+    source: str,
+    detection: DetectionResult,
+    upper_pull_profile: dict[str, float | bool] | None = None,
+) -> tuple[str, DetectionResult]:
+    """Disambiguate lat pulldown vs cable pullover from posture/ROM profile."""
+    if not upper_pull_profile:
+        return source, detection
+
+    lat_set = {Exercise.LAT_PULLDOWN, Exercise.CLOSE_GRIP_PULLDOWN}
+    pullover_set = {Exercise.CABLE_PULLOVER, Exercise.PULLOVER}
+    if detection.exercise not in lat_set | pullover_set:
+        return source, detection
+
+    pullover_signal = float(upper_pull_profile.get("pullover_signal", 0.0) or 0.0)
+    lat_signal = float(upper_pull_profile.get("lat_pulldown_signal", 0.0) or 0.0)
+
+    if detection.exercise in lat_set and pullover_signal >= 0.62 and pullover_signal >= lat_signal + 0.10:
+        det = DetectionResult(
+            exercise=Exercise.CABLE_PULLOVER,
+            confidence=max(float(detection.confidence), min(0.92, pullover_signal)),
+            reasoning=(
+                "{} | [Upper-pull disambiguation] postural profile favors cable pullover."
+            ).format(detection.reasoning),
+            vision_exercise=detection.vision_exercise,
+            vision_confidence=detection.vision_confidence,
+            vision_rep_count=detection.vision_rep_count,
+        )
+        return "upper_pull_disambiguation", det
+
+    if detection.exercise in pullover_set and lat_signal >= 0.62 and lat_signal >= pullover_signal + 0.10:
+        det = DetectionResult(
+            exercise=Exercise.LAT_PULLDOWN,
+            confidence=max(float(detection.confidence), min(0.92, lat_signal)),
+            reasoning=(
+                "{} | [Upper-pull disambiguation] postural profile favors lat pulldown."
+            ).format(detection.reasoning),
+            vision_exercise=detection.vision_exercise,
+            vision_confidence=detection.vision_confidence,
+            vision_rep_count=detection.vision_rep_count,
+        )
+        return "upper_pull_disambiguation", det
+
+    return source, detection

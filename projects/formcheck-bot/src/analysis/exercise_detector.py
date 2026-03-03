@@ -4,12 +4,14 @@ Analyse les ROM (Range of Motion) et les variations d'angles articulaires
 pour classifier l'exercice. Utilise GPT-4 Vision comme backup/confirmation
 sur la frame du milieu.
 
-Couvre 91 exercices via pattern matching + GPT-4o Vision.
+Couvre 91 exercices via pattern matching + GPT-4o Vision + visual reference matching.
 """
 
 from __future__ import annotations
 
 import base64
+import json
+import logging
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -19,6 +21,150 @@ from typing import Any
 import numpy as np
 
 from analysis.angle_calculator import AngleResult, AngleStats
+
+logger = logging.getLogger(__name__)
+
+# ── Reference DB loading ──────────────────────────────────────────────────────
+
+_REFERENCE_DB: dict[str, Any] | None = None
+_REFERENCE_DB_PATH = Path(__file__).parent / "exercise_refs" / "reference_db.json"
+
+
+def _load_reference_db() -> dict[str, Any] | None:
+    """Charge la base de données de référence des exercices au premier appel."""
+    global _REFERENCE_DB
+    if _REFERENCE_DB is not None:
+        return _REFERENCE_DB
+    try:
+        if _REFERENCE_DB_PATH.exists():
+            with open(_REFERENCE_DB_PATH, "r", encoding="utf-8") as f:
+                _REFERENCE_DB = json.load(f)
+            logger.info(
+                "Reference DB loaded: %d exercises",
+                len(_REFERENCE_DB.get("exercises", {})),
+            )
+        else:
+            logger.warning("Reference DB not found at %s", _REFERENCE_DB_PATH)
+            _REFERENCE_DB = {}
+    except Exception as exc:
+        logger.error("Failed to load reference DB: %s", exc)
+        _REFERENCE_DB = {}
+    return _REFERENCE_DB
+
+
+def _get_exercise_tags(exercise_name: str) -> dict[str, Any]:
+    """Retourne les tags d'un exercice depuis la base de référence."""
+    db = _load_reference_db()
+    if not db:
+        return {}
+    exercises = db.get("exercises", {})
+    return exercises.get(exercise_name, {}).get("tags", {})
+
+
+def _get_candidate_exercises(
+    pattern_result: "DetectionResult",
+    n: int = 10,
+) -> list[str]:
+    """Retourne les N exercices candidats les plus probables pour le visual matching.
+
+    Utilise le résultat du pattern matching pour filtrer intelligemment.
+    Si le pattern matching a trouvé quelque chose avec une bonne confiance,
+    on priorise les exercices de la même catégorie.
+    """
+    db = _load_reference_db()
+    if not db:
+        # Fallback: retourner les exercices les plus communs
+        return [
+            "squat", "deadlift", "bench_press", "ohp", "barbell_row",
+            "pullup", "curl", "lat_pulldown", "rdl", "hip_thrust",
+        ]
+
+    exercises = db.get("exercises", {})
+    best_exercise = pattern_result.exercise.value
+
+    # Trouver la catégorie du meilleur exercice pattern
+    best_tags = exercises.get(best_exercise, {}).get("tags", {})
+    best_category = best_tags.get("category", "")
+
+    # Score chaque exercice selon sa proximité avec le résultat pattern
+    scored: list[tuple[str, float]] = []
+    for ex_name, ex_data in exercises.items():
+        if ex_name == "unknown":
+            continue
+        tags = ex_data.get("tags", {})
+        score = 0.0
+
+        # Même exercice que le pattern → score max
+        if ex_name == best_exercise:
+            score = 1.0
+        # Même catégorie → score élevé
+        elif tags.get("category") == best_category and best_category:
+            score = 0.6
+        # Même groupe musculaire → score moyen
+        else:
+            best_muscles = set(best_tags.get("muscle_group", []))
+            ex_muscles = set(tags.get("muscle_group", []))
+            overlap = len(best_muscles & ex_muscles)
+            if overlap > 0:
+                score = 0.3 + (overlap * 0.1)
+
+        # Bonus si même equipment
+        best_equip = set(best_tags.get("equipment", []))
+        ex_equip = set(tags.get("equipment", []))
+        if best_equip & ex_equip:
+            score += 0.1
+
+        scored.append((ex_name, score))
+
+    # Trier par score décroissant, prendre les N premiers
+    scored.sort(key=lambda x: x[1], reverse=True)
+    candidates = [name for name, _ in scored[:n]]
+
+    # ALWAYS include core compound movements to prevent blind spots
+    # Pattern matching is unreliable — don't let it exclude major exercises
+    _ALWAYS_INCLUDE = [
+        "squat", "deadlift", "bench_press", "ohp", "barbell_row",
+        "curl", "lat_pulldown", "hip_thrust", "rdl", "dumbbell_row",
+        "lateral_raise", "tricep_extension", "pullup", "dip",
+        "leg_curl", "leg_extension", "leg_press", "cable_row",
+        "overhead_tricep", "face_pull", "cable_pullover",
+        "pullover", "close_grip_pulldown",
+    ]
+    for ex in _ALWAYS_INCLUDE:
+        if ex not in candidates:
+            candidates.append(ex)
+
+    logger.debug("Candidates for visual matching (with always-include): %s", candidates)
+    return candidates
+
+
+def _build_reference_grid_text(candidates: list[str]) -> str:
+    """Construit un texte descriptif des exercices candidats pour le prompt GPT-4o."""
+    db = _load_reference_db()
+    if not db:
+        return ""
+
+    exercises = db.get("exercises", {})
+    lines = ["EXERCICES CANDIDATS (images de référence ci-dessous) :"]
+
+    for i, ex_name in enumerate(candidates, 1):
+        ex_data = exercises.get(ex_name, {})
+        display = ex_data.get("display_name", ex_name)
+        key_cues = ex_data.get("key_cues", "")
+        tags = ex_data.get("tags", {})
+        equip = ", ".join(tags.get("equipment", []))
+        position = ", ".join(tags.get("body_position", []))
+        line = "{i}. {name} ({display}): {cues} [equipement: {equip}, position: {pos}]".format(
+            i=i,
+            name=ex_name,
+            display=display,
+            cues=key_cues,
+            equip=equip,
+            pos=position,
+        )
+        lines.append(line)
+
+    return "\n".join(lines)
 
 
 class Exercise(str, Enum):
@@ -228,6 +374,7 @@ class DetectionResult:
     reasoning: str                 # Explication de la classification
     vision_exercise: Exercise | None = None   # Résultat GPT-4 Vision si utilisé
     vision_confidence: float = 0.0
+    vision_rep_count: int = 0                # Nombre de reps détectées par Vision
     display_name: str = ""
 
     def __post_init__(self) -> None:
@@ -515,6 +662,9 @@ def _score_ohp(stats: dict[str, AngleStats]) -> tuple[float, str]:
     shoulder_flex_rom = max(
         _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
     )
+    elbow_max = max(
+        _max(stats, "left_elbow_flexion"), _max(stats, "right_elbow_flexion")
+    )
     knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
     trunk_mean = _mean(stats, "trunk_inclination")
 
@@ -525,6 +675,12 @@ def _score_ohp(stats: dict[str, AngleStats]) -> tuple[float, str]:
     if shoulder_flex_rom > 30 or shoulder_abd_rom > 30:
         score += 0.25
         reasons.append(f"ROM épaule flex/abd significatif")
+    if elbow_max >= 155:
+        score += 0.20
+        reasons.append(f"Lockout coude overhead détecté ({elbow_max:.0f}°)")
+    elif elbow_max >= 148:
+        score += 0.10
+        reasons.append(f"Extension coude haute ({elbow_max:.0f}°)")
     if trunk_mean < 20:
         score += 0.25
         reasons.append(f"Tronc vertical ({trunk_mean:.0f}°)")
@@ -731,6 +887,9 @@ def _score_upright_row(stats: dict[str, AngleStats]) -> tuple[float, str]:
     shoulder_flex_rom = max(
         _rom(stats, "left_shoulder_flexion"), _rom(stats, "right_shoulder_flexion")
     )
+    elbow_max = max(
+        _max(stats, "left_elbow_flexion"), _max(stats, "right_elbow_flexion")
+    )
     trunk_rom = _rom(stats, "trunk_inclination")
     trunk_mean = _mean(stats, "trunk_inclination")
     knee_rom = max(_rom(stats, "left_knee_flexion"), _rom(stats, "right_knee_flexion"))
@@ -750,6 +909,12 @@ def _score_upright_row(stats: dict[str, AngleStats]) -> tuple[float, str]:
     if elbow_rom > 20 and shoulder_combined > 15:
         score += 0.2
         reasons.append("Coudes + epaules actifs simultanement — typique tirage menton")
+    if elbow_max <= 145:
+        score += 0.10
+        reasons.append(f"Pas de lockout overhead ({elbow_max:.0f} deg)")
+    elif elbow_max >= 158:
+        score -= 0.18
+        reasons.append(f"Lockout coude élevé ({elbow_max:.0f} deg) atypique pour tirage menton")
 
     # Tronc vertical et stable
     if trunk_mean < 25 and trunk_rom < 12:
@@ -1547,9 +1712,10 @@ def detect_by_pattern(angles: AngleResult) -> DetectionResult:
             reasoning="Score trop faible ({:.2f}). Meilleur candidat: {}. {}".format(best[1], best[0].value, best[2]),
         )
 
+    best_conf = max(0.0, min(1.0, best[1]))
     return DetectionResult(
         exercise=best[0],
-        confidence=best[1],
+        confidence=best_conf,
         reasoning=best[2],
     )
 
@@ -1562,36 +1728,172 @@ def _encode_image_base64(image_path: str) -> str:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
+def _post_correct_detection(
+    exercise: Exercise,
+    confidence: float,
+    reasoning: str,
+    logger: Any,
+    mid_frame_path: str | None = None,
+) -> tuple[Exercise, str]:
+    """Apply rule-based corrections after GPT-4o Vision detection.
+    
+    GPT-4o frequently confuses exercises when gym equipment is visible
+    in the background (e.g., sees cable station → says cable_curl even
+    when the person holds a barbell). These rules catch known confusions.
+    
+    For cable exercises: triggers a SECOND PASS verification focused
+    specifically on the equipment in the person's hands.
+    """
+    lower_reason = reasoning.lower()
+    
+    # ── cable_curl → curl correction ──
+    # If GPT-4o says cable_curl but mentions barbell/barre/EZ in reasoning
+    if exercise == Exercise.CABLE_CURL:
+        barbell_cues = ["barre", "barbell", "ez bar", "ez curl", "barre droite", "barre ez",
+                        "straight bar", "olympic bar", "free weight", "poids libre"]
+        for cue in barbell_cues:
+            if cue in lower_reason:
+                logger.info(
+                    "POST-CORRECTION: cable_curl → curl (reasoning mentions '%s')", cue,
+                )
+                return Exercise.CURL, "[Corrigé: barre libre détectée] " + reasoning
+        
+        # SECOND PASS: ask GPT-4o specifically about the equipment
+        if mid_frame_path:
+            corrected = _verify_cable_equipment(mid_frame_path, exercise, logger)
+            if corrected is not None:
+                return corrected, "[Vérification équipement: barre libre confirmée] " + reasoning
+    
+    # ── Similar corrections for other common confusions ──
+    if exercise == Exercise.CABLE_ROW:
+        barbell_cues = ["barre", "barbell", "free weight", "poids libre"]
+        for cue in barbell_cues:
+            if cue in lower_reason:
+                logger.info("POST-CORRECTION: cable_row → barbell_row")
+                return Exercise.BARBELL_ROW, "[Corrigé: barre libre détectée] " + reasoning
+    
+    return exercise, reasoning
+
+
+def _verify_cable_equipment(
+    mid_frame_path: str,
+    detected_exercise: Exercise,
+    logger: Any,
+) -> Exercise | None:
+    """Second pass: verify if the person is actually using a cable.
+    
+    Sends a focused prompt to GPT-4o asking ONLY about the equipment
+    in the person's hands. Returns corrected Exercise or None if cable confirmed.
+    """
+    import openai
+    import os
+    
+    key = os.environ.get("OPENAI_API_KEY", "")
+    if not key or not Path(mid_frame_path).exists():
+        return None
+    
+    try:
+        client = openai.OpenAI(api_key=key)
+        b64 = _encode_image_base64(mid_frame_path)
+        
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Tu es un expert en équipement de musculation. "
+                        "Regarde UNIQUEMENT ce que la personne au premier plan "
+                        "TIENT DANS SES MAINS. Ignore tout le reste du décor."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "data:image/jpeg;base64,{}".format(b64),
+                                "detail": "high",
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "Regarde UNIQUEMENT les mains de la personne au premier plan. "
+                                "Question simple : est-ce que cette personne tient :\n"
+                                "A) Une BARRE LIBRE (barre droite, barre EZ, haltères)\n"
+                                "B) Une POIGNÉE DE CÂBLE connectée à une poulie par un câble visible\n\n"
+                                "Réponds UNIQUEMENT avec le JSON : "
+                                '{{"equipment": "barbell" ou "cable", "detail": "<ce que tu vois dans ses mains>"}}'
+                            ),
+                        },
+                    ],
+                },
+            ],
+            max_tokens=150,
+            temperature=0.1,
+            timeout=15,
+        )
+        
+        content = response.choices[0].message.content or ""
+        logger.info("Equipment verification response: %s", content[:200])
+        
+        import json
+        start = content.find("{")
+        end = content.rfind("}") + 1
+        if start >= 0 and end > start:
+            data = json.loads(content[start:end])
+            equipment = data.get("equipment", "").lower()
+            
+            if equipment == "barbell":
+                logger.info("EQUIPMENT VERIFIED: barbell → correcting cable_curl to curl")
+                # Map cable exercises to their barbell equivalents
+                _CABLE_TO_BARBELL = {
+                    Exercise.CABLE_CURL: Exercise.CURL,
+                    Exercise.CABLE_ROW: Exercise.BARBELL_ROW,
+                }
+                return _CABLE_TO_BARBELL.get(detected_exercise)
+            else:
+                logger.info("EQUIPMENT VERIFIED: cable confirmed")
+                return None
+        
+        return None
+    except Exception as e:
+        logger.error("Equipment verification failed: %s", e)
+        return None
+
+
 def detect_by_vision(
     mid_frame_path: str,
     api_key: str | None = None,
     start_frame_path: str | None = None,
     end_frame_path: str | None = None,
+    pattern_result: "DetectionResult | None" = None,
 ) -> tuple[Exercise, float, str]:
     """Utilise GPT-4o Vision pour identifier l'exercice sur 1 a 3 frames.
 
     Architecture vision-first : cette fonction est le detecteur PRIMAIRE.
-    Envoie jusqu'a 3 frames (debut, milieu, fin) pour une detection plus
-    fiable, surtout sur les exercices ambigus.
+    Envoie jusqu'a 3 frames (debut, milieu, fin) + descriptions textuelles
+    des 10 exercices candidats les plus probables (visual reference matching).
 
     Args:
         mid_frame_path: Chemin vers l'image de la frame du milieu (obligatoire).
         api_key: Cle API OpenAI. Si None, utilise OPENAI_API_KEY.
         start_frame_path: Chemin vers la frame de debut (optionnel).
         end_frame_path: Chemin vers la frame de fin (optionnel).
+        pattern_result: Resultat du pattern matching pour pre-filtrer les candidats.
 
     Returns:
         Tuple (exercise, confidence, reasoning).
     """
-    import logging
-    logger = logging.getLogger(__name__)
 
     key = api_key or os.environ.get("OPENAI_API_KEY", "")
     if not key:
-        return Exercise.UNKNOWN, 0.0, "Pas de cle API OpenAI configuree."
+        return Exercise.UNKNOWN, 0.0, "Pas de cle API OpenAI configuree.", 0
 
     if not Path(mid_frame_path).exists():
-        return Exercise.UNKNOWN, 0.0, "Image introuvable"
+        return Exercise.UNKNOWN, 0.0, "Image introuvable", 0
 
     try:
         import openai
@@ -1609,14 +1911,61 @@ def detect_by_vision(
         b64_images = [_encode_image_base64(p) for p in frame_paths]
         num_frames = len(b64_images)
 
+        # ── Visual Reference Matching: build candidate list ──────────────────
+        ref_db = _load_reference_db()
+        candidate_exercises: list[str] = []
+        candidate_text = ""
+
+        if ref_db and ref_db.get("exercises"):
+            # ALWAYS use a broad candidate list — pattern matching is unreliable
+            # and can bias GPT-4o toward completely wrong exercise categories.
+            # Include all common exercises regardless of pattern matching result.
+            candidate_exercises = [
+                "squat", "front_squat", "goblet_squat", "deadlift", "rdl",
+                "sumo_deadlift", "bench_press", "incline_bench", "ohp",
+                "barbell_row", "dumbbell_row", "cable_row", "tbar_row",
+                "pullup", "lat_pulldown", "curl", "dumbbell_curl", "hammer_curl",
+                "cable_curl", "tricep_extension", "overhead_tricep", "skull_crusher",
+                "lateral_raise", "face_pull", "reverse_fly", "upright_row", "shrug",
+                "hip_thrust", "leg_press", "leg_curl", "leg_extension",
+                "lunge", "bulgarian_split_squat", "dip", "push_up",
+                "cable_crossover", "chest_fly", "calf_raise",
+            ]
+            candidate_text = _build_reference_grid_text(candidate_exercises)
+            logger.info(
+                "Visual ref matching: %d candidates: %s",
+                len(candidate_exercises),
+                candidate_exercises,
+            )
+
+        # Build full exercises list for system prompt
         exercises_list = ", ".join(
-            ["{} ({})".format(e.value, EXERCISE_DISPLAY_NAMES[e.value]) for e in Exercise if e != Exercise.UNKNOWN]
+            [
+                "{} ({})".format(e.value, EXERCISE_DISPLAY_NAMES[e.value])
+                for e in Exercise
+                if e != Exercise.UNKNOWN
+            ]
         )
+
+        # Build system prompt with reference matching context
+        ref_section = ""
+        if candidate_text:
+            ref_section = (
+                "\n\nVISUAL REFERENCE MATCHING :\n"
+                "Les {n} exercices candidats les plus probables sont listés ci-dessous "
+                "avec leurs indices visuels clés. Compare SOIGNEUSEMENT la vidéo de "
+                "l'utilisateur avec ces descriptions pour identifier le meilleur match :\n\n"
+                "{candidates}\n\n"
+                "MÉTHODE : Identifie lequel de ces {n} candidats correspond EXACTEMENT "
+                "à ce que tu vois dans les frames. Si aucun ne correspond parfaitement, "
+                "tu peux utiliser un autre exercice de la liste complète ci-dessous."
+            ).format(n=len(candidate_exercises), candidates=candidate_text)
 
         system_prompt = (
             "Tu es un coach de musculation expert avec 15 ans d'experience et "
             "des certifications NASM, ISSA, Pre-Script. Tu identifies les exercices "
-            "de musculation avec precision.\n\n"
+            "de musculation avec precision."
+            "{ref_section}\n\n"
             "REGLES D'IDENTIFICATION :\n"
             "- Regarde la POSITION DU CORPS, l'EQUIPEMENT utilise (barre, halteres, "
             "poulie haute/basse, machine, poids de corps), et le PLAN DE MOUVEMENT.\n"
@@ -1627,16 +1976,84 @@ def detect_by_vision(
             "long du corps, coudes montent sur les cotes.\n"
             "- Distinguer squat (barre sur le dos) vs front_squat (barre devant) vs "
             "goblet_squat (haltere/kettlebell contre le torse).\n"
-            "- Distinguer deadlift (depart sol) vs rdl (depart debout, jambes quasi tendues).\n"
+            "- Distinguer deadlift (depart sol, barre monte du sol au verrouillage debout, "
+            "LE TORSE SE REDRESSE entre les frames) vs rdl (depart debout, jambes quasi tendues).\n"
+            "- Distinguer barbell_row / dumbbell_row (buste penche RESTE FIXE, ce sont les BRAS "
+            "qui bougent vers le torse entre les frames, les coudes montent en arriere) vs "
+            "deadlift (le TORSE se redresse, les bras restent tendus et ne tirent pas). "
+            "Si le torse reste a la meme inclinaison entre les frames = ROW. "
+            "Si le torse change d'angle = DEADLIFT.\n"
+            "- Distinguer sumo_deadlift (pieds tres ecartes, mains entre les jambes, "
+            "torse se redresse) vs barbell_row (pieds largeur epaules, buste penche fixe, "
+            "bras tirent vers le ventre).\n"
+            "- DISTINGUER leg_curl vs leg_extension : "
+            "LEG EXTENSION = assis, pad sur les CHEVILLES/TIBIAS, jambes TENDENT vers l'avant "
+            "(genoux passent de flechis a tendus). "
+            "LEG CURL = couche ou assis, pad sur les CHEVILLES/MOLLETS, jambes FLECHISSENT "
+            "(talons montent vers les fessiers). "
+            "Si les talons montent vers les fesses = LEG CURL. "
+            "Si les pieds montent vers l'avant = LEG EXTENSION.\n"
+            "- ATTENTION MULTI-PERSONNES (REGLE CRITIQUE) : dans un gym, il y a TOUJOURS "
+            "plusieurs personnes visibles. La personne filmee est TOUJOURS celle au PREMIER PLAN "
+            "(la plus proche de la camera, la plus GRANDE dans l'image). "
+            "Les personnes au SECOND PLAN (plus petites, plus loin, dans le fond) font AUTRE CHOSE — "
+            "tu dois les IGNORER completement. Ne te laisse PAS distraire par les machines "
+            "et equipements visibles EN ARRIERE-PLAN. Concentre-toi UNIQUEMENT sur la personne "
+            "la plus proche de la camera. C'est ELLE le sujet de la video.\n"
+            "- DISTINGUER curl (barre/halteres) vs cable_curl (poulie) — REGLE CRITIQUE : "
+            "cable_curl = la personne est DIRECTEMENT CONNECTEE a une poulie par un CABLE "
+            "qui va de ses MAINS a la machine. Tu dois VOIR le cable attaché à la poignée. "
+            "Si tu vois une BARRE LIBRE (barre droite, EZ, ou haltères) dans les mains = *curl* (PAS cable_curl). "
+            "ATTENTION : la plupart des gyms ont des stations de câbles partout en arrière-plan. "
+            "Le fait de voir des câbles/poulies DANS LE DECOR ne signifie PAS que la personne les utilise. "
+            "Regarde UNIQUEMENT ce que la personne TIENT dans ses mains et si un câble est CONNECTÉ à ses mains. "
+            "En cas de doute entre curl et cable_curl → choisis *curl* (plus commun).\n"
             "- Si la personne est DEBOUT face a une poulie avec les bras qui bougent, "
             "c'est probablement un exercice de poulie (cable_pullover, face_pull, "
-            "cable_row, tricep_extension, cable_curl, upright_row).\n\n"
+            "cable_row, tricep_extension, cable_curl, upright_row).\n"
+            "- DISTINGUER ohp (developpe militaire / shoulder press) vs overhead_tricep "
+            "(extension triceps au-dessus de la tete) : "
+            "OHP = la barre/halteres PARTENT des epaules et MONTENT au-dessus de la tete, "
+            "GRANDE amplitude, les EPAULES travaillent principalement, les coudes vont de "
+            "flechis (barre aux epaules) a tendus (barre au-dessus). "
+            "OVERHEAD TRICEP = le poids est TOUJOURS au-dessus/derriere la tete, "
+            "les COUDES restent FIXES pointes vers le plafond, SEULS les avant-bras bougent "
+            "derriere la tete, PETITE amplitude. "
+            "Si tu vois une barre qui part des epaules = OHP. "
+            "Si tu vois un haltere/corde qui reste derriere la tete avec les coudes fixes = OVERHEAD_TRICEP.\n"
+            "- DISTINGUER ohp vs arnold_press : Arnold press = halteres qui partent devant "
+            "le visage (paumes vers soi) avec rotation vers l'exterieur pendant la montee. "
+            "OHP = barre ou halteres qui partent des epaules (paumes vers l'avant) sans rotation.\n\n"
+            "IMPORTANT : dans ton 'reasoning', tu DOIS decrire l'equipement que la personne "
+            "TIENT DANS SES MAINS (barre libre, halteres, poignee de cable, rien). "
+            "Cela aide a distinguer les variantes (ex: curl barre vs cable curl).\n\n"
             "Reponds UNIQUEMENT avec un JSON valide :\n"
-            '{"exercise": "<nom_exact>", "confidence": <0.0-1.0>, '
-            '"reasoning": "<explication courte>"}\n\n'
+            '{{"exercise": "<nom_exact>", "confidence": <0.0-1.0>, '
+            '"reasoning": "<EQUIPEMENT DANS LES MAINS + explication courte>", '
+            '"rep_count": <nombre de repetitions visibles dans les frames>}}\n\n'
             "Exercices possibles (utilise EXACTEMENT un de ces noms) :\n"
-            "{}".format(exercises_list)
+            "{exercises_list}"
+        ).format(
+            ref_section=ref_section,
+            exercises_list=exercises_list,
         )
+
+        user_text = (
+            "Voici {n} frame(s) d'une serie de musculation. "
+            "METHODE D'IDENTIFICATION :\n"
+            "1. Identifie la personne qui fait l'exercice (celle qui BOUGE avec un equipement)\n"
+            "2. Regarde quel EQUIPEMENT elle utilise : barre libre, halteres, cable/poulie, machine, poids de corps\n"
+            "3. Regarde le MOUVEMENT entre les frames : ce qui bouge et ce qui reste fixe\n"
+            "4. Compare les frames pour voir le cycle du mouvement\n"
+            "IGNORE les machines/equipements visibles en ARRIERE-PLAN qui ne sont pas utilises.\n"
+            "Compte aussi les REPETITIONS visibles."
+        ).format(n=num_frames)
+
+        if candidate_exercises:
+            user_text += (
+                " Parmis les candidats: {candidates}. "
+                "Lequel correspond le mieux a ce que tu vois ?"
+            ).format(candidates=", ".join(candidate_exercises))
 
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -1660,24 +2077,29 @@ def detect_by_vision(
                         ],
                         {
                             "type": "text",
-                            "text": (
-                                "Voici {} frame(s) extraites d'une meme serie "
-                                "(debut, milieu, fin si disponibles). "
-                                "Identifie precisement l'exercice de musculation. "
-                                "Regarde l'equipement, la position du corps, "
-                                "et le plan de mouvement.".format(num_frames)
-                            ),
+                            "text": user_text,
                         },
                     ],
                 },
             ],
-            max_tokens=300,
+            max_tokens=400,
             temperature=0.1,
+            timeout=30,
         )
 
         import json
         content = response.choices[0].message.content or ""
         logger.info("Vision raw response: %s", content[:300])
+
+        # Debug log for exercise detection
+        try:
+            from app.debug_log import log_error as _dbg
+            _dbg("exercise_detection", "Vision detection result", {
+                "raw_response": content[:300],
+                "candidates": ",".join(candidate_exercises) if candidate_exercises else "none",
+            })
+        except Exception:
+            pass
 
         # Extraire le JSON de la reponse
         start = content.find("{")
@@ -1706,7 +2128,14 @@ def detect_by_vision(
                 "tirage_poulie_basse": "cable_row",
                 "seated_cable_row": "cable_row",
                 "seated_row": "cable_row",
+                "shoulder_press": "ohp",
+                "military_press": "ohp",
+                "press_militaire": "ohp",
+                "overhead_press": "ohp",
+                "standing_press": "ohp",
                 "extension_triceps": "tricep_extension",
+                "overhead_extension": "overhead_tricep",
+                "extension_overhead": "overhead_tricep",
                 "cable_tricep_extension": "tricep_extension",
                 "pushdown": "tricep_extension",
                 "tricep_pushdown": "tricep_extension",
@@ -1845,20 +2274,33 @@ def detect_by_vision(
                 logger.warning("Vision returned unknown exercise name: %s", ex_name)
                 exercise = Exercise.UNKNOWN
             
+            rep_count = int(data.get("rep_count", 0))
+            reasoning = data.get("reasoning", "")
+            confidence = float(data.get("confidence", 0.5))
+            
+            # ── Post-detection correction rules ──────────────────────────
+            # GPT-4o often confuses exercises when gym equipment is visible
+            # in the background. Apply rule-based corrections.
+            exercise, reasoning = _post_correct_detection(
+                exercise, confidence, reasoning, logger,
+                mid_frame_path=mid_frame_path,
+            )
+            
             result = (
                 exercise,
-                float(data.get("confidence", 0.5)),
-                data.get("reasoning", ""),
+                confidence,
+                reasoning,
+                rep_count,
             )
-            logger.info("Vision parsed: %s (conf=%.2f)", exercise.value, result[1])
+            logger.info("Vision parsed: %s (conf=%.2f, reps=%d)", exercise.value, result[1], rep_count)
             return result
 
         logger.warning("Vision response not parseable: %s", content[:200])
-        return Exercise.UNKNOWN, 0.0, "Reponse non parseable: {}".format(content[:100])
+        return Exercise.UNKNOWN, 0.0, "Reponse non parseable: {}".format(content[:100]), 0
 
     except Exception as e:
         logger.exception("Vision detection failed")
-        return Exercise.UNKNOWN, 0.0, "Erreur GPT-4 Vision: {}".format(str(e))
+        return Exercise.UNKNOWN, 0.0, "Erreur GPT-4 Vision: {}".format(str(e)), 0
 
 
 def detect_exercise(
@@ -1885,9 +2327,6 @@ def detect_exercise(
     Returns:
         DetectionResult avec l'exercice détecté et les métadonnées.
     """
-    import logging
-    logger = logging.getLogger(__name__)
-
     pattern_result = detect_by_pattern(angles)
     logger.info(
         "Pattern detection: %s (conf=%.2f) — %s",
@@ -1896,14 +2335,17 @@ def detect_exercise(
 
     # ── Vision-first : GPT-4o est meilleur pour identifier visuellement ──
     if use_vision_backup and mid_frame_path:
-        vision_ex, vision_conf, vision_reason = detect_by_vision(
+        vision_result = detect_by_vision(
             mid_frame_path,
             start_frame_path=start_frame_path,
             end_frame_path=end_frame_path,
+            pattern_result=pattern_result,
         )
+        vision_ex, vision_conf, vision_reason = vision_result[0], vision_result[1], vision_result[2]
+        vision_reps = vision_result[3] if len(vision_result) > 3 else 0
         logger.info(
-            "Vision detection: %s (conf=%.2f) — %s",
-            vision_ex.value, vision_conf, vision_reason,
+            "Vision detection: %s (conf=%.2f, reps=%d) — %s",
+            vision_ex.value, vision_conf, vision_reps, vision_reason,
         )
 
         if vision_ex != Exercise.UNKNOWN and vision_conf >= 0.4:
@@ -1916,6 +2358,7 @@ def detect_exercise(
                     reasoning="[Vision + Pattern d'accord] {}".format(vision_reason),
                     vision_exercise=vision_ex,
                     vision_confidence=vision_conf,
+                    vision_rep_count=vision_reps,
                 )
             else:
                 # Désaccord → vision gagne (elle est plus fiable pour l'identification)
@@ -1929,6 +2372,7 @@ def detect_exercise(
                     reasoning="[Vision] {} (pattern suggerait: {})".format(vision_reason, pattern_result.exercise.value),
                     vision_exercise=vision_ex,
                     vision_confidence=vision_conf,
+                    vision_rep_count=vision_reps,
                 )
 
     # ── Fallback : pattern matching seul (pas d'image ou vision a échoué) ──
