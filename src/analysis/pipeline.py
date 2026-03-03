@@ -219,6 +219,55 @@ def _normalize_exercise_name(name: str | None) -> str:
     return (name or "").strip().lower().replace(" ", "_").replace("-", "_")
 
 
+def _map_model_exercise_name(raw_name: str | None) -> str:
+    """Normalize model exercise labels to supported enum values when possible."""
+    name = _normalize_exercise_name(raw_name)
+    if not name:
+        return ""
+
+    if name in _GEMINI_EXERCISE_ALIASES:
+        return _GEMINI_EXERCISE_ALIASES[name]
+
+    # Generic normalizations for common LLM variants.
+    if "bulgarian" in name and ("split" in name or "lunge" in name or "squat" in name):
+        return "bulgarian_split_squat"
+    if "walking" in name and "lunge" in name:
+        return "walking_lunge"
+    if "reverse" in name and "lunge" in name:
+        return "lunge"
+    if ("romanian" in name or "stiff_leg" in name) and "deadlift" in name:
+        return "rdl"
+
+    if "straight_arm" in name and ("pulldown" in name or "pull_down" in name):
+        return "cable_pullover"
+    if "pullover" in name and "cable" in name:
+        return "cable_pullover"
+    if "lat" in name and ("pulldown" in name or "pull_down" in name):
+        return "lat_pulldown"
+    if "tirage_vertical" in name or "vertical_pull" in name:
+        return "lat_pulldown"
+
+    if "upright" in name and "row" in name:
+        return "upright_row"
+    if "tirage_menton" in name:
+        return "upright_row"
+
+    if (
+        "military_press" in name
+        or "overhead_press" in name
+        or "shoulder_press" in name
+        or ("smith" in name and "press" in name)
+    ):
+        return "ohp"
+
+    if "tricep" in name and ("pushdown" in name or "push_down" in name):
+        return "tricep_extension"
+    if "overhead" in name and "tricep" in name:
+        return "overhead_tricep"
+
+    return name
+
+
 def _exercise_group(exercise_name: str) -> str:
     """Retourne la famille biomécanique principale d'un exercice."""
     attr = PRIMARY_ANGLE_MAP.get(exercise_name, "")
@@ -246,6 +295,54 @@ _BILATERAL_SQUAT_EXERCISES: set[Exercise] = {
     Exercise.HACK_SQUAT,
     Exercise.SISSY_SQUAT,
 }
+
+
+def _derive_key_frames_from_reps(
+    reps: RepSegmentation | None,
+    total_frames: int,
+) -> dict[str, int] | None:
+    """Derive start/mid/end key frames from segmented reps."""
+    if reps is None or not reps.reps:
+        return None
+
+    valid_reps = [rep for rep in reps.reps if rep.end_frame > rep.start_frame]
+    if not valid_reps:
+        return None
+
+    complete_reps = [rep for rep in valid_reps if not getattr(rep, "is_partial", False)] or valid_reps
+    median_rep_number = (len(complete_reps) + 1) / 2.0
+
+    def _rep_rank(rep: Any) -> tuple[float, float]:
+        rom = float(getattr(rep, "rom", 0.0) or 0.0)
+        centrality = abs(float(getattr(rep, "rep_number", 0) or 0.0) - median_rep_number)
+        return rom, -centrality
+
+    reference_rep = max(complete_reps, key=_rep_rank)
+    first_rep = complete_reps[0]
+    last_rep = complete_reps[-1]
+
+    max_frame = max(0, int(total_frames) - 1)
+
+    def _clamp(frame_idx: int) -> int:
+        return max(0, min(max_frame, int(frame_idx)))
+
+    return {
+        "start": _clamp(int(first_rep.start_frame)),
+        "mid": _clamp(int(getattr(reference_rep, "bottom_frame", first_rep.start_frame))),
+        "end": _clamp(int(last_rep.end_frame)),
+    }
+
+
+def _persist_key_frames(extraction: ExtractionResult, key_indices: dict[str, int]) -> None:
+    """Persist key frame indices/images to extraction result."""
+    from analysis.pose_extractor import _save_key_frame
+
+    extraction.key_frame_indices = key_indices
+    out_dir = Path(extraction.video_path).parent
+    for lbl, fidx in key_indices.items():
+        new_path = _save_key_frame(str(extraction.video_path), int(fidx), lbl, out_dir)
+        if new_path:
+            extraction.key_frame_images[lbl] = new_path
 
 
 def _motion_profile(angles: AngleResult) -> dict[str, float | str]:
@@ -985,14 +1082,14 @@ def run_pipeline(
         logger.info("  → Using Gemini 2.5 Flash (video analysis)...")
         from analysis.gemini_detector import detect_exercise_gemini
 
-        candidate_exercises = _get_candidate_exercises(pattern_seed, n=18)
+        candidate_exercises = _get_candidate_exercises(pattern_seed, n=30)
         gemini_result = detect_exercise_gemini(
             video_path=str(video),
             candidate_exercises=candidate_exercises,
         )
 
         exercise_name = _normalize_exercise_name(gemini_result.get("exercise"))
-        mapped_name = _GEMINI_EXERCISE_ALIASES.get(exercise_name, exercise_name)
+        mapped_name = _map_model_exercise_name(exercise_name)
         try:
             exercise_enum = Exercise(mapped_name)
         except ValueError as map_err:
@@ -1227,17 +1324,10 @@ def run_pipeline(
     # Maintenant qu'on connaît l'exercice, on peut choisir la bonne frame
     # (peak contraction en haut pour hip thrust/curl, en bas pour squat/deadlift)
     try:
-        from analysis.pose_extractor import _detect_key_frames, _save_key_frame
+        from analysis.pose_extractor import _detect_key_frames
         new_indices = _detect_key_frames(extraction.frames, detection.exercise.value)
         if new_indices != extraction.key_frame_indices:
-            extraction.key_frame_indices = new_indices
-            # Re-save key frame images
-            out_dir = Path(extraction.video_path).parent
-            for lbl, fidx in new_indices.items():
-                old_path = extraction.key_frame_images.get(lbl)
-                new_path = _save_key_frame(str(extraction.video_path), fidx, lbl, out_dir)
-                if new_path:
-                    extraction.key_frame_images[lbl] = new_path
+            _persist_key_frames(extraction, new_indices)
             logger.info("  → Key frames recalculated for %s", detection.exercise.value)
     except Exception as e:
         logger.warning("Key frame recalc failed: %s", e)
@@ -1387,6 +1477,16 @@ def run_pipeline(
             if segmented_rep_count > final_rep_count and result.reps.reps:
                 # Keep report-level coherence when segmentation overcounted noisy micro-cycles.
                 result.reps.reps = result.reps.reps[:final_rep_count]
+            if result.reps.reps:
+                first_rep = result.reps.reps[0]
+                last_rep = result.reps.reps[-1]
+                result.reps.movement_start_frame = int(getattr(first_rep, "start_frame", 0) or 0)
+                result.reps.movement_end_frame = int(getattr(last_rep, "end_frame", 0) or 0)
+                if extraction.fps > 0:
+                    result.reps.movement_duration_s = max(
+                        0.0,
+                        float(result.reps.movement_end_frame - result.reps.movement_start_frame) / float(extraction.fps),
+                    )
             if result.reps.complete_reps <= 0:
                 result.reps.complete_reps = final_rep_count
             else:
@@ -1409,6 +1509,7 @@ def run_pipeline(
                 result.reps.intensity_score = int(fused_intensity["intensity_score"])
                 result.reps.intensity_label = str(fused_intensity["intensity_label"])
                 result.reps.intensity_confidence = "limitee (fusion count)"
+                result.reps.rest_measure_method = "estimate_from_fused_count"
 
     # Debug log for visibility in /debug/errors endpoint.
     try:
@@ -1427,6 +1528,20 @@ def run_pipeline(
         })
     except Exception:
         pass
+
+    # Align key frames with segmented reps (true movement start/peak/end) when possible.
+    try:
+        rep_keyframes = _derive_key_frames_from_reps(result.reps, extraction.total_frames)
+        if rep_keyframes:
+            _persist_key_frames(extraction, rep_keyframes)
+            logger.info(
+                "  → Key frames aligned to reps: start=%d mid=%d end=%d",
+                rep_keyframes["start"],
+                rep_keyframes["mid"],
+                rep_keyframes["end"],
+            )
+    except Exception as e:
+        logger.warning("Rep-based key frame alignment failed: %s", e)
 
     # ── Étape 7 : Analyse biomécanique avancée ───────────────────────────
     _notify_progress(cfg, 7, "Analyse biomécanique avancée")

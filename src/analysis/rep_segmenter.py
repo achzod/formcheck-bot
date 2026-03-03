@@ -484,6 +484,10 @@ class RepSegmentation:
     intensity_score: int = 0  # 0-100
     intensity_label: str = "indeterminee"
     intensity_confidence: str = "faible"
+    rest_measure_method: str = "frame_gap"
+    movement_start_frame: int = 0
+    movement_end_frame: int = 0
+    movement_duration_s: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         d = {
@@ -506,12 +510,18 @@ class RepSegmentation:
                 "score": self.intensity_score,
                 "label": self.intensity_label,
                 "confidence": self.intensity_confidence,
+                "rest_measure_method": self.rest_measure_method,
                 "avg_inter_rep_rest_s": round(self.avg_inter_rep_rest_s, 2),
                 "median_inter_rep_rest_s": round(self.median_inter_rep_rest_s, 2),
                 "max_inter_rep_rest_s": round(self.max_inter_rep_rest_s, 2),
                 "rest_consistency": round(self.rest_consistency, 3),
                 "set_duration_s": round(self.set_duration_s, 2),
                 "reps_per_min": round(self.reps_per_min, 1),
+            },
+            "movement": {
+                "start_frame": self.movement_start_frame,
+                "end_frame": self.movement_end_frame,
+                "duration_s": round(self.movement_duration_s, 2),
             },
             "avg_tempo": "NON DISPONIBLE — mesure automatique non fiable",
             "tempo_consistency": "NON DISPONIBLE — mesure automatique non fiable",
@@ -803,9 +813,57 @@ def _compute_fatigue(reps: list[Rep]) -> None:
         rep.fatigue_index = min(1.0, rom_loss * 0.40 + vel_loss * 0.35 + conc_increase * 0.25)
 
 
+def _estimate_transition_rests(
+    reps: list[Rep],
+    smoothed_signal: np.ndarray,
+    frame_indices: np.ndarray,
+    fps: float,
+) -> list[float]:
+    """Estimate rest between reps from low-velocity plateaus around transitions."""
+    if len(reps) < 2 or fps <= 0 or len(smoothed_signal) < 6 or len(frame_indices) < 6:
+        return []
+
+    velocities = np.abs(np.diff(smoothed_signal))
+    if len(velocities) == 0:
+        return []
+
+    vel_threshold = float(np.percentile(velocities, 30))
+    vel_threshold = max(vel_threshold, 1e-4)
+    max_span = max(1, int(fps * 3.0))
+
+    rests_s: list[float] = []
+    for i in range(len(reps) - 1):
+        transition_frame = int(reps[i].end_frame)
+        next_start = int(reps[i + 1].start_frame)
+
+        anchor = int(np.argmin(np.abs(frame_indices - transition_frame)))
+        left = anchor
+        right = anchor
+
+        while left > 0 and (anchor - left) < max_span:
+            v = float(velocities[left - 1]) if left - 1 < len(velocities) else vel_threshold + 1.0
+            if v > vel_threshold:
+                break
+            left -= 1
+
+        while right < len(frame_indices) - 1 and (right - anchor) < max_span:
+            v = float(velocities[right]) if right < len(velocities) else vel_threshold + 1.0
+            if v > vel_threshold:
+                break
+            right += 1
+
+        plateau_frames = max(0, int(frame_indices[right]) - int(frame_indices[left]))
+        gap_frames = max(0, next_start - transition_frame)
+        rest_frames = max(gap_frames, plateau_frames)
+        rests_s.append(rest_frames / fps)
+
+    return rests_s
+
+
 def _compute_intensity_metrics(
     reps: list[Rep],
     fps: float,
+    transition_rests_s: list[float] | None = None,
 ) -> dict[str, float | int | str]:
     """Estimate set intensity from rest between consecutive reps.
 
@@ -825,9 +883,14 @@ def _compute_intensity_metrics(
         return base
 
     rests_s: list[float] = []
-    for i in range(len(reps) - 1):
-        gap_frames = max(0, reps[i + 1].start_frame - reps[i].end_frame)
-        rests_s.append(gap_frames / fps)
+    if transition_rests_s:
+        rests_s = [max(0.0, float(r)) for r in transition_rests_s if np.isfinite(r)]
+
+    if len(rests_s) < (len(reps) - 1):
+        rests_s = []
+        for i in range(len(reps) - 1):
+            gap_frames = max(0, reps[i + 1].start_frame - reps[i].end_frame)
+            rests_s.append(gap_frames / fps)
 
     if not rests_s:
         return base
@@ -844,17 +907,17 @@ def _compute_intensity_metrics(
     reps_per_min = (len(reps) * 60.0 / set_duration_s) if set_duration_s > 0 else 0.0
 
     # Base score from average intra-set rest.
-    if avg_rest <= 0.6:
+    if avg_rest <= 0.35:
         score = 96
-    elif avg_rest <= 1.0:
+    elif avg_rest <= 0.75:
         score = 90
-    elif avg_rest <= 1.5:
+    elif avg_rest <= 1.25:
         score = 80
-    elif avg_rest <= 2.0:
+    elif avg_rest <= 1.8:
         score = 70
-    elif avg_rest <= 3.0:
+    elif avg_rest <= 2.8:
         score = 58
-    elif avg_rest <= 4.5:
+    elif avg_rest <= 4.2:
         score = 45
     else:
         score = 30
@@ -1178,41 +1241,49 @@ def _trim_active_region(signal: np.ndarray, fps: float) -> np.ndarray:
 
     Removes the setup phase at the start and the walkaway at the end
     by finding the region with the highest variance (= where reps happen).
-    Uses a sliding window of ~2 seconds.
+    Uses a sliding window of ~1 second.
     """
-    n = len(signal)
-    window = max(5, int(fps * 2.0))
-
-    if n <= window:
-        return signal
-
-    # Compute rolling variance
-    variances = []
-    for i in range(n - window + 1):
-        variances.append(float(np.var(signal[i:i + window])))
-    variances = np.array(variances)
-
-    if len(variances) == 0 or np.max(variances) < 1e-10:
-        return signal
-
-    # Threshold: regions where variance > 20% of max variance
-    threshold = np.max(variances) * 0.20
-    active_mask = variances > threshold
-
-    # Find first and last active window
-    active_indices = np.where(active_mask)[0]
-    if len(active_indices) < 2:
-        return signal
-
-    start = max(0, active_indices[0])
-    end = min(n, active_indices[-1] + window)
-
+    start, end = _active_region_bounds(signal, fps)
     trimmed = signal[start:end]
     logger.info(
         "Trimmed signal: %d -> %d frames (removed %d start, %d end)",
-        n, len(trimmed), start, n - end,
+        len(signal), len(trimmed), start, len(signal) - end,
     )
     return trimmed
+
+
+def _active_region_bounds(signal: np.ndarray, fps: float) -> tuple[int, int]:
+    """Return [start, end) bounds of the most active movement window."""
+    n = len(signal)
+    if n <= 2:
+        return 0, n
+
+    window = max(5, int(fps * 1.0))
+    if n <= window:
+        return 0, n
+
+    variances = []
+    for i in range(n - window + 1):
+        variances.append(float(np.var(signal[i:i + window])))
+    variances_arr = np.array(variances, dtype=float)
+
+    if len(variances_arr) == 0:
+        return 0, n
+    vmax = float(np.max(variances_arr))
+    if vmax < 1e-10:
+        return 0, n
+
+    threshold = vmax * 0.20
+    active_indices = np.where(variances_arr > threshold)[0]
+    if len(active_indices) < 2:
+        return 0, n
+
+    pad = max(1, int(window * 0.20))
+    start = max(0, int(active_indices[0]) - pad)
+    end = min(n, int(active_indices[-1]) + window + pad)
+    if (end - start) < 10:
+        return 0, n
+    return start, end
 
 
 def _count_by_autocorrelation(signal: np.ndarray, fps: float) -> int:
@@ -1583,8 +1654,43 @@ def segment_reps(
             preferred_attr, attr, exercise,
         )
 
+    # Trim to active movement region for reliable start/end and rep boundaries.
+    active_start, active_end = _active_region_bounds(signal, fps)
+    if active_end - active_start >= 10:
+        if active_start > 0 or active_end < len(signal):
+            logger.info(
+                "Active window (angle signal): %d..%d on %d samples",
+                active_start,
+                active_end,
+                len(signal),
+            )
+        signal = signal[active_start:active_end]
+        frame_indices = frame_indices[active_start:active_end]
+
+    if len(frame_indices) >= 2 and fps > 0:
+        result.movement_start_frame = int(frame_indices[0])
+        result.movement_end_frame = int(frame_indices[-1])
+        result.movement_duration_s = max(
+            0.0,
+            float(result.movement_end_frame - result.movement_start_frame) / fps,
+        )
+
     if len(signal) < 10:
         logger.info("Primary angle signal too short (%d pts).", len(signal))
+        movement_indices = frame_indices
+        if (
+            (movement_indices is None or len(movement_indices) < 2)
+            and combined_indices is not None
+            and len(combined_indices) >= 2
+        ):
+            movement_indices = combined_indices
+        if movement_indices is not None and len(movement_indices) >= 2 and fps > 0:
+            result.movement_start_frame = int(movement_indices[0])
+            result.movement_end_frame = int(movement_indices[-1])
+            result.movement_duration_s = max(
+                0.0,
+                float(result.movement_end_frame - result.movement_start_frame) / fps,
+            )
         # If we have a robust count but no angle signal, return count-only result
         robust_count = _best_robust_count(autocorr_count, zerocross_count, extrema_count)
         result.autocorr_count = autocorr_count
@@ -1610,6 +1716,7 @@ def segment_reps(
             result.intensity_score = int(intensity["intensity_score"])
             result.intensity_label = str(intensity["intensity_label"])
             result.intensity_confidence = "limitee"
+            result.rest_measure_method = "estimate_from_count"
             logger.info("Using robust count only (no angle data): %d reps", robust_count)
             return result
         return result
@@ -1669,6 +1776,7 @@ def segment_reps(
                     result.intensity_score = int(intensity["intensity_score"])
                     result.intensity_label = str(intensity["intensity_label"])
                     result.intensity_confidence = "limitee"
+                    result.rest_measure_method = "estimate_from_count"
                     logger.info("Peak detection failed, using robust count: %d reps", robust_count)
                     return result
                 logger.warning("All methods failed to detect reps.")
@@ -1941,11 +2049,30 @@ def segment_reps(
     else:
         result.count_method = "peak_only"
 
+    # Movement start/end on segmented reps when available.
+    if reps and fps > 0:
+        result.movement_start_frame = int(reps[0].start_frame)
+        result.movement_end_frame = int(reps[-1].end_frame)
+        result.movement_duration_s = max(
+            0.0,
+            float(result.movement_end_frame - result.movement_start_frame) / fps,
+        )
+    elif result.movement_duration_s <= 0 and len(frame_indices) >= 2 and fps > 0:
+        result.movement_start_frame = int(frame_indices[0])
+        result.movement_end_frame = int(frame_indices[-1])
+        result.movement_duration_s = max(
+            0.0,
+            float(result.movement_end_frame - result.movement_start_frame) / fps,
+        )
+
+    transition_rests = _estimate_transition_rests(reps, smoothed, frame_indices, fps)
+
     # Intensite de serie (densite des reps).
     rep_coverage_ok = abs(len(reps) - result.total_reps) <= max(1, int(result.total_reps * 0.25))
     use_rep_level_intensity = len(reps) >= 2 and not group_mismatch and rep_coverage_ok
     if use_rep_level_intensity:
-        intensity = _compute_intensity_metrics(reps, fps)
+        intensity = _compute_intensity_metrics(reps, fps, transition_rests_s=transition_rests)
+        result.rest_measure_method = "transition_velocity" if transition_rests else "frame_gap"
         if abs(len(reps) - result.total_reps) <= 1:
             intensity_conf = "elevee"
         elif abs(len(reps) - result.total_reps) <= 3:
@@ -1959,6 +2086,7 @@ def segment_reps(
         if duration_hint_s <= 0 and len(reps) >= 1 and fps > 0:
             duration_hint_s = max(0.0, float(reps[-1].end_frame - reps[0].start_frame) / fps)
         intensity = _estimate_intensity_from_count(result.total_reps, duration_hint_s)
+        result.rest_measure_method = "estimate_from_count"
         intensity_conf = "limitee"
         if group_mismatch:
             intensity_conf = "limitee (signal non cohérent)"
@@ -2000,9 +2128,13 @@ def segment_reps(
         "min_distance": params["min_distance"] if params else 0,
         "count_method": result.count_method,
         "rep_coverage_ok": rep_coverage_ok,
+        "rest_measure_method": result.rest_measure_method,
         "intensity_score": result.intensity_score,
         "avg_inter_rep_rest_s": round(result.avg_inter_rep_rest_s, 2),
         "reps_per_min": round(result.reps_per_min, 1),
+        "movement_start_frame": result.movement_start_frame,
+        "movement_end_frame": result.movement_end_frame,
+        "movement_duration_s": round(result.movement_duration_s, 2),
     })
 
     logger.info(

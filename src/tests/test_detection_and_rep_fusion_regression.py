@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+import sys
+import types
 import unittest
+
+import numpy as np
+
+# Keep pipeline utility imports testable without OpenCV runtime dependency.
+if "cv2" not in sys.modules:
+    sys.modules["cv2"] = types.ModuleType("cv2")
 
 from analysis.exercise_detector import DetectionResult, Exercise
 from analysis.fusion_utils import (
@@ -9,7 +17,15 @@ from analysis.fusion_utils import (
     estimate_intensity_from_fused_count,
     select_reference_rep_count,
 )
-from analysis.rep_segmenter import _should_apply_robust_down_override
+from analysis.pipeline import _derive_key_frames_from_reps, _map_model_exercise_name
+from analysis.rep_segmenter import (
+    Rep,
+    RepSegmentation,
+    _active_region_bounds,
+    _compute_intensity_metrics,
+    _estimate_transition_rests,
+    _should_apply_robust_down_override,
+)
 
 
 class DetectionFusionRegressionTests(unittest.TestCase):
@@ -128,6 +144,68 @@ class UpperPullDisambiguationTests(unittest.TestCase):
         )
         self.assertEqual(source, "gemini_vision_consensus_override")
         self.assertEqual(out.exercise, Exercise.LAT_PULLDOWN)
+
+
+class GenericHardeningTests(unittest.TestCase):
+    def test_model_name_mapping_handles_common_variants(self) -> None:
+        self.assertEqual(_map_model_exercise_name("smith_machine_shoulder_press"), "ohp")
+        self.assertEqual(_map_model_exercise_name("straight-arm pulldown"), "cable_pullover")
+        self.assertEqual(_map_model_exercise_name("Bulgarian Split Lunge"), "bulgarian_split_squat")
+
+    def test_active_region_bounds_focus_on_movement_window(self) -> None:
+        signal = np.concatenate(
+            [
+                np.zeros(45, dtype=float),
+                np.sin(np.linspace(0, 6 * np.pi, 140, dtype=float)),
+                np.zeros(45, dtype=float),
+            ]
+        )
+        start, end = _active_region_bounds(signal, fps=30.0)
+        self.assertGreater(start, 0)
+        self.assertLess(end, len(signal))
+        self.assertLess(start, 90)
+        self.assertGreater(end, 140)
+
+    def test_transition_rests_are_non_zero_with_plateaus(self) -> None:
+        signal = np.concatenate(
+            [
+                np.linspace(0.0, 1.0, 20, dtype=float),
+                np.full(8, 1.0, dtype=float),
+                np.linspace(1.0, 0.0, 20, dtype=float),
+                np.full(8, 0.0, dtype=float),
+                np.linspace(0.0, 1.0, 20, dtype=float),
+                np.full(8, 1.0, dtype=float),
+                np.linspace(1.0, 0.0, 20, dtype=float),
+            ]
+        )
+        frame_indices = np.arange(len(signal), dtype=int)
+        reps = [
+            Rep(rep_number=1, start_frame=0, end_frame=48, bottom_frame=24),
+            Rep(rep_number=2, start_frame=48, end_frame=96, bottom_frame=72),
+            Rep(rep_number=3, start_frame=96, end_frame=len(signal) - 1, bottom_frame=120),
+        ]
+        rests = _estimate_transition_rests(reps, signal, frame_indices, fps=30.0)
+        self.assertEqual(len(rests), 2)
+        self.assertGreater(min(rests), 0.0)
+
+        intensity = _compute_intensity_metrics(reps, fps=30.0, transition_rests_s=rests)
+        self.assertGreater(float(intensity["avg_inter_rep_rest_s"]), 0.0)
+        self.assertGreaterEqual(int(intensity["intensity_score"]), 0)
+
+    def test_rep_keyframe_derivation_uses_segmented_boundaries(self) -> None:
+        reps = RepSegmentation(
+            reps=[
+                Rep(rep_number=1, start_frame=15, end_frame=45, bottom_frame=30, rom=32.0),
+                Rep(rep_number=2, start_frame=45, end_frame=78, bottom_frame=60, rom=48.0),
+                Rep(rep_number=3, start_frame=78, end_frame=112, bottom_frame=96, rom=41.0),
+            ]
+        )
+        keyframes = _derive_key_frames_from_reps(reps, total_frames=180)
+        self.assertIsNotNone(keyframes)
+        assert keyframes is not None
+        self.assertEqual(keyframes["start"], 15)
+        self.assertEqual(keyframes["mid"], 60)
+        self.assertEqual(keyframes["end"], 112)
 
 
 if __name__ == "__main__":
