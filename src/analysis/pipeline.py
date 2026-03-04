@@ -52,7 +52,7 @@ from analysis.pose_extractor import (
 )
 from analysis.rep_segmenter import PRIMARY_ANGLE_MAP, RepSegmentation, segment_reps
 from analysis.report_generator import Report, generate_report, report_to_dict
-from analysis.rules_db import resolve_to_supported_exercise
+from analysis.rules_db import resolve_to_supported_exercise, suggest_supported_exercises
 from analysis.smoothing import smooth_landmarks
 from analysis.video_validator import VideoValidation, validate_video
 
@@ -828,6 +828,7 @@ def _detection_candidate_score(
     pattern_result: DetectionResult,
     motion: dict[str, float | str],
     press_profile: dict[str, float | bool] | None = None,
+    upper_pull_profile: dict[str, float | bool] | None = None,
     unilateral_profile: dict[str, float | bool] | None = None,
 ) -> float:
     """Score une hypothèse d'exercice avec cohérence biomécanique."""
@@ -847,6 +848,10 @@ def _detection_candidate_score(
             score -= 0.30 * lower_static_signal
         elif group == "upper":
             score += 0.12 * lower_static_signal
+    if dominant == "upper" and candidate.exercise in _DYNAMIC_LOWER_EXERCISES:
+        score -= 0.08
+        if lower_static_signal >= 0.45:
+            score -= 0.10 + (0.18 * lower_static_signal)
 
     if pattern_result.exercise != Exercise.UNKNOWN:
         if candidate.exercise == pattern_result.exercise:
@@ -875,6 +880,24 @@ def _detection_candidate_score(
                 score += 0.10
             elif overhead_ratio >= 0.30:
                 score -= 0.10
+
+    if upper_pull_profile:
+        pullover_signal = float(upper_pull_profile.get("pullover_signal", 0.0) or 0.0)
+        lat_signal = float(upper_pull_profile.get("lat_pulldown_signal", 0.0) or 0.0)
+        pull_signal = max(pullover_signal, lat_signal)
+        if candidate.exercise in {
+            Exercise.LAT_PULLDOWN,
+            Exercise.CLOSE_GRIP_PULLDOWN,
+            Exercise.CABLE_PULLOVER,
+            Exercise.PULLOVER,
+        }:
+            score += 0.20 * pull_signal
+            if candidate.exercise in {Exercise.CABLE_PULLOVER, Exercise.PULLOVER}:
+                score += 0.08 * max(0.0, pullover_signal - lat_signal)
+            else:
+                score += 0.08 * max(0.0, lat_signal - pullover_signal)
+        elif candidate.exercise in _DYNAMIC_LOWER_EXERCISES and pull_signal >= 0.56:
+            score -= 0.22 * pull_signal
 
     if unilateral_profile:
         unilateral_signal = float(unilateral_profile.get("unilateral_signal", 0.0) or 0.0)
@@ -905,6 +928,7 @@ def _needs_detection_crosscheck(
     pattern_result: DetectionResult,
     motion: dict[str, float | str],
     press_profile: dict[str, float | bool] | None = None,
+    upper_pull_profile: dict[str, float | bool] | None = None,
     unilateral_profile: dict[str, float | bool] | None = None,
 ) -> bool:
     """Détermine si la détection Gemini doit être contre-vérifiée."""
@@ -942,6 +966,14 @@ def _needs_detection_crosscheck(
             gemini_detection.exercise in {Exercise.OHP, Exercise.DUMBBELL_OHP}
             and bool(press_profile.get("strong_upright_signal", False))
         ):
+            return True
+
+    if upper_pull_profile:
+        pull_signal = max(
+            float(upper_pull_profile.get("pullover_signal", 0.0) or 0.0),
+            float(upper_pull_profile.get("lat_pulldown_signal", 0.0) or 0.0),
+        )
+        if pull_signal >= 0.62 and gemini_detection.exercise in _DYNAMIC_LOWER_EXERCISES:
             return True
 
     if unilateral_profile:
@@ -998,6 +1030,88 @@ def _apply_lower_static_upper_override(
     if best_det.confidence >= 0.72 or (best_score + 0.10) >= winning_score:
         return "upper_static_override:{}".format(best_src), best_det, best_score
     return source, detection, winning_score
+
+
+def _build_top_detection_candidates(
+    *,
+    scored_candidates: list[tuple[str, DetectionResult, float]],
+    winner: DetectionResult,
+    winner_source: str,
+    winner_score: float,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Construit une short-list stable de candidats pour debug/report."""
+    merged: dict[str, dict[str, Any]] = {}
+    for source, cand, score in scored_candidates:
+        key = cand.exercise.value
+        payload = {
+            "exercise": key,
+            "display_name": cand.display_name,
+            "source": source,
+            "confidence": round(float(cand.confidence), 3),
+            "score": round(float(score), 3),
+        }
+        existing = merged.get(key)
+        if existing is None or float(payload["score"]) > float(existing["score"]):
+            merged[key] = payload
+
+    ranked = sorted(
+        merged.values(),
+        key=lambda item: (float(item.get("score", 0.0)), float(item.get("confidence", 0.0))),
+        reverse=True,
+    )
+    winner_entry = {
+        "exercise": winner.exercise.value,
+        "display_name": winner.display_name,
+        "source": winner_source,
+        "confidence": round(float(winner.confidence), 3),
+        "score": round(float(winner_score), 3),
+    }
+    out: list[dict[str, Any]] = [winner_entry]
+    for item in ranked:
+        if item["exercise"] == winner_entry["exercise"]:
+            continue
+        out.append(item)
+        if len(out) >= max(1, int(limit)):
+            break
+    return out[: max(1, int(limit))]
+
+
+def _append_rules_db_detection_candidates(
+    detection: DetectionResult,
+    *,
+    raw_hint: str | None,
+    limit: int = 5,
+) -> None:
+    """Enrichit la liste de candidats avec suggestions rules-db si disponible."""
+    hint = (raw_hint or "").strip()
+    if not hint:
+        return
+    suggestions = suggest_supported_exercises(hint, limit=limit)
+    if not suggestions:
+        return
+
+    existing = {
+        str(item.get("exercise", ""))
+        for item in detection.top_candidates
+    }
+    for item in suggestions:
+        ex = str(item.get("exercise", "")).strip()
+        if not ex or ex in existing:
+            continue
+        detection.top_candidates.append(
+            {
+                "exercise": ex,
+                "display_name": ex.replace("_", " ").title(),
+                "source": "rules_db_suggest",
+                "confidence": round(float(item.get("rule_confidence", 0.0) or 0.0), 3),
+                "score": round(float(item.get("score", 0.0) or 0.0), 3),
+            }
+        )
+        existing.add(ex)
+        if len(detection.top_candidates) >= max(1, int(limit)):
+            break
+    detection.top_candidates = detection.top_candidates[: max(1, int(limit))]
 
 
 def run_pipeline(
@@ -1155,6 +1269,7 @@ def run_pipeline(
     t0 = time.monotonic()
 
     gemini_rep_count = 0
+    gemini_raw_exercise_name = ""
     pattern_seed = detect_by_pattern(angles)
     motion = _motion_profile(angles)
     press_profile = _compute_press_profile(extraction, angles)
@@ -1233,6 +1348,7 @@ def run_pipeline(
         )
 
         exercise_name = _normalize_exercise_name(gemini_result.get("exercise"))
+        gemini_raw_exercise_name = str(gemini_result.get("exercise", "") or "")
         mapped_name = _map_model_exercise_name(exercise_name)
         try:
             exercise_enum = Exercise(mapped_name)
@@ -1293,6 +1409,7 @@ def run_pipeline(
             pattern_seed,
             motion,
             press_profile=press_profile,
+            upper_pull_profile=upper_pull_profile,
             unilateral_profile=unilateral_profile,
         ):
             logger.warning(
@@ -1323,6 +1440,7 @@ def run_pipeline(
                 pattern_seed,
                 motion,
                 press_profile=press_profile,
+                upper_pull_profile=upper_pull_profile,
                 unilateral_profile=unilateral_profile,
             )
             scored_candidates.append((src_name, cand, cand_score))
@@ -1461,6 +1579,48 @@ def run_pipeline(
             })
         except Exception:
             pass
+
+        detection.top_candidates = _build_top_detection_candidates(
+            scored_candidates=scored_candidates,
+            winner=detection,
+            winner_source=source,
+            winner_score=winning_score,
+            limit=5,
+        )
+        _append_rules_db_detection_candidates(
+            detection,
+            raw_hint=gemini_raw_exercise_name or detection.exercise.value,
+            limit=5,
+        )
+
+    if not detection.top_candidates:
+        fallback_scored: list[tuple[str, DetectionResult, float]] = [
+            ("final", detection, float(detection.confidence)),
+        ]
+        if pattern_seed.exercise != Exercise.UNKNOWN:
+            fallback_scored.append(
+                (
+                    "pattern",
+                    DetectionResult(
+                        exercise=pattern_seed.exercise,
+                        confidence=float(pattern_seed.confidence),
+                        reasoning=pattern_seed.reasoning,
+                    ),
+                    float(pattern_seed.confidence),
+                )
+            )
+        detection.top_candidates = _build_top_detection_candidates(
+            scored_candidates=fallback_scored,
+            winner=detection,
+            winner_source="final",
+            winner_score=float(detection.confidence),
+            limit=5,
+        )
+        _append_rules_db_detection_candidates(
+            detection,
+            raw_hint=gemini_raw_exercise_name or detection.exercise.value,
+            limit=5,
+        )
 
     result.detection = detection
     result.timings["detection"] = time.monotonic() - t0
@@ -1922,6 +2082,7 @@ def pipeline_result_to_dict(result: PipelineResult) -> dict[str, Any]:
             "display_name": result.detection.display_name,
             "confidence": round(result.detection.confidence, 3),
             "reasoning": result.detection.reasoning,
+            "top_candidates": result.detection.top_candidates[:5],
         }
         if result.detection.vision_exercise:
             data["detection"]["vision_backup"] = {

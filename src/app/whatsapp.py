@@ -131,10 +131,21 @@ async def send_plan_buttons(to: str, body: str, checkout_urls: dict[str, str]) -
 
 async def download_media(media_url: str) -> bytes:
     """Download media from Twilio (direct URL from webhook)."""
-    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
-        resp = await client.get(media_url, headers=_auth_header())
-        resp.raise_for_status()
-        return resp.content
+    last_exc: Exception | None = None
+    timeout = httpx.Timeout(connect=20.0, read=180.0, write=30.0, pool=20.0)
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                resp = await client.get(media_url, headers=_auth_header())
+                resp.raise_for_status()
+                return resp.content
+        except Exception as exc:
+            last_exc = exc
+            if attempt < 2:
+                await asyncio.sleep(1.5 * (attempt + 1))
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("download_media_failed")
 
 
 def _parse_twilio_datetime(value: str | None) -> float | None:

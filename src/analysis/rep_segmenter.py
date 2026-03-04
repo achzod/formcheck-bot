@@ -827,9 +827,11 @@ def _estimate_transition_rests(
     if len(velocities) == 0:
         return []
 
-    vel_threshold = float(np.percentile(velocities, 20))
+    vel_threshold = float(np.percentile(velocities, 25))
     vel_threshold = max(vel_threshold, 1e-4)
-    max_span = max(1, int(fps * 1.2))
+    # Keep a broader window to capture intentional pauses at lockout/top.
+    max_span = max(1, int(fps * 2.4))
+    gate = max(vel_threshold * 1.35, float(np.mean(velocities)) * 0.20, 1e-4)
 
     def _pause_seconds(anchor_frame: int) -> float:
         anchor = int(np.argmin(np.abs(frame_indices - int(anchor_frame))))
@@ -837,14 +839,14 @@ def _estimate_transition_rests(
         right = anchor
 
         while left > 0 and (anchor - left) < max_span:
-            v = float(velocities[left - 1]) if left - 1 < len(velocities) else vel_threshold + 1.0
-            if v > (vel_threshold * 1.25):
+            v = float(velocities[left - 1]) if left - 1 < len(velocities) else gate + 1.0
+            if v > gate:
                 break
             left -= 1
 
         while right < len(frame_indices) - 1 and (right - anchor) < max_span:
-            v = float(velocities[right]) if right < len(velocities) else vel_threshold + 1.0
-            if v > (vel_threshold * 1.25):
+            v = float(velocities[right]) if right < len(velocities) else gate + 1.0
+            if v > gate:
                 break
             right += 1
 
@@ -863,15 +865,14 @@ def _estimate_transition_rests(
             int(getattr(reps[i + 1], "bottom_frame", next_start) or next_start)
         )
 
-        rests_s.append(
-            max(
-                gap_frames / fps,
-                end_pause_s,
-                start_pause_s,
-                turnaround_pause_s,
-                next_turnaround_pause_s * 0.8,
-            )
+        blended_rest = max(
+            gap_frames / fps,
+            end_pause_s,
+            start_pause_s,
+            turnaround_pause_s,
+            next_turnaround_pause_s * 0.85,
         )
+        rests_s.append(min(blended_rest, 6.0))
 
     return rests_s
 
@@ -954,19 +955,19 @@ def _compute_intensity_metrics(
 
     # Base score from average intra-set rest.
     if avg_rest <= 0.35:
-        score = 96
+        score = 94
     elif avg_rest <= 0.75:
-        score = 90
+        score = 86
     elif avg_rest <= 1.25:
-        score = 80
+        score = 74
     elif avg_rest <= 1.8:
-        score = 70
+        score = 64
     elif avg_rest <= 2.8:
-        score = 58
+        score = 52
     elif avg_rest <= 4.2:
-        score = 45
+        score = 40
     else:
-        score = 30
+        score = 26
 
     # Consistency adjustment (irregular pacing reduces usable intensity).
     if rest_cv > 0.7:
@@ -975,6 +976,12 @@ def _compute_intensity_metrics(
         score -= 8
     elif rest_cv > 0.35:
         score -= 4
+
+    # Large pauses at lockout heavily reduce effective effort density.
+    if max_rest > max(1.2, avg_rest * 1.8):
+        score -= 6
+    elif max_rest > max(0.9, avg_rest * 1.5):
+        score -= 3
 
     # Density adjustment from cadence.
     if reps_per_min >= 20:

@@ -14,7 +14,7 @@ if "cv2" not in sys.modules:
     sys.modules["cv2"] = types.ModuleType("cv2")
 
 from analysis.pipeline import _map_model_exercise_name
-from analysis.rules_db import resolve_to_supported_exercise
+from analysis.rules_db import resolve_to_supported_exercise, suggest_supported_exercises
 from scraper.kaggle_downloader import DownloadConfig, download_targets
 
 
@@ -83,6 +83,19 @@ class RulesDbResolutionTests(unittest.TestCase):
                     os.environ["RULES_DB_PATH"] = old_path
                 else:
                     os.environ.pop("RULES_DB_PATH", None)
+
+    def test_rules_db_suggestions_returns_ranked_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            db_path = Path(td) / "rules.sqlite"
+            _init_rules_db(db_path)
+            suggestions = suggest_supported_exercises(
+                "arnold dumbbell shoulder press",
+                path_override=str(db_path),
+                limit=3,
+            )
+            self.assertGreaterEqual(len(suggestions), 1)
+            self.assertEqual(suggestions[0]["exercise"], "arnold_press")
+            self.assertGreaterEqual(float(suggestions[0]["score"]), 0.45)
 
 
 class KaggleDownloaderTests(unittest.TestCase):

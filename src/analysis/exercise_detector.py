@@ -13,7 +13,7 @@ import base64
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -376,6 +376,7 @@ class DetectionResult:
     vision_confidence: float = 0.0
     vision_rep_count: int = 0                # Nombre de reps détectées par Vision
     display_name: str = ""
+    top_candidates: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.display_name:
@@ -1703,6 +1704,15 @@ def detect_by_pattern(angles: AngleResult) -> DetectionResult:
     # Trier par score décroissant
     scores.sort(key=lambda x: x[1], reverse=True)
     best = scores[0]
+    top_candidates = [
+        {
+            "exercise": ex.value,
+            "display_name": EXERCISE_DISPLAY_NAMES.get(ex.value, ex.value),
+            "source": "pattern",
+            "score": round(max(0.0, min(1.0, float(score))), 3),
+        }
+        for ex, score, _ in scores[:5]
+    ]
 
     # Seuil minimum de confiance — abaissé à 0.25 pour réduire les faux "unknown"
     if best[1] < 0.25:
@@ -1710,6 +1720,7 @@ def detect_by_pattern(angles: AngleResult) -> DetectionResult:
             exercise=Exercise.UNKNOWN,
             confidence=best[1],
             reasoning="Score trop faible ({:.2f}). Meilleur candidat: {}. {}".format(best[1], best[0].value, best[2]),
+            top_candidates=top_candidates,
         )
 
     best_conf = max(0.0, min(1.0, best[1]))
@@ -1717,6 +1728,7 @@ def detect_by_pattern(angles: AngleResult) -> DetectionResult:
         exercise=best[0],
         confidence=best_conf,
         reasoning=best[2],
+        top_candidates=top_candidates,
     )
 
 
@@ -2359,6 +2371,7 @@ def detect_exercise(
                     vision_exercise=vision_ex,
                     vision_confidence=vision_conf,
                     vision_rep_count=vision_reps,
+                    top_candidates=pattern_result.top_candidates[:5],
                 )
             else:
                 # Désaccord → vision gagne (elle est plus fiable pour l'identification)
@@ -2373,6 +2386,7 @@ def detect_exercise(
                     vision_exercise=vision_ex,
                     vision_confidence=vision_conf,
                     vision_rep_count=vision_reps,
+                    top_candidates=pattern_result.top_candidates[:5],
                 )
 
     # ── Fallback : pattern matching seul (pas d'image ou vision a échoué) ──

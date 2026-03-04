@@ -279,3 +279,67 @@ def resolve_to_supported_exercise(
         "pattern": best_entry.pattern,
         "rule_confidence": round(best_entry.confidence, 3),
     }
+
+
+def suggest_supported_exercises(
+    raw_name: str | None,
+    *,
+    limit: int = 5,
+    min_score: float = 0.45,
+    path_override: str | None = None,
+) -> list[dict[str, Any]]:
+    """Retourne les meilleurs candidats supportés pour un nom libre.
+
+    Utile pour debug et affichage de suggestions quand la détection est ambiguë.
+    """
+    query = normalize_exercise_name(raw_name)
+    if not query:
+        return []
+
+    entries = _load_entries(path_override)
+    if not entries:
+        return []
+
+    per_supported: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        best_alias = ""
+        best_score = 0.0
+        for alias in entry.aliases:
+            if not alias:
+                continue
+            if alias == query:
+                best_alias = alias
+                best_score = 1.0
+                break
+            ratio = SequenceMatcher(None, query, alias).ratio()
+            overlap = _token_overlap(query, alias)
+            score = (ratio * 0.72) + (overlap * 0.28)
+            if score > best_score:
+                best_score = score
+                best_alias = alias
+
+        if best_score < min_score:
+            continue
+
+        mapped = _pattern_to_supported(entry.pattern, entry.name)
+        if not mapped:
+            continue
+
+        existing = per_supported.get(mapped)
+        payload = {
+            "exercise": mapped,
+            "score": round(best_score, 3),
+            "matched": entry.name,
+            "matched_alias": best_alias,
+            "pattern": entry.pattern,
+            "rule_confidence": round(entry.confidence, 3),
+        }
+        if existing is None or float(payload["score"]) > float(existing["score"]):
+            per_supported[mapped] = payload
+
+    ranked = sorted(
+        per_supported.values(),
+        key=lambda item: (float(item.get("score", 0.0)), float(item.get("rule_confidence", 0.0))),
+        reverse=True,
+    )
+    return ranked[: max(1, int(limit))]

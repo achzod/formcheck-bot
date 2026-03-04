@@ -20,9 +20,12 @@ from analysis.fusion_utils import (
 )
 from analysis.pipeline import (
     _apply_lower_static_upper_override,
+    _build_top_detection_candidates,
     _derive_key_frames_from_reps,
     _detection_candidate_score,
     _map_model_exercise_name,
+    _needs_detection_crosscheck,
+    pipeline_result_to_dict,
 )
 from analysis.rep_segmenter import (
     Rep,
@@ -332,6 +335,100 @@ class GenericHardeningTests(unittest.TestCase):
         self.assertIsNotNone(keyframes)
         assert keyframes is not None
         self.assertEqual(keyframes["mid"], 30)
+
+
+class DetectionCandidatesAndCrosscheckTests(unittest.TestCase):
+    def test_upper_pull_signal_triggers_crosscheck_for_lower_prediction(self) -> None:
+        should_check = _needs_detection_crosscheck(
+            gemini_detection=DetectionResult(
+                exercise=Exercise.LUNGE,
+                confidence=0.92,
+                reasoning="gemini",
+            ),
+            pattern_result=DetectionResult(
+                exercise=Exercise.UNKNOWN,
+                confidence=0.10,
+                reasoning="pattern",
+            ),
+            motion={"dominant": "upper", "lower_static_signal": 0.62},
+            upper_pull_profile={"lat_pulldown_signal": 0.74, "pullover_signal": 0.40},
+        )
+        self.assertTrue(should_check)
+
+    def test_detection_score_penalizes_lower_when_upper_pull_profile_is_strong(self) -> None:
+        pattern = DetectionResult(exercise=Exercise.LAT_PULLDOWN, confidence=0.68, reasoning="pattern")
+        motion = {"dominant": "upper", "lower_static_signal": 0.70}
+        upper_pull_profile = {"lat_pulldown_signal": 0.78, "pullover_signal": 0.42}
+
+        lat_score = _detection_candidate_score(
+            DetectionResult(exercise=Exercise.LAT_PULLDOWN, confidence=0.72, reasoning="gemini"),
+            pattern,
+            motion,
+            upper_pull_profile=upper_pull_profile,
+        )
+        lunge_score = _detection_candidate_score(
+            DetectionResult(exercise=Exercise.LUNGE, confidence=0.79, reasoning="gemini"),
+            pattern,
+            motion,
+            upper_pull_profile=upper_pull_profile,
+        )
+        self.assertGreater(lat_score, lunge_score)
+
+    def test_top_detection_candidates_put_winner_first(self) -> None:
+        winner = DetectionResult(exercise=Exercise.LAT_PULLDOWN, confidence=0.77, reasoning="winner")
+        scored = [
+            ("gemini", winner, 0.84),
+            ("vision", DetectionResult(exercise=Exercise.LUNGE, confidence=0.82, reasoning="v"), 0.80),
+            ("pattern", DetectionResult(exercise=Exercise.LAT_PULLDOWN, confidence=0.66, reasoning="p"), 0.73),
+        ]
+        top = _build_top_detection_candidates(
+            scored_candidates=scored,
+            winner=winner,
+            winner_source="gemini",
+            winner_score=0.84,
+            limit=5,
+        )
+        self.assertGreaterEqual(len(top), 2)
+        self.assertEqual(top[0]["exercise"], "lat_pulldown")
+        self.assertEqual(top[0]["source"], "gemini")
+
+    def test_pipeline_result_serializes_detection_candidates(self) -> None:
+        det = DetectionResult(
+            exercise=Exercise.OHP,
+            confidence=0.88,
+            reasoning="ok",
+            top_candidates=[
+                {"exercise": "ohp", "display_name": "Overhead Press (Developpe Militaire)", "source": "gemini", "confidence": 0.88, "score": 0.91},
+                {"exercise": "upright_row", "display_name": "Tirage Menton (Upright Row)", "source": "vision", "confidence": 0.66, "score": 0.70},
+            ],
+        )
+        data = pipeline_result_to_dict(
+            SimpleNamespace(
+                video_path="v.mp4",
+                output_dir="out",
+                success=True,
+                errors=[],
+                user_messages=[],
+                low_quality=False,
+                timings={},
+                total_time=0.0,
+                validation=None,
+                extraction=None,
+                angles=None,
+                detection=det,
+                reps=None,
+                advanced=None,
+                levers=None,
+                confidence=None,
+                report=None,
+                annotated_frames={},
+                morpho_profile=None,
+                adapted_thresholds=None,
+            )
+        )
+        self.assertIn("detection", data)
+        self.assertIn("top_candidates", data["detection"])
+        self.assertEqual(data["detection"]["top_candidates"][0]["exercise"], "ohp")
 
 
 if __name__ == "__main__":
