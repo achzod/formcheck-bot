@@ -37,7 +37,8 @@ _DEFAULT_USER_AGENT = (
 _DEFAULT_ANALYSIS_PROMPT = (
     "Tu es un coach biomecanique expert.\n"
     "Analyse la video envoyee et reponds UNIQUEMENT en JSON valide (sans markdown).\n"
-    "Schema JSON:\n"
+    "Tu t'adresses DIRECTEMENT au client, en francais, ton coach pro, concret et actionnable.\n"
+    "Schema JSON strict:\n"
     "{\n"
     '  "exercise": {"name": "snake_case", "display_name_fr": "string", "confidence": 0.0},\n'
     '  "score": 0,\n'
@@ -45,8 +46,19 @@ _DEFAULT_ANALYSIS_PROMPT = (
     '  "intensity": {"score": 0, "label": "tres elevee|elevee|moderee|faible|tres faible", "avg_inter_rep_rest_s": 0.0},\n'
     '  "score_breakdown": {"Securite": 0, "Efficacite technique": 0, "Controle et tempo": 0, "Symetrie": 0},\n'
     '  "positives": ["string"],\n'
-    '  "corrections": [{"title": "string", "why": "string", "cue": "string"}],\n'
-    '  "report_markdown": "rapport complet en francais, style coach, precis"\n'
+    '  "corrections": [{"title": "string", "why": "string", "impact": "string", "cue": "string"}],\n'
+    '  "corrective_exercises": [{"name": "string", "dosage": "sets x reps", "target": "string", "execution": "string", "timing": "string"}],\n'
+    '  "sections": {\n'
+    '    "resume": "3-5 phrases directes au client",\n'
+    '    "rom": "analyse amplitude / articulation",\n'
+    '    "tempo": "analyse controle moteur + phases",\n'
+    '    "intensite": "analyse densite serie + repos inter-reps",\n'
+    '    "compensations": "compensations detectees + risque",\n'
+    '    "biomecanique": "insight biomecanique avance et utile",\n'
+    '    "plan_action": ["action 1", "action 2", "action 3"],\n'
+    '    "next_video": "recommandation angle camera pour la prochaine video"\n'
+    "  },\n"
+    '  "report_markdown": "optionnel: rapport long deja sectionne"\n'
     "}\n"
     "Contraintes: score sur 100, reps strictement comptees, intensite inclut le repos moyen inter-reps."
 )
@@ -125,7 +137,10 @@ class MiniMaxAnalysis:
     avg_inter_rep_rest_s: float = 0.0
     positives: list[str] = field(default_factory=list)
     corrections: list[dict[str, str]] = field(default_factory=list)
+    corrective_exercises: list[dict[str, str]] = field(default_factory=list)
     score_breakdown: dict[str, int] = field(default_factory=dict)
+    sections: dict[str, str] = field(default_factory=dict)
+    plan_action: list[str] = field(default_factory=list)
     report_text: str = ""
     raw_response: str = ""
     model_used: str = "minimax_motion_coach"
@@ -262,6 +277,320 @@ def _extract_exercise_from_text(text: str) -> str:
     return first or "Exercice non identifie"
 
 
+def _coerce_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float)):
+        return str(value).strip()
+    if isinstance(value, list):
+        parts = [str(item).strip() for item in value if str(item).strip()]
+        return " ".join(parts).strip()
+    if isinstance(value, dict):
+        for key in ("text", "content", "summary", "analysis", "value"):
+            val = value.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        parts = [str(v).strip() for v in value.values() if isinstance(v, (str, int, float)) and str(v).strip()]
+        return " ".join(parts).strip()
+    return ""
+
+
+def _coerce_list_of_strings(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        # Split multi-line or semi-colon list gracefully.
+        raw_parts = re.split(r"[\n;]+", value)
+        return [part.strip("-• ").strip() for part in raw_parts if part.strip("-• ").strip()]
+    return []
+
+
+def _extract_sections(payload: dict[str, Any]) -> dict[str, str]:
+    section_sources: list[dict[str, Any]] = []
+    sections = payload.get("sections")
+    if isinstance(sections, dict):
+        section_sources.append(sections)
+    section_sources.append(payload)
+
+    aliases: dict[str, tuple[str, ...]] = {
+        "resume": ("resume", "summary", "diagnostic"),
+        "rom": ("rom", "amplitude", "amplitude_rom", "range_of_motion"),
+        "tempo": ("tempo", "phases", "tempo_phases", "motor_control"),
+        "intensite": ("intensite", "intensity", "densite", "intensity_analysis"),
+        "compensations": ("compensations", "compensation", "risks", "risk_analysis"),
+        "biomecanique": ("biomecanique", "biomechanics", "biomechanical_point"),
+        "next_video": ("next_video", "next_video_recommendation", "camera_recommendation"),
+    }
+
+    out: dict[str, str] = {}
+    for canonical, keys in aliases.items():
+        value = ""
+        for source in section_sources:
+            for key in keys:
+                if key not in source:
+                    continue
+                value = _coerce_text(source.get(key))
+                if value:
+                    break
+            if value:
+                break
+        if value:
+            out[canonical] = value
+    return out
+
+
+def _estimate_score_breakdown(score: int) -> dict[str, int]:
+    total = max(0, min(100, int(score or 0)))
+    sec = min(40, int(round(total * 0.40)))
+    eff = min(30, int(round(total * 0.30)))
+    ctrl = min(20, int(round(total * 0.20)))
+    # Keep symetrie aligned with remaining points, bounded to /10.
+    sym = max(0, min(10, total - sec - eff - ctrl))
+    return {
+        "Securite": sec,
+        "Efficacite technique": eff,
+        "Controle et tempo": ctrl,
+        "Symetrie": sym,
+    }
+
+
+def _build_structured_report_text(analysis: MiniMaxAnalysis) -> str:
+    exercise_display = analysis.exercise_display or "Exercice non identifie"
+    reps_total = max(0, int(analysis.reps_total or 0))
+    reps_complete = max(0, int(analysis.reps_complete or 0))
+    reps_partial = max(0, int(analysis.reps_partial or 0))
+    rest_s = max(0.0, float(analysis.avg_inter_rep_rest_s or 0.0))
+    intensity_score = max(0, min(100, int(analysis.intensity_score or 0)))
+    intensity_label = (analysis.intensity_label or "indeterminee").strip().lower()
+    breakdown = dict(analysis.score_breakdown or {})
+    if not breakdown and analysis.score > 0:
+        breakdown = _estimate_score_breakdown(analysis.score)
+
+    resume_text = analysis.sections.get("resume", "").strip()
+    if not resume_text:
+        base = (
+            "Tu as realise une serie de {} avec un score global de {}/100."
+            .format(exercise_display, max(0, int(analysis.score or 0)))
+        )
+        if reps_total > 0:
+            base += " {} repetitions detectees.".format(reps_total)
+        if intensity_score > 0:
+            base += " Intensite {} /100 ({})".format(intensity_score, intensity_label)
+            if rest_s > 0:
+                base += ", repos moyen {:.2f}s.".format(rest_s)
+            else:
+                base += "."
+        resume_text = base
+
+    positives = [item.strip() for item in analysis.positives if item and item.strip()]
+    if not positives:
+        positives = [
+            "Ta base technique est exploitable pour progresser proprement.",
+            "Le mouvement reste lisible sur l'ensemble de la serie, ce qui permet un travail corrigeable rapidement.",
+        ]
+
+    corrections = analysis.corrections[:4]
+    if not corrections:
+        corrections = [
+            {
+                "title": "Controle de trajectoire",
+                "issue": "La trajectoire manque de regularite sur certaines repetitions.",
+                "impact": (
+                    "Une trajectoire variable decharge le muscle cible et augmente la compensation "
+                    "sur les structures passives."
+                ),
+                "fix": "Cue: garde la meme ligne de mouvement sur chaque rep, sans acceleration parasite.",
+            },
+            {
+                "title": "Gestion du tempo",
+                "issue": "Le rythme n'est pas totalement constant entre les reps.",
+                "impact": (
+                    "Une execution trop acceleree reduit le temps sous tension utile "
+                    "et degrade la qualite mecanique en fin de serie."
+                ),
+                "fix": "Cue: ralentis l'excentrique et marque un mini controle avant de repartir.",
+            },
+        ]
+
+    rom_text = analysis.sections.get("rom", "").strip()
+    if not rom_text:
+        if reps_total > 0:
+            rom_text = (
+                "Amplitude exploitable sur la serie analysee. L'objectif est de garder cette amplitude "
+                "constante sur toutes les repetitions, surtout sur les dernieres reps."
+            )
+        else:
+            rom_text = "Donnees d'amplitude insuffisantes pour conclure proprement sur cette video."
+
+    tempo_text = analysis.sections.get("tempo", "").strip()
+    if not tempo_text:
+        tempo_text = (
+            "Le controle moteur est globalement present, mais il faut homogeniser le rythme "
+            "entre le debut et la fin de serie pour maximiser le stimulus."
+        )
+
+    intensite_text = analysis.sections.get("intensite", "").strip()
+    if not intensite_text:
+        if intensity_score > 0:
+            intensite_text = (
+                "Intensite de serie estimee a {}/100 ({}) avec un repos moyen inter-reps de {:.2f}s."
+                .format(intensity_score, intensity_label, rest_s)
+            )
+        else:
+            intensite_text = "Intensite non estimable de facon robuste sur cette video."
+
+    compensations_text = analysis.sections.get("compensations", "").strip()
+    if not compensations_text:
+        compensations_text = (
+            "Compensations principales a surveiller: perte d'alignement en fin de rep "
+            "et stabilisation moins propre quand la fatigue monte."
+        )
+
+    biomech_text = analysis.sections.get("biomecanique", "").strip()
+    if not biomech_text:
+        biomech_text = (
+            "Le levier et la stabilisation articulaire doivent rester prioritaires: "
+            "quand la vitesse augmente sans controle, le muscle cible travaille moins "
+            "et la contrainte bascule vers les articulations."
+        )
+
+    plan_actions = [item.strip() for item in analysis.plan_action if item and item.strip()]
+    if not plan_actions:
+        plan_actions = [
+            "Sur la prochaine serie, garde la meme amplitude sur toutes les reps.",
+            "Controle la phase excentrique pour eviter le rebond ou le momentum.",
+            "Filme une serie a charge identique avec un angle plus stable pour comparer.",
+        ]
+
+    next_video = analysis.sections.get("next_video", "").strip()
+    if not next_video:
+        next_video = (
+            "Filme de profil a hauteur de hanche, camera fixe a 2-3 metres, "
+            "avec tout le corps visible du debut a la fin."
+        )
+
+    lines: list[str] = []
+    lines.append("ANALYSE BIOMECANIQUE — {}".format(exercise_display))
+    if analysis.score > 0:
+        lines.append("Score : {}/100".format(analysis.score))
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("RESUME")
+    lines.append(resume_text)
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("POINTS POSITIFS")
+    for idx, item in enumerate(positives[:4], start=1):
+        lines.append("{}. {}".format(idx, item))
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("AMPLITUDE DE MOUVEMENT")
+    lines.append(rom_text)
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("CORRECTIONS PRIORITAIRES")
+    for idx, corr in enumerate(corrections, start=1):
+        title = str(corr.get("title", "") or "Correction {}".format(idx)).strip()
+        issue = str(corr.get("issue", "") or corr.get("why", "") or "").strip()
+        impact = str(corr.get("impact", "") or "").strip()
+        fix = str(corr.get("fix", "") or corr.get("cue", "") or "").strip()
+        lines.append("{}. {}".format(idx, title))
+        if issue:
+            lines.append("Donnee mesuree: {}".format(issue))
+        if impact:
+            lines.append("Impact biomecanique: {}".format(impact))
+        if fix:
+            lines.append("Correction: {}".format(fix))
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("ANALYSE DU TEMPO ET DES PHASES")
+    lines.append(tempo_text)
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("INTENSITE DE SERIE (DENSITE)")
+    lines.append(intensite_text)
+    if reps_total > 0:
+        lines.append(
+            "Repetitions detectees: {} ({} completes, {} partielles)."
+            .format(reps_total, reps_complete, reps_partial)
+        )
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("COMPENSATIONS ET BIOMECANIQUE AVANCEE")
+    lines.append(compensations_text)
+
+    if analysis.corrective_exercises:
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        lines.append("EXERCICES CORRECTIFS")
+        for idx, item in enumerate(analysis.corrective_exercises[:4], start=1):
+            name = str(item.get("name", "") or "Exercice {}".format(idx)).strip()
+            dosage = str(item.get("dosage", "") or "").strip()
+            target = str(item.get("target", "") or "").strip()
+            execution = str(item.get("execution", "") or "").strip()
+            timing = str(item.get("timing", "") or "").strip()
+            suffix = " — {}".format(dosage) if dosage else ""
+            lines.append("{}. {}{}".format(idx, name, suffix))
+            if target:
+                lines.append("Cible: {}".format(target))
+            if execution:
+                lines.append("Execution detaillee: {}".format(execution))
+            if timing:
+                lines.append("Quand le faire: {}".format(timing))
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("DECOMPOSITION DU SCORE")
+    ordered = (
+        ("Securite", 40),
+        ("Efficacite technique", 30),
+        ("Controle et tempo", 20),
+        ("Symetrie", 10),
+    )
+    for key, max_value in ordered:
+        val = int(breakdown.get(key, 0) or 0)
+        val = max(0, min(max_value, val))
+        lines.append("{}: {}/{}".format(key, val, max_value))
+        lines.append("Justification: score etabli selon la qualite d'execution observee sur la video.")
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("POINT BIOMECANIQUE")
+    lines.append(biomech_text)
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("RECOMMANDATION POUR LA PROCHAINE VIDEO")
+    lines.append(next_video)
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("PLAN D'ACTION")
+    for idx, action in enumerate(plan_actions[:4], start=1):
+        lines.append("{}. {}".format(idx, action))
+
+    return "\n".join(lines).strip()
+
+
 def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
     payload = _extract_json_object(text)
     raw_text = (text or "").strip()
@@ -329,13 +658,63 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
                         parsed.append({"title": "Correction", "issue": raw, "fix": ""})
             analysis.corrections = parsed
 
+        corrective_exercises = payload.get("corrective_exercises", []) or payload.get("exercices_correctifs", [])
+        if isinstance(corrective_exercises, list):
+            parsed_correctives: list[dict[str, str]] = []
+            for item in corrective_exercises:
+                if isinstance(item, dict):
+                    parsed_correctives.append(
+                        {
+                            "name": str(item.get("name", "") or "").strip(),
+                            "dosage": str(item.get("dosage", "") or item.get("sets_reps", "") or "").strip(),
+                            "target": str(item.get("target", "") or item.get("cible", "") or "").strip(),
+                            "execution": str(item.get("execution", "") or item.get("execution_detaillee", "") or "").strip(),
+                            "timing": str(item.get("timing", "") or item.get("quand", "") or "").strip(),
+                        }
+                    )
+                else:
+                    text_item = str(item).strip()
+                    if text_item:
+                        parsed_correctives.append(
+                            {
+                                "name": text_item,
+                                "dosage": "",
+                                "target": "",
+                                "execution": "",
+                                "timing": "",
+                            }
+                        )
+            analysis.corrective_exercises = [
+                item
+                for item in parsed_correctives
+                if any(value for value in item.values())
+            ]
+
+        analysis.sections = _extract_sections(payload)
+
+        section_positives = _coerce_list_of_strings(
+            payload.get("points_positifs")
+            or payload.get("strengths")
+            or (payload.get("sections", {}) if isinstance(payload.get("sections"), dict) else {}).get("points_positifs")
+        )
+        if section_positives and not analysis.positives:
+            analysis.positives = section_positives[:6]
+
+        plan_action = payload.get("plan_action")
+        if plan_action is None and isinstance(payload.get("sections"), dict):
+            plan_action = payload["sections"].get("plan_action")
+        analysis.plan_action = _coerce_list_of_strings(plan_action)[:6]
+
         report_text = str(
             payload.get("report_markdown")
             or payload.get("report_text")
             or payload.get("summary")
-            or raw_text
+            or ""
         ).strip()
-        analysis.report_text = report_text or raw_text
+        if report_text:
+            analysis.report_text = report_text
+        else:
+            analysis.report_text = _build_structured_report_text(analysis)
 
         if analysis.intensity_label == "indeterminee" and analysis.intensity_score > 0:
             analysis.intensity_label = _intensity_label_from_score(analysis.intensity_score)
@@ -344,6 +723,8 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
             analysis.reps_total = _extract_reps_from_text(raw_text)
         if analysis.score <= 0:
             analysis.score = _extract_score_from_text(raw_text)
+        if not analysis.report_text:
+            analysis.report_text = _build_structured_report_text(analysis)
         return analysis
 
     # Regex fallback for non-JSON answers.
@@ -355,7 +736,11 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
     analysis.intensity_score = intensity_score
     analysis.intensity_label = _intensity_label_from_score(intensity_score)
     analysis.avg_inter_rep_rest_s = avg_rest
-    analysis.report_text = raw_text
+    analysis.sections = {}
+    analysis.plan_action = []
+    analysis.report_text = _build_structured_report_text(analysis)
+    if raw_text:
+        analysis.raw_response = raw_text
     return analysis
 
 

@@ -1203,6 +1203,17 @@ def _apply_minimax_analysis_to_result(
     if not report_text:
         report_text = "Analyse MiniMax terminee."
 
+    corrective_exercises: list[str] = []
+    for item in analysis.corrective_exercises:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "") or "").strip()
+        dosage = str(item.get("dosage", "") or "").strip()
+        target = str(item.get("target", "") or "").strip()
+        parts = [part for part in (name, dosage, target) if part]
+        if parts:
+            corrective_exercises.append(" — ".join(parts))
+
     result.report = Report(
         exercise=exercise_enum.value,
         exercise_display=display_name,
@@ -1210,6 +1221,7 @@ def _apply_minimax_analysis_to_result(
         report_text=report_text,
         positives=analysis.positives,
         corrections=analysis.corrections,
+        corrective_exercises=corrective_exercises,
         score_breakdown=analysis.score_breakdown,
         raw_llm_response=analysis.raw_response,
         model_used=analysis.model_used,

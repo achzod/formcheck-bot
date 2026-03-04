@@ -73,6 +73,7 @@ _SECTION_TITLES = [
     "CORRECTIONS PRIORITAIRES",
     "ANALYSE DU TEMPO ET DES PHASES",
     "ANALYSE DU TEMPO ET DES REPETITIONS",
+    "INTENSITE DE SERIE",
     "COMPENSATIONS ET BIOMECANIQUE AVANCEE",
     "PROFIL MORPHOLOGIQUE",
     "EXERCICES CORRECTIFS",
@@ -81,6 +82,7 @@ _SECTION_TITLES = [
     "POINT BIOMECANIQUE",
     "RECOMMANDATION POUR LA PROCHAINE VIDEO",
     "RECOMMANDATION",
+    "PLAN D'ACTION",
 ]
 
 # Icones SVG inline par section (petites, legeres, pas d'emojis)
@@ -93,6 +95,8 @@ _SECTION_ICONS: dict[str, str] = {
     "POINT BIOMECANIQUE": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
     "PROFIL MORPHOLOGIQUE": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
     "RECOMMANDATION": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>',
+    "INTENSITE DE SERIE": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 2 13 9 20 9"/><path d="M13 2L5 12h6v10l8-10h-6z"/></svg>',
+    "PLAN D'ACTION": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.4 0 2.73.32 3.9.89"/></svg>',
 }
 
 
@@ -102,6 +106,16 @@ def _get_section_icon(title: str) -> str:
         if key in upper:
             return icon
     return ""
+
+
+def _extract_first_name(client_name: str | None) -> str:
+    if not client_name:
+        return ""
+    raw = str(client_name).strip()
+    if not raw:
+        return ""
+    token = raw.split()[0].strip(" -_.,;:()[]{}")
+    return token[:32]
 
 
 def _md_inline_to_html(text: str) -> str:
@@ -219,6 +233,314 @@ def _format_report_html(report_text: str) -> str:
     return "\n".join(html_parts)
 
 
+def _count_known_sections(report_text: str) -> int:
+    if not report_text:
+        return 0
+    count = 0
+    for raw_line in report_text.splitlines():
+        line = raw_line.strip().upper()
+        if not line:
+            continue
+        for title in _SECTION_TITLES:
+            if line.startswith(title):
+                count += 1
+                break
+    return count
+
+
+def _estimate_breakdown(score: int) -> dict[str, int]:
+    total = max(0, min(100, int(score or 0)))
+    sec = min(40, int(round(total * 0.40)))
+    eff = min(30, int(round(total * 0.30)))
+    ctrl = min(20, int(round(total * 0.20)))
+    sym = max(0, min(10, total - sec - eff - ctrl))
+    return {
+        "Securite": sec,
+        "Efficacite technique": eff,
+        "Controle et tempo": ctrl,
+        "Symetrie": sym,
+    }
+
+
+def _normalized_breakdown(report: Report) -> dict[str, int]:
+    if report.score_breakdown:
+        normalized: dict[str, int] = {}
+        aliases = (
+            ("Securite", ("securite",)),
+            ("Efficacite technique", ("efficacite", "technique")),
+            ("Controle et tempo", ("controle", "tempo")),
+            ("Symetrie", ("symetrie", "symmetry")),
+        )
+        for canonical, keys in aliases:
+            value = None
+            for key, raw_val in report.score_breakdown.items():
+                norm_key = str(key).lower().replace("é", "e").replace("è", "e")
+                if all(token in norm_key for token in keys):
+                    try:
+                        value = int(raw_val)
+                    except Exception:
+                        value = 0
+                    break
+            if value is None:
+                value = 0
+            max_value = 40 if canonical == "Securite" else 30 if canonical == "Efficacite technique" else 20 if canonical == "Controle et tempo" else 10
+            normalized[canonical] = max(0, min(max_value, int(value)))
+        return normalized
+    return _estimate_breakdown(report.score)
+
+
+def _build_client_intro_card(
+    report: Report,
+    pipeline_result: Any | None,
+    client_name: str | None,
+) -> str:
+    first_name = _extract_first_name(client_name)
+    if first_name:
+        intro = "Salut {}, voici ton rapport personnalise, section par section.".format(html.escape(first_name))
+    else:
+        intro = "Salut, voici ton rapport personnalise, section par section."
+
+    reps_total = 0
+    intensity_score = 0
+    intensity_label = "indeterminee"
+    avg_rest = 0.0
+    confidence_score = 0
+    detection_conf = 0.0
+
+    if pipeline_result and getattr(pipeline_result, "reps", None):
+        reps = pipeline_result.reps
+        reps_total = int(getattr(reps, "total_reps", 0) or 0)
+        intensity_score = int(getattr(reps, "intensity_score", 0) or 0)
+        intensity_label = str(getattr(reps, "intensity_label", "indeterminee") or "indeterminee")
+        avg_rest = float(getattr(reps, "avg_inter_rep_rest_s", 0.0) or 0.0)
+    if pipeline_result and getattr(pipeline_result, "confidence", None):
+        confidence_score = int(getattr(pipeline_result.confidence, "overall_score", 0) or 0)
+    if pipeline_result and getattr(pipeline_result, "detection", None):
+        detection_conf = float(getattr(pipeline_result.detection, "confidence", 0.0) or 0.0)
+
+    metrics: list[str] = []
+    if reps_total > 0:
+        metrics.append("{} reps detectees".format(reps_total))
+    if intensity_score > 0:
+        metrics.append("Intensite {} /100 ({})".format(intensity_score, html.escape(intensity_label)))
+    elif reps_total >= 2:
+        metrics.append("Intensite limitee sur cette prise")
+    if avg_rest > 0:
+        metrics.append("Repos inter-reps moyen {:.2f}s".format(avg_rest))
+    if confidence_score > 0:
+        metrics.append("Confiance analyse {} /100".format(confidence_score))
+    if detection_conf > 0:
+        metrics.append("Confiance detection {:.0f}%".format(detection_conf * 100.0))
+
+    key_metrics = " | ".join(metrics) if metrics else "Analyse complete generee a partir de ta video."
+
+    return """
+    <div class="card fade-in client-intro" style="animation-delay:0.18s">
+        <div class="card-header">Synthese Client</div>
+        <p class="report-p" style="margin-top:4px">{intro}</p>
+        <p class="report-p">{exercise} — score global <strong>{score}/100</strong>.</p>
+        <p class="report-p" style="color:#5a4a3a">{key_metrics}</p>
+    </div>
+    """.format(
+        intro=intro,
+        exercise=html.escape(report.exercise_display or "Exercice"),
+        score=max(0, min(100, int(report.score or 0))),
+        key_metrics=key_metrics,
+    )
+
+
+def _build_deterministic_report_text(
+    report: Report,
+    pipeline_result: Any | None,
+    client_name: str | None,
+) -> str:
+    first_name = _extract_first_name(client_name)
+    greeting = "Salut {},".format(first_name) if first_name else "Salut,"
+
+    reps_total = 0
+    reps_complete = 0
+    reps_partial = 0
+    intensity_score = 0
+    intensity_label = "indeterminee"
+    avg_rest = 0.0
+    intensity_confidence = ""
+    if pipeline_result and getattr(pipeline_result, "reps", None):
+        reps = pipeline_result.reps
+        reps_total = int(getattr(reps, "total_reps", 0) or 0)
+        reps_complete = int(getattr(reps, "complete_reps", 0) or 0)
+        reps_partial = int(getattr(reps, "partial_reps", 0) or 0)
+        intensity_score = int(getattr(reps, "intensity_score", 0) or 0)
+        intensity_label = str(getattr(reps, "intensity_label", "indeterminee") or "indeterminee")
+        avg_rest = float(getattr(reps, "avg_inter_rep_rest_s", 0.0) or 0.0)
+        intensity_confidence = str(getattr(reps, "intensity_confidence", "") or "")
+
+    positives = [item.strip() for item in report.positives if item and item.strip()]
+    if not positives:
+        positives = [
+            "Tu as une base technique exploitable sur cet exercice.",
+            "La serie reste lisible, ce qui permet des corrections efficaces des la prochaine seance.",
+        ]
+
+    corrections: list[dict[str, str]] = []
+    for item in report.corrections:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title", "") or "").strip()
+        issue = str(item.get("issue", "") or item.get("why", "") or item.get("text", "") or "").strip()
+        impact = str(item.get("impact", "") or "").strip()
+        fix = str(item.get("fix", "") or item.get("cue", "") or "").strip()
+        if title or issue or impact or fix:
+            corrections.append(
+                {
+                    "title": title or "Correction technique",
+                    "issue": issue,
+                    "impact": impact,
+                    "fix": fix,
+                }
+            )
+    if not corrections:
+        corrections = [
+            {
+                "title": "Regularite de trajectoire",
+                "issue": "La trajectoire varie entre les repetitions.",
+                "impact": "La variation de trajectoire reduit la tension utile sur le muscle cible et augmente la compensation.",
+                "fix": "Cue: garde exactement la meme ligne sur chaque rep, sans deviation.",
+            },
+            {
+                "title": "Controle du tempo",
+                "issue": "Le rythme n'est pas assez stable entre debut et fin de serie.",
+                "impact": "Un tempo instable diminue le temps sous tension utile et degrade la qualite mecanique.",
+                "fix": "Cue: ralentis la phase excentrique et verrouille la position avant la rep suivante.",
+            },
+        ]
+
+    breakdown = _normalized_breakdown(report)
+    exercise = report.exercise_display or "Exercice"
+    score = max(0, min(100, int(report.score or 0)))
+
+    lines: list[str] = []
+    lines.append("ANALYSE BIOMECANIQUE — {}".format(exercise))
+    lines.append("Score : {}/100".format(score))
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("RESUME")
+    resume = "{} tu as realise une video de {} avec un score de {}/100.".format(greeting, exercise, score)
+    if reps_total > 0:
+        resume += " {} repetitions detectees ({} completes, {} partielles).".format(reps_total, reps_complete, reps_partial)
+    if intensity_score > 0:
+        resume += " Intensite {} /100 ({})".format(intensity_score, intensity_label)
+        if avg_rest > 0:
+            resume += ", repos moyen {:.2f}s.".format(avg_rest)
+        else:
+            resume += "."
+    lines.append(resume)
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("POINTS POSITIFS")
+    for idx, item in enumerate(positives[:4], start=1):
+        lines.append("{}. {}".format(idx, item))
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("AMPLITUDE DE MOUVEMENT")
+    lines.append(
+        "Amplitude a stabiliser sur toutes les repetitions pour garder le meme niveau de tension musculaire du debut a la fin de serie."
+    )
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("CORRECTIONS PRIORITAIRES")
+    for idx, corr in enumerate(corrections[:4], start=1):
+        lines.append("{}. {}".format(idx, corr.get("title", "Correction")))
+        if corr.get("issue"):
+            lines.append("Donnee mesuree: {}".format(corr["issue"]))
+        if corr.get("impact"):
+            lines.append("Impact biomecanique: {}".format(corr["impact"]))
+        if corr.get("fix"):
+            lines.append("Correction: {}".format(corr["fix"]))
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("ANALYSE DU TEMPO ET DES PHASES")
+    lines.append(
+        "Le focus doit etre mis sur une execution reguliere: excentrique controlee, transition propre, et concentrique sans perte d'alignement."
+    )
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("INTENSITE DE SERIE (DENSITE)")
+    if intensity_score > 0:
+        text = "Intensite estimee a {}/100 ({})".format(intensity_score, intensity_label)
+        if avg_rest > 0:
+            text += ", repos inter-reps moyen {:.2f}s".format(avg_rest)
+        if intensity_confidence:
+            text += " (confiance: {})".format(intensity_confidence)
+        text += "."
+        lines.append(text)
+    else:
+        lines.append("Intensite non estimable de facon robuste sur cette video.")
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("COMPENSATIONS ET BIOMECANIQUE AVANCEE")
+    lines.append(
+        "Compensations a surveiller: variation de trajectoire, perte de controle en fin de serie, et baisse de stabilite quand la fatigue augmente."
+    )
+
+    if report.corrective_exercises:
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        lines.append("EXERCICES CORRECTIFS")
+        for idx, item in enumerate(report.corrective_exercises[:4], start=1):
+            lines.append("{}. {}".format(idx, item))
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("DECOMPOSITION DU SCORE")
+    lines.append("Securite: {}/40".format(breakdown.get("Securite", 0)))
+    lines.append("Justification: score base sur alignement et risque articulaire observe.")
+    lines.append("Efficacite technique: {}/30".format(breakdown.get("Efficacite technique", 0)))
+    lines.append("Justification: score base sur qualite du mouvement et exploitation du ROM.")
+    lines.append("Controle et tempo: {}/20".format(breakdown.get("Controle et tempo", 0)))
+    lines.append("Justification: score base sur regularite d'execution sur l'ensemble de la serie.")
+    lines.append("Symetrie: {}/10".format(breakdown.get("Symetrie", 0)))
+    lines.append("Justification: score base sur l'equilibre global gauche/droite visible sur la prise.")
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("POINT BIOMECANIQUE")
+    lines.append(
+        "Ta progression depend de la constance mecanique: meme trajectoire, meme amplitude, meme intention motrice a chaque rep. "
+        "C'est ce qui permet de charger plus sans compenser et de reduire le risque de surcharge articulaire."
+    )
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("PLAN D'ACTION")
+    lines.append("1. Garde exactement la meme execution sur toutes les reps de la prochaine serie.")
+    lines.append("2. Ralentis volontairement la phase excentrique pour mieux controler la tension.")
+    lines.append("3. Filme une nouvelle serie avec angle fixe pour valider la correction.")
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("RECOMMANDATION POUR LA PROCHAINE VIDEO")
+    lines.append("Camera fixe, corps entier visible, angle lateral a hauteur de hanche pour une lecture biomecanique plus precise.")
+    return "\n".join(lines).strip()
+
+
 _FRAME_LABELS = {
     "start": "Position de depart",
     "mid": "Pic de contraction / Amplitude max",
@@ -233,6 +555,7 @@ def generate_html_report(
     annotated_frames: dict[str, str],
     analysis_id: str | None = None,
     pipeline_result: Any | None = None,
+    client_name: str | None = None,
 ) -> tuple[str, str, str]:
     """Genere un rapport HTML premium autonome.
 
@@ -379,8 +702,17 @@ def generate_html_report(
     if morpho_data:
         morpho_html = _build_morpho_section(morpho_data)
 
-    # ── Report text formatted ─────────────────────────────────────────────
-    report_html = _format_report_html(report.report_text)
+    # ── Rapport client: fallback deterministic si sortie LLM trop faible ──
+    raw_report_text = (report.report_text or "").strip()
+    known_sections = _count_known_sections(raw_report_text)
+    use_deterministic_fallback = known_sections < 4 or len(raw_report_text) < 420
+    report_text = (
+        _build_deterministic_report_text(report, pipeline_result, client_name)
+        if use_deterministic_fallback
+        else raw_report_text
+    )
+    report_html = _format_report_html(report_text)
+    client_intro_html = _build_client_intro_card(report, pipeline_result, client_name)
 
     # ── Full HTML ─────────────────────────────────────────────────────────
     html_content = f'''<!DOCTYPE html>
@@ -458,6 +790,7 @@ body{{
     margin:20px 0;
     overflow:hidden
 }}
+.client-intro{{border-left:3px solid #5a4a3a}}
 .card-header{{
     font-size:0.95em;
     color:#1a1a1a;
@@ -637,7 +970,7 @@ body{{
     border-radius:50%;display:flex;align-items:center;justify-content:center;
     font-weight:700;font-size:0.75em;flex-shrink:0;margin-top:2px
 }}
-.morpho-rec-text{{color:#c8c8e0;font-size:0.85em;line-height:1.5}}
+.morpho-rec-text{{color:#1a1a1a;font-size:0.85em;line-height:1.5}}
 </style>
 </head>
 <body>
@@ -658,6 +991,9 @@ body{{
 
 <!-- Score breakdown -->
 {breakdown_html}
+
+<!-- Client intro -->
+{client_intro_html}
 
 <!-- Frames -->
 {frames_html}

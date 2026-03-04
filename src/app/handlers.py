@@ -709,6 +709,8 @@ async def _run_analysis(
         if not app_settings.test_mode and not app_settings.test_mode_free:
             await db.decrement_credit(user_id)
 
+        user_updated = await db.get_user_by_phone(phone)
+
         # Generate HTML report
         from app.config import settings
         html_content, report_id, report_token = generate_html_report(
@@ -716,6 +718,7 @@ async def _run_analysis(
             annotated_frames=result.annotated_frames,
             analysis_id=str(analysis_id),
             pipeline_result=result,
+            client_name=(user_updated.name if user_updated else None),
         )
         save_report(report_id, report_token, html_content)
         report_url = get_report_url(settings.base_url, report_id, report_token)
@@ -738,7 +741,6 @@ async def _run_analysis(
 
         # Credits info inline (no separate message)
         credits_line = ""
-        user_updated = await db.get_user_by_phone(phone)
         if user_updated and not user_updated.is_unlimited:
             if user_updated.credits > 0:
                 credits_line = "\n_{} analyse(s) restante(s)_".format(user_updated.credits)

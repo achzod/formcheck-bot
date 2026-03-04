@@ -83,6 +83,33 @@ class MiniMaxParsingTests(unittest.TestCase):
         self.assertAlmostEqual(out.avg_inter_rep_rest_s, 0.92, places=2)
         self.assertEqual(out.report_text, "Rapport complet.")
 
+    def test_parse_structured_json_builds_sectioned_report_when_markdown_missing(self) -> None:
+        text = """
+{
+  "exercise": {"name": "smith_military_press", "display_name_fr": "Developpe militaire Smith", "confidence": 0.88},
+  "score": 81,
+  "reps": {"total": 7, "complete": 7, "partial": 0},
+  "intensity": {"score": 74, "label": "elevee", "avg_inter_rep_rest_s": 1.10},
+  "positives": ["Bonne stabilite du tronc"],
+  "corrections": [{"title": "Tempo excentrique", "why": "Descente trop rapide", "impact": "Perte de tension", "cue": "Controle 2 secondes"}],
+  "sections": {
+    "resume": "Execution globalement solide avec marge sur le controle de descente.",
+    "rom": "Amplitude correcte sur la majorite des reps.",
+    "tempo": "Concentrique puissante mais excentrique trop rapide.",
+    "intensite": "Serie dense avec repos courts.",
+    "compensations": "Legere perte d'alignement en fin de serie.",
+    "next_video": "Filme de profil, camera fixe a hauteur d'epaule."
+  }
+}
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.exercise_slug, "smith_military_press")
+        self.assertEqual(out.score, 81)
+        self.assertEqual(out.reps_total, 7)
+        self.assertIn("RESUME", out.report_text)
+        self.assertIn("DECOMPOSITION DU SCORE", out.report_text)
+        self.assertIn("RECOMMANDATION POUR LA PROCHAINE VIDEO", out.report_text)
+
     def test_parse_regex_fallback_response(self) -> None:
         text = (
             "Lat Pulldown (Tirage Vertical) — 78/100 — 8 reps\n"
