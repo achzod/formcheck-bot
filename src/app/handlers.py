@@ -706,7 +706,6 @@ async def _run_analysis(
         )
 
         # Decrement credit AFTER successful analysis (skip in test/free mode)
-        from app.config import settings as app_settings
         if not app_settings.test_mode and not app_settings.test_mode_free:
             await db.decrement_credit(user_id)
 
