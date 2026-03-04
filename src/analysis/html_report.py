@@ -354,6 +354,38 @@ def _build_deterministic_report_text(
     pipeline_result: Any | None,
     client_name: str | None,
 ) -> str:
+    def _safe_num(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return default
+
+    def _safe_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(float(value))
+        except Exception:
+            return default
+
+    def _rom(stats: dict[str, Any], key: str) -> float:
+        item = stats.get(key)
+        if not item:
+            return 0.0
+        return _safe_num(getattr(item, "range_of_motion", 0.0), 0.0)
+
+    def _max(stats: dict[str, Any], key: str) -> float:
+        item = stats.get(key)
+        if not item:
+            return 0.0
+        return _safe_num(getattr(item, "max_value", 0.0), 0.0)
+
+    def _exercise_profile(slug: str) -> str:
+        low = slug.lower()
+        if any(k in low for k in ("squat", "lunge", "deadlift", "rdl", "hip_thrust")):
+            return "lower"
+        if any(k in low for k in ("press", "curl", "row", "pulldown", "pullup", "dip", "raise", "tricep")):
+            return "upper"
+        return "mixed"
+
     first_name = _extract_first_name(client_name)
     greeting = "Salut {},".format(first_name) if first_name else "Salut,"
 
@@ -373,13 +405,80 @@ def _build_deterministic_report_text(
         intensity_label = str(getattr(reps, "intensity_label", "indeterminee") or "indeterminee")
         avg_rest = float(getattr(reps, "avg_inter_rep_rest_s", 0.0) or 0.0)
         intensity_confidence = str(getattr(reps, "intensity_confidence", "") or "")
+    tempo_consistency = 0.0
+    avg_rom = 0.0
+    rom_degradation = 0.0
+    if pipeline_result and getattr(pipeline_result, "reps", None):
+        rep_obj = pipeline_result.reps
+        tempo_consistency = _safe_num(getattr(rep_obj, "tempo_consistency", 0.0), 0.0)
+        avg_rom = _safe_num(getattr(rep_obj, "avg_rom", 0.0), 0.0)
+        rom_degradation = _safe_num(getattr(rep_obj, "rom_degradation", 0.0), 0.0)
+
+    confidence_score = 0
+    if pipeline_result and getattr(pipeline_result, "confidence", None):
+        confidence_score = _safe_int(getattr(pipeline_result.confidence, "overall_score", 0), 0)
+
+    angle_stats: dict[str, Any] = {}
+    if pipeline_result and getattr(pipeline_result, "angles", None):
+        angle_stats = getattr(pipeline_result.angles, "stats", {}) or {}
+
+    knee_rom = max(_rom(angle_stats, "left_knee_flexion"), _rom(angle_stats, "right_knee_flexion"))
+    hip_rom = max(_rom(angle_stats, "left_hip_flexion"), _rom(angle_stats, "right_hip_flexion"))
+    elbow_rom = max(_rom(angle_stats, "left_elbow_flexion"), _rom(angle_stats, "right_elbow_flexion"))
+    shoulder_flex_rom = max(_rom(angle_stats, "left_shoulder_flexion"), _rom(angle_stats, "right_shoulder_flexion"))
+    shoulder_abd_rom = max(_rom(angle_stats, "left_shoulder_abduction"), _rom(angle_stats, "right_shoulder_abduction"))
+    trunk_rom = _rom(angle_stats, "trunk_inclination")
+    max_knee_valgus = max(_max(angle_stats, "left_knee_valgus"), _max(angle_stats, "right_knee_valgus"))
+
+    hip_shift = 0.0
+    lateral_lean = 0.0
+    butt_wink_deg = 0.0
+    tut_s = 0.0
+    fatigue_index = 0.0
+    if pipeline_result and getattr(pipeline_result, "advanced", None):
+        advanced = pipeline_result.advanced
+        hip_shift = _safe_num(getattr(getattr(advanced, "compensations", None), "max_hip_shift", 0.0), 0.0)
+        lateral_lean = _safe_num(getattr(getattr(advanced, "compensations", None), "max_lateral_lean", 0.0), 0.0)
+        butt_wink_deg = _safe_num(getattr(getattr(advanced, "compensations", None), "butt_wink_degrees", 0.0), 0.0)
+        tut_ms = _safe_num(getattr(getattr(advanced, "time_under_tension", None), "total_tut_ms", 0.0), 0.0)
+        tut_s = tut_ms / 1000.0 if tut_ms > 0 else 0.0
+        fatigue_index = _safe_num(getattr(getattr(advanced, "fatigue", None), "fatigue_index", 0.0), 0.0)
+
+    lever_ratio = 0.0
+    sticking_depth_pct = 0.0
+    sequencing_pattern = ""
+    if pipeline_result and getattr(pipeline_result, "levers", None):
+        levers = pipeline_result.levers
+        lever_ratio = _safe_num(
+            getattr(getattr(levers, "levers", None), "knee_hip_lever_ratio", 0.0),
+            0.0,
+        )
+        sticking_depth_pct = _safe_num(getattr(getattr(levers, "sticking_point", None), "sticking_point_depth_pct", 0.0), 0.0)
+        sequencing_pattern = str(getattr(getattr(levers, "sequencing", None), "pattern", "") or "")
 
     positives = [item.strip() for item in report.positives if item and item.strip()]
     if not positives:
-        positives = [
-            "Tu as une base technique exploitable sur cet exercice.",
-            "La serie reste lisible, ce qui permet des corrections efficaces des la prochaine seance.",
-        ]
+        positives = []
+        if reps_total >= 4:
+            positives.append(
+                "Tu as une serie exploitable ({}/{} reps completes), ce qui permet une lecture fiable du pattern moteur."
+                .format(reps_complete or reps_total, reps_total)
+            )
+        if tempo_consistency > 0:
+            positives.append(
+                "La constance de tempo est correcte ({:.0f}%), bon signe de controle neuromusculaire."
+                .format(tempo_consistency * 100.0)
+            )
+        if confidence_score >= 70:
+            positives.append(
+                "La confiance d'analyse est elevee ({}/100), donc les recommandations sont actionnables des la prochaine seance."
+                .format(confidence_score)
+            )
+        if not positives:
+            positives = [
+                "Tu as une base technique exploitable sur cet exercice.",
+                "La serie reste lisible, ce qui permet des corrections efficaces des la prochaine seance.",
+            ]
 
     corrections: list[dict[str, str]] = []
     for item in report.corrections:
@@ -399,24 +498,75 @@ def _build_deterministic_report_text(
                 }
             )
     if not corrections:
-        corrections = [
-            {
-                "title": "Regularite de trajectoire",
-                "issue": "La trajectoire varie entre les repetitions.",
-                "impact": "La variation de trajectoire reduit la tension utile sur le muscle cible et augmente la compensation.",
-                "fix": "Cue: garde exactement la meme ligne sur chaque rep, sans deviation.",
-            },
-            {
-                "title": "Controle du tempo",
-                "issue": "Le rythme n'est pas assez stable entre debut et fin de serie.",
-                "impact": "Un tempo instable diminue le temps sous tension utile et degrade la qualite mecanique.",
-                "fix": "Cue: ralentis la phase excentrique et verrouille la position avant la rep suivante.",
-            },
-        ]
+        profile = _exercise_profile(report.exercise or report.exercise_display)
+        corrections = []
+        if profile == "lower":
+            if max_knee_valgus > 8:
+                corrections.append(
+                    {
+                        "title": "Alignement genou",
+                        "issue": "Valgus dynamique observe jusqu'a {:.1f} deg.".format(max_knee_valgus),
+                        "impact": "Le genou qui rentre surcharge le compartiment interne et deplace la contrainte hors de l'axe de force ideal.",
+                        "fix": "Cue: pousse le sol et garde le genou dans l'axe du 2e orteil sur toute la descente.",
+                    }
+                )
+            if lateral_lean > 8:
+                corrections.append(
+                    {
+                        "title": "Stabilite du tronc",
+                        "issue": "Inclinaison laterale max {:.1f} deg.".format(lateral_lean),
+                        "impact": "Le tronc qui penche transfere la charge sur un cote et cree une asymetrie cumulative.",
+                        "fix": "Cue: verrouille le gainage avant chaque rep et garde les cotes symetriques.",
+                    }
+                )
+            if butt_wink_deg > 8:
+                corrections.append(
+                    {
+                        "title": "Controle bassin en bas de mouvement",
+                        "issue": "Retroversion en bas de rep ({:.1f} deg).".format(butt_wink_deg),
+                        "impact": "La bascule pelvienne en profondeur augmente le stress lombaire si elle apparait sous charge lourde.",
+                        "fix": "Cue: coupe 2-3 cm d'amplitude si necessaire et garde le bassin neutre sous controle.",
+                    }
+                )
+        elif profile == "upper":
+            if trunk_rom > 15:
+                corrections.append(
+                    {
+                        "title": "Compensation du tronc",
+                        "issue": "Tronc mobile (ROM {:.1f} deg).".format(trunk_rom),
+                        "impact": "Le balancier du tronc decharge le muscle cible et augmente la charge de cisaillement sur la zone lombaire.",
+                        "fix": "Cue: verrouille le bassin et laisse bouger uniquement l'articulation cible.",
+                    }
+                )
+            if elbow_rom > 0 and elbow_rom < 35 and "press" not in (report.exercise or ""):
+                corrections.append(
+                    {
+                        "title": "Amplitude active",
+                        "issue": "ROM coude limite ({:.1f} deg).".format(elbow_rom),
+                        "impact": "Une amplitude partielle limite le temps sous tension efficace et peut freiner la progression hypertrophique.",
+                        "fix": "Cue: garde une excentrique plus longue pour atteindre une amplitude plus complete sans tricher.",
+                    }
+                )
+        if not corrections:
+            corrections = [
+                {
+                    "title": "Regularite de trajectoire",
+                    "issue": "La trajectoire varie entre les repetitions.",
+                    "impact": "La variation de trajectoire reduit la tension utile sur le muscle cible et augmente la compensation.",
+                    "fix": "Cue: garde exactement la meme ligne sur chaque rep, sans deviation.",
+                },
+                {
+                    "title": "Controle du tempo",
+                    "issue": "Le rythme n'est pas assez stable entre debut et fin de serie.",
+                    "impact": "Un tempo instable diminue le temps sous tension utile et degrade la qualite mecanique.",
+                    "fix": "Cue: ralentis la phase excentrique et verrouille la position avant la rep suivante.",
+                },
+            ]
 
     breakdown = _normalized_breakdown(report)
     exercise = report.exercise_display or "Exercice"
     score = max(0, min(100, int(report.score or 0)))
+    profile = _exercise_profile(report.exercise or report.exercise_display)
 
     lines: list[str] = []
     lines.append("ANALYSE BIOMECANIQUE — {}".format(exercise))
@@ -434,6 +584,17 @@ def _build_deterministic_report_text(
             resume += ", repos moyen {:.2f}s.".format(avg_rest)
         else:
             resume += "."
+    metric_bits: list[str] = []
+    if knee_rom > 0:
+        metric_bits.append("ROM genou {:.1f} deg".format(knee_rom))
+    if hip_rom > 0:
+        metric_bits.append("ROM hanche {:.1f} deg".format(hip_rom))
+    if elbow_rom > 0 and profile == "upper":
+        metric_bits.append("ROM coude {:.1f} deg".format(elbow_rom))
+    if shoulder_flex_rom > 0 and profile == "upper":
+        metric_bits.append("ROM epaule {:.1f} deg".format(max(shoulder_flex_rom, shoulder_abd_rom)))
+    if metric_bits:
+        resume += " Mesures cles: {}.".format(", ".join(metric_bits[:3]))
     lines.append(resume)
 
     lines.append("")
@@ -447,9 +608,18 @@ def _build_deterministic_report_text(
     lines.append("---")
     lines.append("")
     lines.append("AMPLITUDE DE MOUVEMENT")
-    lines.append(
-        "Amplitude a stabiliser sur toutes les repetitions pour garder le meme niveau de tension musculaire du debut a la fin de serie."
-    )
+    if profile == "lower":
+        rom_sentence = "ROM bas du corps: genou {:.1f} deg, hanche {:.1f} deg.".format(knee_rom, hip_rom)
+    elif profile == "upper":
+        shoulder_ref = max(shoulder_flex_rom, shoulder_abd_rom)
+        rom_sentence = "ROM haut du corps: coude {:.1f} deg, epaule {:.1f} deg.".format(elbow_rom, shoulder_ref)
+    else:
+        rom_sentence = "ROM observe: genou {:.1f} deg, hanche {:.1f} deg, coude {:.1f} deg.".format(knee_rom, hip_rom, elbow_rom)
+    lines.append(rom_sentence)
+    if avg_rom > 0:
+        lines.append("ROM moyen par rep {:.1f} deg avec degradation {:.1f}% sur la fin de serie.".format(avg_rom, rom_degradation))
+    else:
+        lines.append("Objectif: stabiliser l'amplitude sur toutes les repetitions pour conserver une tension musculaire constante.")
 
     lines.append("")
     lines.append("---")
@@ -468,9 +638,12 @@ def _build_deterministic_report_text(
     lines.append("---")
     lines.append("")
     lines.append("ANALYSE DU TEMPO ET DES PHASES")
-    lines.append(
-        "Le focus doit etre mis sur une execution reguliere: excentrique controlee, transition propre, et concentrique sans perte d'alignement."
-    )
+    tempo_line = "Le focus est une execution reguliere: excentrique controlee, transition propre, concentrique sans perte d'alignement."
+    if tempo_consistency > 0:
+        tempo_line += " Consistance mesuree {:.0f}%.".format(tempo_consistency * 100.0)
+    if tut_s > 0:
+        tempo_line += " TUT total {:.1f}s.".format(tut_s)
+    lines.append(tempo_line)
 
     lines.append("")
     lines.append("---")
@@ -491,9 +664,25 @@ def _build_deterministic_report_text(
     lines.append("---")
     lines.append("")
     lines.append("COMPENSATIONS ET BIOMECANIQUE AVANCEE")
-    lines.append(
-        "Compensations a surveiller: variation de trajectoire, perte de controle en fin de serie, et baisse de stabilite quand la fatigue augmente."
-    )
+    comp_bits: list[str] = []
+    if hip_shift > 0:
+        comp_bits.append("hip shift max {:.3f}".format(hip_shift))
+    if lateral_lean > 0:
+        comp_bits.append("lean lateral {:.1f} deg".format(lateral_lean))
+    if butt_wink_deg > 0:
+        comp_bits.append("butt wink {:.1f} deg".format(butt_wink_deg))
+    if fatigue_index > 0:
+        comp_bits.append("fatigue index {:.2f}".format(fatigue_index))
+    if sticking_depth_pct > 0:
+        comp_bits.append("sticking point {:.0f}% de l'amplitude".format(sticking_depth_pct))
+    if comp_bits:
+        lines.append("Compensations a surveiller: {}.".format(", ".join(comp_bits[:5])))
+    else:
+        lines.append(
+            "Compensations a surveiller: variation de trajectoire, perte de controle en fin de serie, et baisse de stabilite quand la fatigue augmente."
+        )
+    if sequencing_pattern:
+        lines.append("Sequencage detecte: {}.".format(sequencing_pattern.replace("_", " ")))
 
     if report.corrective_exercises:
         lines.append("")
@@ -520,25 +709,58 @@ def _build_deterministic_report_text(
     lines.append("---")
     lines.append("")
     lines.append("POINT BIOMECANIQUE")
-    lines.append(
+    biomech = (
         "Ta progression depend de la constance mecanique: meme trajectoire, meme amplitude, meme intention motrice a chaque rep. "
         "C'est ce qui permet de charger plus sans compenser et de reduire le risque de surcharge articulaire."
     )
+    if lever_ratio > 0:
+        biomech += " Ratio levier genou/hanche {:.2f}: il guide la repartition quadriceps/chaine posterieure et explique ton pattern dominant.".format(
+            lever_ratio
+        )
+    if profile == "upper" and trunk_rom > 0:
+        biomech += " Quand le tronc bouge de {:.1f} deg, la tension quitte le muscle cible et part vers la compensation.".format(trunk_rom)
+    if profile == "lower" and max_knee_valgus > 0:
+        biomech += " Le valgus max {:.1f} deg doit rester sous controle pour proteger l'axe genou-cheville sous fatigue.".format(max_knee_valgus)
+    lines.append(biomech)
 
     lines.append("")
     lines.append("---")
     lines.append("")
     lines.append("PLAN D'ACTION")
-    lines.append("1. Garde exactement la meme execution sur toutes les reps de la prochaine serie.")
-    lines.append("2. Ralentis volontairement la phase excentrique pour mieux controler la tension.")
-    lines.append("3. Filme une nouvelle serie avec angle fixe pour valider la correction.")
+    if profile == "lower":
+        lines.append("1. Verrouille le gainage avant chaque rep pour garder bassin et tronc stables.")
+        lines.append("2. Controle la descente et maintiens le genou dans l'axe du pied sur toute l'amplitude.")
+        lines.append("3. Garde la meme amplitude de la rep 1 a la rep finale pour limiter la derive de fatigue.")
+    elif profile == "upper":
+        lines.append("1. Fixe le tronc et elimine tout momentum pour isoler le muscle cible.")
+        lines.append("2. Ralentis l'excentrique et marque une transition propre avant de repartir.")
+        lines.append("3. Maintiens la trajectoire identique sur chaque rep pour eviter la compensation articulaire.")
+    else:
+        lines.append("1. Garde exactement la meme execution sur toutes les reps de la prochaine serie.")
+        lines.append("2. Ralentis volontairement la phase excentrique pour mieux controler la tension.")
+        lines.append("3. Filme une nouvelle serie avec angle fixe pour valider la correction.")
 
     lines.append("")
     lines.append("---")
     lines.append("")
     lines.append("RECOMMANDATION POUR LA PROCHAINE VIDEO")
-    lines.append("Camera fixe, corps entier visible, angle lateral a hauteur de hanche pour une lecture biomecanique plus precise.")
+    if profile == "upper":
+        lines.append("Camera fixe, vue de face ou 3/4 face pour la symetrie scapulaire, coudes et trajectoire des bras.")
+    else:
+        lines.append("Camera fixe, corps entier visible, angle lateral a hauteur de hanche pour une lecture biomecanique plus precise.")
     return "\n".join(lines).strip()
+
+
+def _report_quality_score(report_text: str) -> int:
+    text = (report_text or "").strip()
+    if not text:
+        return 0
+    sections = _count_known_sections(text)
+    numeric_tokens = len(re.findall(r"\b\d+(?:[.,]\d+)?(?:\s*(?:%|s|deg|/100))?\b", text))
+    length_score = min(24, len(text) // 120)
+    section_score = min(56, sections * 7)
+    numeric_score = min(20, numeric_tokens)
+    return int(section_score + numeric_score + length_score)
 
 
 _FRAME_LABELS = {
@@ -704,8 +926,8 @@ def generate_html_report(
 
     # ── Rapport client: fallback deterministic si sortie LLM trop faible ──
     raw_report_text = (report.report_text or "").strip()
-    known_sections = _count_known_sections(raw_report_text)
-    use_deterministic_fallback = known_sections < 4 or len(raw_report_text) < 420
+    quality_score = _report_quality_score(raw_report_text)
+    use_deterministic_fallback = quality_score < 56
     report_text = (
         _build_deterministic_report_text(report, pipeline_result, client_name)
         if use_deterministic_fallback

@@ -627,6 +627,7 @@ async def _run_analysis(
             progress_callback=_progress_cb,
             use_minimax_motion_coach=app_settings.minimax_enabled,
             minimax_fallback_to_local=app_settings.minimax_fallback_to_local,
+            minimax_local_augmentation=app_settings.minimax_local_augmentation,
         )
         result: PipelineResult = await run_pipeline_async(video_path, config)
 

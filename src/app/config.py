@@ -47,6 +47,16 @@ class Settings(BaseSettings):
     minimax_prompt_template: str = ""
     minimax_fallback_to_local: bool = False
     minimax_use_cloudscraper: bool = True
+    minimax_enable_cache: bool = True
+    minimax_cache_ttl_hours: int = 168
+    minimax_cache_path: str = "media/minimax_cache.sqlite"
+    minimax_optimize_video: bool = True
+    minimax_max_clip_s: int = 45
+    minimax_target_height: int = 720
+    minimax_target_fps: int = 24
+    minimax_target_video_bitrate_kbps: int = 1400
+    minimax_keep_audio: bool = False
+    minimax_local_augmentation: bool = True
     minimax_user_agent: str = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "

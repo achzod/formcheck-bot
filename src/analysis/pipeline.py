@@ -170,6 +170,7 @@ class PipelineConfig:
     # Provider
     use_minimax_motion_coach: bool = False
     minimax_fallback_to_local: bool = False
+    minimax_local_augmentation: bool = True
 
     # Validation
     skip_validation: bool = False
@@ -1229,6 +1230,159 @@ def _apply_minimax_analysis_to_result(
     return result
 
 
+def _augment_minimax_with_local_metrics(
+    *,
+    video: Path,
+    out_dir: Path,
+    cfg: PipelineConfig,
+    result: PipelineResult,
+) -> None:
+    """Run a local CV pass to enrich MiniMax output with objective biomechanics metrics.
+
+    Goal:
+    - keep MiniMax credits low (single external call)
+    - still provide high-grade deterministic metrics in report (angles/reps/fatigue)
+    """
+    t0 = time.monotonic()
+    logger.info("MiniMax local augmentation started.")
+
+    try:
+        import cv2
+
+        cap = cv2.VideoCapture(str(video))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        cap.release()
+    except Exception:
+        fps = 30.0
+        total_frames = 0
+
+    adaptive_sample_n = max(1, round(float(fps) / 10.0))
+    max_frames_target = 520
+    if total_frames > 0 and (total_frames / adaptive_sample_n) > max_frames_target:
+        adaptive_sample_n = max(adaptive_sample_n, total_frames // max_frames_target)
+
+    extraction = extract_pose(
+        video_path=str(video),
+        output_dir=str(out_dir),
+        model_complexity=cfg.model_complexity,
+        min_detection_confidence=cfg.min_detection_confidence,
+        min_tracking_confidence=cfg.min_tracking_confidence,
+        sample_every_n=adaptive_sample_n,
+    )
+    if not extraction.frames:
+        logger.warning("MiniMax local augmentation skipped: no extraction frames.")
+        return
+    result.extraction = extraction
+
+    if cfg.smoothing_enabled:
+        try:
+            extraction.frames = smooth_landmarks(
+                extraction.frames,
+                window=cfg.smoothing_window,
+                polyorder=cfg.smoothing_polyorder,
+            )
+        except Exception as exc:
+            logger.debug("MiniMax local augmentation smoothing failed: %s", exc)
+
+    angles = compute_angles(extraction)
+    result.angles = angles
+
+    local_detection = detect_by_pattern(angles)
+    local_exercise = local_detection.exercise
+    final_exercise = (
+        result.detection.exercise
+        if result.detection and result.detection.exercise != Exercise.UNKNOWN
+        else local_exercise
+    )
+    exercise_name = final_exercise.value if final_exercise else "unknown"
+
+    local_reps = segment_reps(
+        angles=angles,
+        exercise=exercise_name,
+        fps=extraction.fps,
+        raw_frames=extraction.frames,
+    )
+
+    if result.reps is None or int(getattr(result.reps, "total_reps", 0) or 0) <= 0:
+        result.reps = local_reps
+    else:
+        minimax_count = int(getattr(result.reps, "total_reps", 0) or 0)
+        local_count = int(getattr(local_reps, "total_reps", 0) or 0)
+        local_reliable = bool(getattr(local_reps, "robust_reliable", False))
+        if local_count > 0 and (
+            minimax_count <= 0
+            or (local_count >= (minimax_count + 2) and local_reliable)
+        ):
+            logger.info(
+                "MiniMax/local rep fusion: minimax=%d -> local=%d (reliable=%s)",
+                minimax_count,
+                local_count,
+                local_reliable,
+            )
+            result.reps.total_reps = local_count
+            result.reps.complete_reps = int(getattr(local_reps, "complete_reps", local_count) or local_count)
+            result.reps.partial_reps = int(getattr(local_reps, "partial_reps", 0) or 0)
+            if local_reps.reps:
+                result.reps.reps = local_reps.reps
+            if int(getattr(result.reps, "intensity_score", 0) or 0) <= 0 and int(getattr(local_reps, "intensity_score", 0) or 0) > 0:
+                result.reps.intensity_score = int(getattr(local_reps, "intensity_score", 0) or 0)
+                result.reps.intensity_label = str(getattr(local_reps, "intensity_label", "indeterminee") or "indeterminee")
+                result.reps.avg_inter_rep_rest_s = float(getattr(local_reps, "avg_inter_rep_rest_s", 0.0) or 0.0)
+                result.reps.intensity_confidence = "local_cv_augmented"
+
+    try:
+        from analysis.biomechanics_advanced import compute_advanced_biomechanics
+
+        result.advanced = compute_advanced_biomechanics(
+            extraction=extraction,
+            angles=angles,
+            reps=result.reps or local_reps,
+            exercise=exercise_name,
+        )
+    except Exception as exc:
+        logger.debug("MiniMax local augmentation advanced failed: %s", exc)
+
+    try:
+        from analysis.biomechanics_levers import compute_lever_biomechanics
+
+        result.levers = compute_lever_biomechanics(
+            extraction=extraction,
+            angles=angles,
+            reps=result.reps or local_reps,
+            exercise=exercise_name,
+        )
+    except Exception as exc:
+        logger.debug("MiniMax local augmentation levers failed: %s", exc)
+
+    try:
+        validation_stub = VideoValidation(quality_score=70)
+        result.confidence = compute_confidence(
+            extraction=extraction,
+            validation=validation_stub,
+            reps=result.reps or local_reps,
+        )
+    except Exception as exc:
+        logger.debug("MiniMax local augmentation confidence failed: %s", exc)
+
+    if cfg.save_annotated_frames:
+        try:
+            result.annotated_frames = annotate_key_frames(
+                extraction=extraction,
+                angles=angles,
+                exercise=exercise_name,
+                output_dir=str(out_dir),
+            )
+        except Exception as exc:
+            logger.debug("MiniMax local augmentation annotation failed: %s", exc)
+
+    result.timings["minimax_local_augmentation"] = time.monotonic() - t0
+    logger.info(
+        "MiniMax local augmentation done in %.1fs.",
+        result.timings["minimax_local_augmentation"],
+    )
+
+
 def run_pipeline(
     video_path: str,
     config: PipelineConfig | None = None,
@@ -1260,6 +1414,16 @@ def run_pipeline(
             minimax_analysis = run_minimax_motion_coach(str(video))
             result = _apply_minimax_analysis_to_result(result, minimax_analysis)
             result.timings["minimax_motion_coach"] = time.monotonic() - t0_minimax
+            if cfg.minimax_local_augmentation:
+                try:
+                    _augment_minimax_with_local_metrics(
+                        video=video,
+                        out_dir=out_dir,
+                        cfg=cfg,
+                        result=result,
+                    )
+                except Exception as aug_exc:
+                    logger.warning("MiniMax local augmentation failed: %s", aug_exc)
             _notify_progress(cfg, 10, "MiniMax Motion Coach: rapport")
 
             if cfg.save_json:

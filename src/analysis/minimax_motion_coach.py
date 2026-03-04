@@ -15,9 +15,11 @@ import logging
 import mimetypes
 import os
 import re
+import sqlite3
+import subprocess
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
@@ -60,7 +62,9 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "  },\n"
     '  "report_markdown": "optionnel: rapport long deja sectionne"\n'
     "}\n"
-    "Contraintes: score sur 100, reps strictement comptees, intensite inclut le repos moyen inter-reps."
+    "Contraintes: score sur 100, reps strictement comptees, intensite inclut le repos moyen inter-reps.\n"
+    "Optimisation tokens: sois precis mais concis. Chaque section textuelle: 2 a 4 phrases maximum.\n"
+    "Ne renvoie aucune phrase hors JSON."
 )
 
 _INTENSITY_LABELS = (
@@ -114,6 +118,15 @@ def _load_settings():
             minimax_model_option = int(os.getenv("MINIMAX_MODEL_OPTION", "0"))
             minimax_prompt_template = os.getenv("MINIMAX_PROMPT_TEMPLATE", "")
             minimax_use_cloudscraper = _as_bool(os.getenv("MINIMAX_USE_CLOUDSCRAPER"), True)
+            minimax_enable_cache = _as_bool(os.getenv("MINIMAX_ENABLE_CACHE"), True)
+            minimax_cache_ttl_hours = int(os.getenv("MINIMAX_CACHE_TTL_HOURS", "168"))
+            minimax_cache_path = os.getenv("MINIMAX_CACHE_PATH", "media/minimax_cache.sqlite")
+            minimax_optimize_video = _as_bool(os.getenv("MINIMAX_OPTIMIZE_VIDEO"), True)
+            minimax_max_clip_s = int(os.getenv("MINIMAX_MAX_CLIP_S", "45"))
+            minimax_target_height = int(os.getenv("MINIMAX_TARGET_HEIGHT", "720"))
+            minimax_target_fps = int(os.getenv("MINIMAX_TARGET_FPS", "24"))
+            minimax_target_video_bitrate_kbps = int(os.getenv("MINIMAX_TARGET_VIDEO_BITRATE_KBPS", "1400"))
+            minimax_keep_audio = _as_bool(os.getenv("MINIMAX_KEEP_AUDIO"), False)
             minimax_user_agent = os.getenv("MINIMAX_USER_AGENT", _DEFAULT_USER_AGENT)
             minimax_cookie = os.getenv("MINIMAX_COOKIE", "")
 
@@ -153,6 +166,19 @@ class _UploadedAsset:
     file_url: str
     object_key: str
     upload_uuid: str
+
+
+@dataclass
+class _PreparedVideo:
+    path: str
+    temporary: bool = False
+    source_duration_s: float = 0.0
+    prepared_duration_s: float = 0.0
+    source_size_bytes: int = 0
+    prepared_size_bytes: int = 0
+    was_trimmed: bool = False
+    was_transcoded: bool = False
+    strategy: str = "original"
 
 
 def _json_body(payload: Any) -> str:
@@ -589,6 +615,342 @@ def _build_structured_report_text(analysis: MiniMaxAnalysis) -> str:
         lines.append("{}. {}".format(idx, action))
 
     return "\n".join(lines).strip()
+
+
+_CACHE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS minimax_cache (
+    video_hash TEXT NOT NULL,
+    prompt_hash TEXT NOT NULL,
+    model_option INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    last_used_at REAL NOT NULL,
+    hit_count INTEGER NOT NULL DEFAULT 0,
+    payload_json TEXT NOT NULL,
+    PRIMARY KEY (video_hash, prompt_hash, model_option)
+)
+"""
+
+
+def _cache_db_path() -> Path:
+    raw = str(getattr(settings, "minimax_cache_path", "") or "media/minimax_cache.sqlite")
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _open_cache_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(str(_cache_db_path()))
+    conn.execute(_CACHE_SCHEMA)
+    return conn
+
+
+def _analysis_to_payload(analysis: MiniMaxAnalysis) -> str:
+    return json.dumps(asdict(analysis), ensure_ascii=False)
+
+
+def _analysis_from_payload(payload_json: str) -> MiniMaxAnalysis | None:
+    try:
+        data = json.loads(payload_json)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        return MiniMaxAnalysis(**data)
+    except Exception:
+        return None
+
+
+def _cache_get(video_hash: str, prompt_hash: str) -> MiniMaxAnalysis | None:
+    if not _as_bool(getattr(settings, "minimax_enable_cache", True), True):
+        return None
+
+    ttl_h = max(1, int(getattr(settings, "minimax_cache_ttl_hours", 168) or 168))
+    now = time.time()
+    min_created_ts = now - (ttl_h * 3600)
+    model_option = int(getattr(settings, "minimax_model_option", 0) or 0)
+
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = _open_cache_db()
+        row = conn.execute(
+            """
+            SELECT payload_json
+            FROM minimax_cache
+            WHERE video_hash = ? AND prompt_hash = ? AND model_option = ? AND created_at >= ?
+            """,
+            (video_hash, prompt_hash, model_option, min_created_ts),
+        ).fetchone()
+        if not row:
+            return None
+        analysis = _analysis_from_payload(str(row[0]))
+        if analysis is None:
+            return None
+        conn.execute(
+            """
+            UPDATE minimax_cache
+            SET last_used_at = ?, hit_count = hit_count + 1
+            WHERE video_hash = ? AND prompt_hash = ? AND model_option = ?
+            """,
+            (now, video_hash, prompt_hash, model_option),
+        )
+        conn.commit()
+        analysis.metadata.update({"cache_hit": True})
+        return analysis
+    except Exception as exc:
+        logger.debug("MiniMax cache read failed: %s", exc)
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _cache_put(video_hash: str, prompt_hash: str, analysis: MiniMaxAnalysis) -> None:
+    if not _as_bool(getattr(settings, "minimax_enable_cache", True), True):
+        return
+    model_option = int(getattr(settings, "minimax_model_option", 0) or 0)
+    now = time.time()
+
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = _open_cache_db()
+        conn.execute(
+            """
+            INSERT INTO minimax_cache (
+                video_hash, prompt_hash, model_option, created_at, last_used_at, hit_count, payload_json
+            ) VALUES (?, ?, ?, ?, ?, 0, ?)
+            ON CONFLICT(video_hash, prompt_hash, model_option)
+            DO UPDATE SET
+                created_at = excluded.created_at,
+                last_used_at = excluded.last_used_at,
+                payload_json = excluded.payload_json
+            """,
+            (video_hash, prompt_hash, model_option, now, now, _analysis_to_payload(analysis)),
+        )
+        # Prune old entries for bounded cache growth.
+        ttl_h = max(1, int(getattr(settings, "minimax_cache_ttl_hours", 168) or 168))
+        min_created_ts = now - (ttl_h * 3600)
+        conn.execute("DELETE FROM minimax_cache WHERE created_at < ?", (min_created_ts,))
+        conn.commit()
+    except Exception as exc:
+        logger.debug("MiniMax cache write failed: %s", exc)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _video_stats(video_path: str) -> dict[str, float]:
+    stats = {
+        "duration_s": 0.0,
+        "fps": 0.0,
+        "total_frames": 0.0,
+        "width": 0.0,
+        "height": 0.0,
+    }
+    try:
+        import cv2  # type: ignore
+
+        cap = cv2.VideoCapture(video_path)
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        total_frames = float(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
+        width = float(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0.0)
+        height = float(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0.0)
+        cap.release()
+        duration = (total_frames / fps) if fps > 0 and total_frames > 0 else 0.0
+        stats.update(
+            {
+                "duration_s": duration,
+                "fps": fps,
+                "total_frames": total_frames,
+                "width": width,
+                "height": height,
+            }
+        )
+    except Exception as exc:
+        logger.debug("Video stats probe failed: %s", exc)
+    return stats
+
+
+def _detect_active_window(video_path: str) -> tuple[float, float] | None:
+    """Return (start_s, end_s) of likely active movement window."""
+    try:
+        import cv2  # type: ignore
+        import numpy as np
+
+        cap = cv2.VideoCapture(video_path)
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if fps <= 0 or total_frames < 30:
+            cap.release()
+            return None
+
+        # Sample up to ~280 frames to keep this pass cheap.
+        step = max(1, total_frames // 280)
+        motion_scores: list[float] = []
+        frame_ids: list[int] = []
+        prev: Any = None
+        for idx in range(0, total_frames, step):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gray = cv2.resize(gray, (160, 96))
+            if prev is not None:
+                diff = cv2.absdiff(gray, prev)
+                motion_scores.append(float(np.mean(diff)))
+                frame_ids.append(idx)
+            prev = gray
+        cap.release()
+
+        if len(motion_scores) < 12:
+            return None
+
+        arr = np.array(motion_scores, dtype=float)
+        baseline = float(np.percentile(arr, 60))
+        peak = float(np.percentile(arr, 95))
+        threshold = baseline + (peak - baseline) * 0.25
+        active_idx = np.where(arr >= threshold)[0]
+
+        if active_idx.size == 0:
+            peak_i = int(np.argmax(arr))
+            center = frame_ids[peak_i]
+            start_f = max(0, center - int(fps * 7))
+            end_f = min(total_frames - 1, center + int(fps * 10))
+        else:
+            start_f = frame_ids[int(active_idx[0])]
+            end_f = frame_ids[int(active_idx[-1])]
+            margin = int(fps * 1.5)
+            start_f = max(0, start_f - margin)
+            end_f = min(total_frames - 1, end_f + margin)
+
+        if end_f <= start_f:
+            return None
+        return float(start_f) / fps, float(end_f) / fps
+    except Exception as exc:
+        logger.debug("Active window detection failed: %s", exc)
+        return None
+
+
+def _prepare_video_for_minimax(video_path: str) -> _PreparedVideo:
+    src = Path(video_path)
+    src_size = src.stat().st_size if src.exists() else 0
+    stats = _video_stats(video_path)
+    src_duration = float(stats.get("duration_s", 0.0) or 0.0)
+    src_height = float(stats.get("height", 0.0) or 0.0)
+    src_fps = float(stats.get("fps", 0.0) or 0.0)
+
+    prepared = _PreparedVideo(
+        path=str(src),
+        temporary=False,
+        source_duration_s=src_duration,
+        prepared_duration_s=src_duration,
+        source_size_bytes=int(src_size),
+        prepared_size_bytes=int(src_size),
+        strategy="original",
+    )
+
+    if not _as_bool(getattr(settings, "minimax_optimize_video", True), True):
+        return prepared
+
+    max_clip_s = max(8, int(getattr(settings, "minimax_max_clip_s", 45) or 45))
+    target_height = max(360, int(getattr(settings, "minimax_target_height", 720) or 720))
+    target_fps = max(12, int(getattr(settings, "minimax_target_fps", 24) or 24))
+    target_bitrate = max(700, int(getattr(settings, "minimax_target_video_bitrate_kbps", 1400) or 1400))
+    keep_audio = _as_bool(getattr(settings, "minimax_keep_audio", False), False)
+
+    need_duration_opt = src_duration > (max_clip_s + 2)
+    need_resolution_opt = src_height > (target_height + 2)
+    need_fps_opt = src_fps > (target_fps + 1)
+    need_size_opt = src_size > (10 * 1024 * 1024)
+    if not any((need_duration_opt, need_resolution_opt, need_fps_opt, need_size_opt)):
+        return prepared
+
+    start_s = 0.0
+    end_s = src_duration if src_duration > 0 else 0.0
+    active_window = _detect_active_window(video_path)
+    if active_window:
+        start_s, end_s = active_window
+    window_duration = max(0.0, end_s - start_s)
+
+    if window_duration <= 0 and src_duration > 0:
+        start_s = 0.0
+        end_s = min(float(max_clip_s), src_duration)
+        window_duration = max(0.0, end_s - start_s)
+
+    if window_duration > max_clip_s and src_duration > 0:
+        center_s = (start_s + end_s) / 2.0
+        half = max_clip_s / 2.0
+        start_s = max(0.0, center_s - half)
+        end_s = min(src_duration, start_s + max_clip_s)
+        if (end_s - start_s) < max_clip_s:
+            start_s = max(0.0, end_s - max_clip_s)
+        window_duration = max(0.0, end_s - start_s)
+
+    if window_duration <= 0.1:
+        return prepared
+
+    out_dir = src.parent / "minimax_prepared"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "{}_minimax_{}.mp4".format(src.stem, uuid.uuid4().hex[:8])
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        "{:.3f}".format(start_s),
+        "-i",
+        str(src),
+        "-t",
+        "{:.3f}".format(window_duration),
+        "-vf",
+        "scale=-2:{}:force_original_aspect_ratio=decrease,fps={}".format(target_height, target_fps),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "24",
+        "-b:v",
+        "{}k".format(target_bitrate),
+        "-maxrate",
+        "{}k".format(int(target_bitrate * 1.2)),
+        "-bufsize",
+        "{}k".format(int(target_bitrate * 2.0)),
+        "-movflags",
+        "+faststart",
+    ]
+    if keep_audio:
+        cmd.extend(["-c:a", "aac", "-b:a", "96k"])
+    else:
+        cmd.append("-an")
+    cmd.append(str(out_path))
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if proc.returncode != 0 or not out_path.exists():
+            logger.warning(
+                "MiniMax preprocess failed (%s). Falling back to original.",
+                (proc.stderr or proc.stdout or "").strip()[:240],
+            )
+            return prepared
+        out_size = out_path.stat().st_size
+        prepared.path = str(out_path)
+        prepared.temporary = True
+        prepared.prepared_size_bytes = int(out_size)
+        prepared.prepared_duration_s = window_duration
+        prepared.was_trimmed = (start_s > 0.01) or ((src_duration - end_s) > 0.01)
+        prepared.was_transcoded = True
+        prepared.strategy = "trim_transcode"
+        return prepared
+    except Exception as exc:
+        logger.warning("MiniMax preprocess exception, using original: %s", exc)
+        return prepared
 
 
 def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
@@ -1163,6 +1525,26 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
     poll_interval = max(0.8, float(settings.minimax_poll_interval_s or 2.0))
 
     prompt = (settings.minimax_prompt_template or _DEFAULT_ANALYSIS_PROMPT).strip()
+    video_hash = _md5_file(Path(video_path))
+    prompt_hash = _md5_text(
+        "{}|{}|{}".format(
+            prompt,
+            int(getattr(settings, "minimax_model_option", 0) or 0),
+            "v2",
+        )
+    )
+    cached = _cache_get(video_hash, prompt_hash)
+    if cached is not None:
+        cached.metadata.update(
+            {
+                "video_hash": video_hash,
+                "prompt_hash": prompt_hash,
+                "cache_hit": True,
+            }
+        )
+        return cached
+
+    prepared = _prepare_video_for_minimax(video_path)
     client = _MiniMaxClient(timeout_s=timeout_s)
     start = time.monotonic()
 
@@ -1175,12 +1557,12 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         except Exception as exc:
             logger.warning("MiniMax baseline get_chat_detail failed (continuing): %s", exc)
 
-        asset = client.upload_video(video_path)
+        asset = client.upload_video(prepared.path)
         send_resp = client.send_video_message(
             chat_id=chat_id,
             prompt=prompt,
             asset=asset,
-            origin_file_name=Path(video_path).name,
+            origin_file_name=Path(prepared.path).name,
         )
         send_data = client.unwrap_data(send_resp)
         sent_chat_id = str(send_data.get("chat_id") or chat_id)
@@ -1221,10 +1603,26 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
                 "object_key": asset.object_key,
                 "elapsed_s": round(elapsed, 2),
                 "chat_status": last_chat_status,
+                "cache_hit": False,
+                "video_hash": video_hash,
+                "prompt_hash": prompt_hash,
+                "source_duration_s": round(float(prepared.source_duration_s), 2),
+                "prepared_duration_s": round(float(prepared.prepared_duration_s), 2),
+                "source_size_bytes": int(prepared.source_size_bytes),
+                "prepared_size_bytes": int(prepared.prepared_size_bytes),
+                "prepared_strategy": prepared.strategy,
+                "prepared_trimmed": bool(prepared.was_trimmed),
+                "prepared_transcoded": bool(prepared.was_transcoded),
             }
         )
         if not analysis.report_text:
             analysis.report_text = best_text
+        _cache_put(video_hash, prompt_hash, analysis)
         return analysis
     finally:
+        if prepared.temporary:
+            try:
+                Path(prepared.path).unlink(missing_ok=True)
+            except Exception:
+                pass
         client.close()

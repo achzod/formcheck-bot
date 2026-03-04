@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+import tempfile
 import types
 import unittest
 from urllib.parse import quote
@@ -15,9 +16,12 @@ from analysis.minimax_motion_coach import (
     _SIGNING_SECRET,
     _UploadedAsset,
     _YY_SUFFIX,
+    _cache_get,
+    _cache_put,
     _extract_agent_message,
     _parse_analysis_payload,
     MiniMaxAnalysis,
+    settings as minimax_settings,
 )
 from analysis.pipeline import PipelineResult, _apply_minimax_analysis_to_result
 
@@ -170,6 +174,37 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         self.assertEqual(out.reps.total_reps, 9)
         self.assertEqual(out.reps.intensity_score, 74)
         self.assertEqual(out.detection.exercise.value, "lat_pulldown")
+
+
+class MiniMaxCacheTests(unittest.TestCase):
+    def test_cache_roundtrip_returns_analysis(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_path = minimax_settings.minimax_cache_path
+            old_enabled = minimax_settings.minimax_enable_cache
+            old_ttl = minimax_settings.minimax_cache_ttl_hours
+            minimax_settings.minimax_cache_path = "{}/cache.sqlite".format(tmpdir)
+            minimax_settings.minimax_enable_cache = True
+            minimax_settings.minimax_cache_ttl_hours = 24
+            try:
+                analysis = MiniMaxAnalysis(
+                    exercise_slug="squat",
+                    exercise_display="Back Squat",
+                    score=82,
+                    reps_total=9,
+                    intensity_score=70,
+                    report_text="Test report",
+                )
+                _cache_put("video_hash_1", "prompt_hash_1", analysis)
+                loaded = _cache_get("video_hash_1", "prompt_hash_1")
+                self.assertIsNotNone(loaded)
+                assert loaded is not None
+                self.assertEqual(loaded.exercise_slug, "squat")
+                self.assertEqual(loaded.reps_total, 9)
+                self.assertTrue(bool(loaded.metadata.get("cache_hit")))
+            finally:
+                minimax_settings.minimax_cache_path = old_path
+                minimax_settings.minimax_enable_cache = old_enabled
+                minimax_settings.minimax_cache_ttl_hours = old_ttl
 
 
 class MiniMaxPayloadContractTests(unittest.TestCase):
