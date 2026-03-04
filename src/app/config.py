@@ -45,8 +45,10 @@ class Settings(BaseSettings):
     minimax_poll_interval_s: float = 2.0
     minimax_model_option: int = 0
     minimax_prompt_template: str = ""
-    minimax_fallback_to_local: bool = False
+    minimax_fallback_to_local: bool = True
     minimax_use_cloudscraper: bool = True
+    minimax_request_max_attempts: int = 3
+    minimax_retry_backoff_s: float = 1.0
     minimax_enable_cache: bool = True
     minimax_cache_ttl_hours: int = 168
     minimax_cache_path: str = "media/minimax_cache.sqlite"

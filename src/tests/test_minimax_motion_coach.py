@@ -7,6 +7,8 @@ import types
 import unittest
 from urllib.parse import quote
 
+import httpx
+
 # Keep pipeline imports testable without OpenCV runtime dependency.
 if "cv2" not in sys.modules:
     sys.modules["cv2"] = types.ModuleType("cv2")
@@ -19,6 +21,7 @@ from analysis.minimax_motion_coach import (
     _cache_get,
     _cache_put,
     _extract_agent_message,
+    _is_retryable_minimax_error,
     _parse_analysis_payload,
     MiniMaxAnalysis,
     settings as minimax_settings,
@@ -248,6 +251,56 @@ class MiniMaxPayloadContractTests(unittest.TestCase):
         self.assertNotIn("website_selection", payload)
         self.assertNotIn("backend_config", payload)
         self.assertNotIn("selected_mcp_tools", payload)
+
+
+class MiniMaxRetryTests(unittest.TestCase):
+    def test_retryable_error_classifier(self) -> None:
+        self.assertTrue(_is_retryable_minimax_error(TimeoutError("timeout")))
+        self.assertTrue(_is_retryable_minimax_error(RuntimeError("MiniMax HTTP 503: upstream")))
+        self.assertTrue(_is_retryable_minimax_error(RuntimeError("MiniMax HTTP 429: rate limited")))
+        self.assertFalse(
+            _is_retryable_minimax_error(
+                RuntimeError("MiniMax API error 1400010161: not enough credits")
+            )
+        )
+        self.assertFalse(
+            _is_retryable_minimax_error(
+                RuntimeError("MiniMax configuration incomplete: minimax_token")
+            )
+        )
+
+    def test_request_retries_on_transient_timeout(self) -> None:
+        client = _MiniMaxClient(timeout_s=5)
+        client._request_max_attempts = 2  # type: ignore[attr-defined]
+        client._retry_backoff_s = 0.01  # type: ignore[attr-defined]
+        calls = {"count": 0}
+
+        class _FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def raise_for_status() -> None:
+                return None
+
+            @staticmethod
+            def json() -> dict:
+                return {"data": {"ok": True}}
+
+        def _fake_request(**kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise httpx.ReadTimeout("boom")
+            return _FakeResponse()
+
+        client.client.request = _fake_request  # type: ignore[assignment]
+        client._ensure_scraper = lambda: None  # type: ignore[assignment]
+        try:
+            out = client.request("GET", "/matrix/api/v1/chat/get_chat_detail")
+        finally:
+            client.close()
+
+        self.assertEqual(calls["count"], 2)
+        self.assertEqual(out.get("data", {}).get("ok"), True)
 
 
 if __name__ == "__main__":

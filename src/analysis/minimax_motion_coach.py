@@ -74,6 +74,7 @@ _INTENSITY_LABELS = (
     ("faible", 40),
     ("tres faible", 0),
 )
+_RETRYABLE_HTTP_STATUSES = {403, 408, 409, 425, 429, 500, 502, 503, 504}
 
 
 def _as_bool(raw: Any, default: bool = False) -> bool:
@@ -117,7 +118,10 @@ def _load_settings():
             minimax_poll_interval_s = float(os.getenv("MINIMAX_POLL_INTERVAL_S", "2"))
             minimax_model_option = int(os.getenv("MINIMAX_MODEL_OPTION", "0"))
             minimax_prompt_template = os.getenv("MINIMAX_PROMPT_TEMPLATE", "")
+            minimax_fallback_to_local = _as_bool(os.getenv("MINIMAX_FALLBACK_TO_LOCAL"), True)
             minimax_use_cloudscraper = _as_bool(os.getenv("MINIMAX_USE_CLOUDSCRAPER"), True)
+            minimax_request_max_attempts = int(os.getenv("MINIMAX_REQUEST_MAX_ATTEMPTS", "3"))
+            minimax_retry_backoff_s = float(os.getenv("MINIMAX_RETRY_BACKOFF_S", "1.0"))
             minimax_enable_cache = _as_bool(os.getenv("MINIMAX_ENABLE_CACHE"), True)
             minimax_cache_ttl_hours = int(os.getenv("MINIMAX_CACHE_TTL_HOURS", "168"))
             minimax_cache_path = os.getenv("MINIMAX_CACHE_PATH", "media/minimax_cache.sqlite")
@@ -214,6 +218,64 @@ def _coerce_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return default
+
+
+def _extract_http_status(exc: Exception) -> int | None:
+    if isinstance(exc, httpx.HTTPStatusError):
+        try:
+            return int(exc.response.status_code)
+        except Exception:
+            return None
+    raw = str(exc or "")
+    match = re.search(r"\bHTTP\s+(\d{3})\b", raw, flags=re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except Exception:
+        return None
+
+
+def _is_retryable_minimax_error(exc: Exception) -> bool:
+    if isinstance(
+        exc,
+        (
+            TimeoutError,
+            httpx.TimeoutException,
+            httpx.ConnectError,
+            httpx.ReadError,
+            httpx.RemoteProtocolError,
+        ),
+    ):
+        return True
+
+    status = _extract_http_status(exc)
+    if status in _RETRYABLE_HTTP_STATUSES:
+        return True
+
+    raw = str(exc or "").strip().lower()
+    if not raw:
+        return False
+
+    # Hard failures should not be retried.
+    if "not enough credits" in raw or "1400010161" in raw:
+        return False
+    if "configuration incomplete" in raw:
+        return False
+
+    retryable_markers = (
+        "timeout",
+        "timed out",
+        "temporarily unavailable",
+        "service unavailable",
+        "bad gateway",
+        "gateway timeout",
+        "connection reset",
+        "connection aborted",
+        "network",
+        "transport failed",
+    )
+    return any(marker in raw for marker in retryable_markers)
 
 
 def _slugify(value: str) -> str:
@@ -1184,6 +1246,14 @@ class _MiniMaxClient:
     def __init__(self, timeout_s: float = 120.0):
         self.base_url = settings.minimax_base_url.rstrip("/")
         self.timeout_s = timeout_s
+        self._request_max_attempts = max(
+            1,
+            int(getattr(settings, "minimax_request_max_attempts", 3) or 3),
+        )
+        self._retry_backoff_s = max(
+            0.2,
+            float(getattr(settings, "minimax_retry_backoff_s", 1.0) or 1.0),
+        )
         user_agent = str(getattr(settings, "minimax_user_agent", "") or _DEFAULT_USER_AGENT)
         self.client = httpx.Client(
             timeout=timeout_s,
@@ -1315,80 +1385,102 @@ class _MiniMaxClient:
         *,
         payload: Any | None = None,
     ) -> dict[str, Any]:
-        unix_ms = int(time.time()) * 1000
-        params = self._query_params(unix_ms)
-        body_json = _json_body(payload)
-        headers = self._signed_headers(path, params, body_json, unix_ms)
-        url = "{}{}".format(self.base_url, path)
-        cookie_header = self._cookie_header()
-        if cookie_header:
-            headers["Cookie"] = cookie_header
+        last_exc: Exception | None = None
 
-        kwargs: dict[str, Any] = {
-            "method": method.upper(),
-            "url": url,
-            "params": params,
-            "headers": headers,
-        }
-        if method.upper() != "GET":
-            kwargs["content"] = body_json
+        for attempt in range(1, self._request_max_attempts + 1):
+            try:
+                unix_ms = int(time.time()) * 1000
+                params = self._query_params(unix_ms)
+                body_json = _json_body(payload)
+                headers = self._signed_headers(path, params, body_json, unix_ms)
+                url = "{}{}".format(self.base_url, path)
+                cookie_header = self._cookie_header()
+                if cookie_header:
+                    headers["Cookie"] = cookie_header
 
-        httpx_response: Any | None = None
-        try:
-            httpx_response = self.client.request(**kwargs)
-        except Exception as exc:
-            logger.warning("MiniMax httpx request failed, trying cloudscraper: %s", exc)
-
-        needs_scraper = (
-            httpx_response is None
-            or int(getattr(httpx_response, "status_code", 0) or 0) == HTTPStatus.FORBIDDEN
-        )
-
-        response_obj: Any
-        if needs_scraper:
-            scraper = self._ensure_scraper()
-            if scraper is None:
-                if httpx_response is None:
-                    raise RuntimeError("MiniMax transport failed and cloudscraper unavailable")
-                httpx_response.raise_for_status()
-                response_obj = httpx_response
-            else:
-                request_kwargs: dict[str, Any] = {
+                kwargs: dict[str, Any] = {
                     "method": method.upper(),
                     "url": url,
                     "params": params,
                     "headers": headers,
-                    "timeout": self.timeout_s,
                 }
                 if method.upper() != "GET":
-                    request_kwargs["data"] = body_json
-                response_obj = scraper.request(**request_kwargs)
-                status_code = int(getattr(response_obj, "status_code", 0) or 0)
-                if status_code >= HTTPStatus.BAD_REQUEST:
-                    snippet = str(getattr(response_obj, "text", "") or "").strip().replace("\n", " ")
-                    if len(snippet) > 240:
-                        snippet = snippet[:240]
-                    raise RuntimeError("MiniMax HTTP {}: {}".format(status_code, snippet))
-        else:
-            httpx_response.raise_for_status()
-            response_obj = httpx_response
+                    kwargs["content"] = body_json
 
-        data = response_obj.json()
-        base_resp = data.get("base_resp", {})
-        if isinstance(base_resp, dict):
-            status_code = int(base_resp.get("status_code", 0) or 0)
-            if status_code != 0:
-                status_msg = str(base_resp.get("status_msg", "minimax error"))
-                raise RuntimeError("MiniMax API error {}: {}".format(status_code, status_msg))
+                httpx_response: Any | None = None
+                try:
+                    httpx_response = self.client.request(**kwargs)
+                except Exception as exc:
+                    logger.warning("MiniMax httpx request failed, trying cloudscraper: %s", exc)
 
-        status_info = data.get("statusInfo", {})
-        if isinstance(status_info, dict):
-            code = int(status_info.get("code", 0) or 0)
-            if code != 0:
-                msg = str(status_info.get("msg", "minimax error"))
-                raise RuntimeError("MiniMax API error {}: {}".format(code, msg))
+                needs_scraper = (
+                    httpx_response is None
+                    or int(getattr(httpx_response, "status_code", 0) or 0) == HTTPStatus.FORBIDDEN
+                )
 
-        return data
+                response_obj: Any
+                if needs_scraper:
+                    scraper = self._ensure_scraper()
+                    if scraper is None:
+                        if httpx_response is None:
+                            raise RuntimeError("MiniMax transport failed and cloudscraper unavailable")
+                        httpx_response.raise_for_status()
+                        response_obj = httpx_response
+                    else:
+                        request_kwargs: dict[str, Any] = {
+                            "method": method.upper(),
+                            "url": url,
+                            "params": params,
+                            "headers": headers,
+                            "timeout": self.timeout_s,
+                        }
+                        if method.upper() != "GET":
+                            request_kwargs["data"] = body_json
+                        response_obj = scraper.request(**request_kwargs)
+                        status_code = int(getattr(response_obj, "status_code", 0) or 0)
+                        if status_code >= HTTPStatus.BAD_REQUEST:
+                            snippet = str(getattr(response_obj, "text", "") or "").strip().replace("\n", " ")
+                            if len(snippet) > 240:
+                                snippet = snippet[:240]
+                            raise RuntimeError("MiniMax HTTP {}: {}".format(status_code, snippet))
+                else:
+                    httpx_response.raise_for_status()
+                    response_obj = httpx_response
+
+                data = response_obj.json()
+                base_resp = data.get("base_resp", {})
+                if isinstance(base_resp, dict):
+                    status_code = int(base_resp.get("status_code", 0) or 0)
+                    if status_code != 0:
+                        status_msg = str(base_resp.get("status_msg", "minimax error"))
+                        raise RuntimeError("MiniMax API error {}: {}".format(status_code, status_msg))
+
+                status_info = data.get("statusInfo", {})
+                if isinstance(status_info, dict):
+                    code = int(status_info.get("code", 0) or 0)
+                    if code != 0:
+                        msg = str(status_info.get("msg", "minimax error"))
+                        raise RuntimeError("MiniMax API error {}: {}".format(code, msg))
+
+                return data
+            except Exception as exc:
+                last_exc = exc
+                retryable = _is_retryable_minimax_error(exc)
+                if (not retryable) or attempt >= self._request_max_attempts:
+                    raise
+                delay_s = self._retry_backoff_s * (2 ** (attempt - 1))
+                logger.warning(
+                    "MiniMax request retry %d/%d after error: %s (sleep %.1fs)",
+                    attempt,
+                    self._request_max_attempts,
+                    exc,
+                    delay_s,
+                )
+                time.sleep(delay_s)
+
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("MiniMax request failed unexpectedly")
 
     @staticmethod
     def unwrap_data(response: dict[str, Any]) -> dict[str, Any]:

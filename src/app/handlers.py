@@ -626,26 +626,19 @@ async def _run_analysis(
             morpho_profile=morpho_data,
             progress_callback=_progress_cb,
             use_minimax_motion_coach=app_settings.minimax_enabled,
-            minimax_fallback_to_local=app_settings.minimax_fallback_to_local,
+            # Fail-open obligatoire: si MiniMax plante, on bascule localement
+            # sans jamais exposer une erreur MiniMax au client WhatsApp.
+            minimax_fallback_to_local=True,
             minimax_local_augmentation=app_settings.minimax_local_augmentation,
         )
         result: PipelineResult = await run_pipeline_async(video_path, config)
 
-        # Retry strategy (iteration 2):
-        # if MiniMax-first path fails, force a local deterministic retry once
-        # to still deliver a report instead of a technical error.
+        # Filet de securite supplementaire:
+        # meme si le fail-open interne n'a pas suffi, on relance un passage local.
         if (
             (not result.success or not result.report)
             and app_settings.minimax_enabled
-            and not app_settings.minimax_fallback_to_local
         ):
-            try:
-                await wa.send_text(
-                    phone,
-                    "MiniMax indisponible sur cette video. Je relance une analyse locale de secours...",
-                )
-            except Exception:
-                pass
             try:
                 local_config = PipelineConfig(
                     save_annotated_frames=True,
@@ -659,19 +652,19 @@ async def _run_analysis(
                 local_result: PipelineResult = await run_pipeline_async(video_path, local_config)
                 if local_result.success and local_result.report:
                     logger.warning(
-                        "Local rescue succeeded after MiniMax failure (analysis_id=%s)",
+                        "Deterministic local rescue succeeded (analysis_id=%s)",
                         analysis_id,
                     )
                     result = local_result
                 else:
                     logger.error(
-                        "Local rescue failed after MiniMax failure (analysis_id=%s errors=%s)",
+                        "Deterministic local rescue failed (analysis_id=%s errors=%s)",
                         analysis_id,
                         local_result.errors,
                     )
             except Exception:
                 logger.exception(
-                    "Local rescue exception after MiniMax failure (analysis_id=%s)",
+                    "Deterministic local rescue exception (analysis_id=%s)",
                     analysis_id,
                 )
 

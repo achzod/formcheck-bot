@@ -90,34 +90,6 @@ _USER_ERRORS = {
     ),
 }
 
-
-def _minimax_user_message(error_text: str) -> str:
-    raw = (error_text or "").strip().lower()
-    if not raw:
-        return _USER_ERRORS["report_failed"]
-    if "not enough credits" in raw or "1400010161" in raw:
-        return (
-            "MiniMax a refuse l'analyse: credits insuffisants sur le compte MiniMax. "
-            "Recharge les credits puis renvoie la video."
-        )
-    if "configuration incomplete" in raw:
-        return (
-            "MiniMax n'est pas configure correctement (token/user/chat). "
-            "Mets a jour les variables MINIMAX_* puis relance."
-        )
-    if "forbidden" in raw or "403" in raw:
-        return (
-            "MiniMax a refuse l'acces (403). "
-            "Reconnecte le compte MiniMax ou verifie token/cookie, puis reessaie."
-        )
-    if "timeout" in raw:
-        return (
-            "MiniMax n'a pas repondu a temps. "
-            "Reessaie avec une video plus courte ou un peu plus tard."
-        )
-    return _USER_ERRORS["report_failed"]
-
-
 _GEMINI_EXERCISE_ALIASES: dict[str, str] = {
     "dumbbell_bicep_curl": "dumbbell_curl",
     "dumbbell_biceps_curl": "dumbbell_curl",
@@ -169,7 +141,7 @@ class PipelineConfig:
     """Configuration du pipeline."""
     # Provider
     use_minimax_motion_coach: bool = False
-    minimax_fallback_to_local: bool = False
+    minimax_fallback_to_local: bool = True
     minimax_local_augmentation: bool = True
 
     # Validation
@@ -1448,10 +1420,11 @@ def run_pipeline(
             result.errors.append(f"MiniMax Motion Coach échoué: {e}")
             logger.error("MiniMax Motion Coach échoué: %s", e, exc_info=True)
             if not cfg.minimax_fallback_to_local:
-                result.user_messages.append(_minimax_user_message(str(e)))
-                result.total_time = time.monotonic() - pipeline_start
-                return result
-            logger.warning("Fallback vers pipeline local après échec MiniMax.")
+                logger.warning(
+                    "MiniMax fallback desactive, mais fail-open force: on continue en local."
+                )
+            else:
+                logger.warning("Fallback vers pipeline local après échec MiniMax.")
 
     # ── Étape 1 : Validation vidéo ──────────────────────────────────────
     if not cfg.skip_validation:
