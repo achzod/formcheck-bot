@@ -631,6 +631,50 @@ async def _run_analysis(
         )
         result: PipelineResult = await run_pipeline_async(video_path, config)
 
+        # Retry strategy (iteration 2):
+        # if MiniMax-first path fails, force a local deterministic retry once
+        # to still deliver a report instead of a technical error.
+        if (
+            (not result.success or not result.report)
+            and app_settings.minimax_enabled
+            and not app_settings.minimax_fallback_to_local
+        ):
+            try:
+                await wa.send_text(
+                    phone,
+                    "MiniMax indisponible sur cette video. Je relance une analyse locale de secours...",
+                )
+            except Exception:
+                pass
+            try:
+                local_config = PipelineConfig(
+                    save_annotated_frames=True,
+                    save_json=True,
+                    morpho_profile=morpho_data,
+                    progress_callback=_progress_cb,
+                    use_minimax_motion_coach=False,
+                    minimax_fallback_to_local=False,
+                    minimax_local_augmentation=app_settings.minimax_local_augmentation,
+                )
+                local_result: PipelineResult = await run_pipeline_async(video_path, local_config)
+                if local_result.success and local_result.report:
+                    logger.warning(
+                        "Local rescue succeeded after MiniMax failure (analysis_id=%s)",
+                        analysis_id,
+                    )
+                    result = local_result
+                else:
+                    logger.error(
+                        "Local rescue failed after MiniMax failure (analysis_id=%s errors=%s)",
+                        analysis_id,
+                        local_result.errors,
+                    )
+            except Exception:
+                logger.exception(
+                    "Local rescue exception after MiniMax failure (analysis_id=%s)",
+                    analysis_id,
+                )
+
         if not result.success or not result.report:
             logger.error(
                 "Pipeline failed for analysis_id=%s errors=%s",
@@ -752,6 +796,7 @@ async def _run_analysis(
             "*{exercise}* — *{score}/100*"
             "{reps_line}"
             "{intensity_line}\n\n"
+            "Rapport HTML:\n"
             "{report_url}"
             "{credits_line}"
         ).format(
@@ -762,7 +807,22 @@ async def _run_analysis(
             report_url=report_url,
             credits_line=credits_line,
         )
-        await wa.send_text(phone, short_msg)
+        try:
+            await wa.send_text(phone, short_msg)
+        except Exception:
+            logger.exception(
+                "Primary WhatsApp report message failed (analysis_id=%s). Retrying minimal link message.",
+                analysis_id,
+            )
+            minimal_msg = (
+                "*{exercise}* — *{score}/100*\n\n"
+                "Rapport HTML:\n{report_url}"
+            ).format(
+                exercise=exercise,
+                score=score,
+                report_url=report_url,
+            )
+            await wa.send_text(phone, minimal_msg)
 
         # Only send annotated frame if confidence is high enough
         # Low confidence = likely wrong person tracked = embarrassing
