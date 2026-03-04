@@ -44,6 +44,7 @@ from analysis.fusion_utils import (
     select_reference_rep_count,
 )
 from analysis.frame_annotator import annotate_key_frames
+from analysis.minimax_motion_coach import MiniMaxAnalysis, run_minimax_motion_coach
 from analysis.pose_extractor import (
     ExtractionResult,
     extract_pose,
@@ -88,6 +89,34 @@ _USER_ERRORS = {
         "contacte le support."
     ),
 }
+
+
+def _minimax_user_message(error_text: str) -> str:
+    raw = (error_text or "").strip().lower()
+    if not raw:
+        return _USER_ERRORS["report_failed"]
+    if "not enough credits" in raw or "1400010161" in raw:
+        return (
+            "MiniMax a refuse l'analyse: credits insuffisants sur le compte MiniMax. "
+            "Recharge les credits puis renvoie la video."
+        )
+    if "configuration incomplete" in raw:
+        return (
+            "MiniMax n'est pas configure correctement (token/user/chat). "
+            "Mets a jour les variables MINIMAX_* puis relance."
+        )
+    if "forbidden" in raw or "403" in raw:
+        return (
+            "MiniMax a refuse l'acces (403). "
+            "Reconnecte le compte MiniMax ou verifie token/cookie, puis reessaie."
+        )
+    if "timeout" in raw:
+        return (
+            "MiniMax n'a pas repondu a temps. "
+            "Reessaie avec une video plus courte ou un peu plus tard."
+        )
+    return _USER_ERRORS["report_failed"]
+
 
 _GEMINI_EXERCISE_ALIASES: dict[str, str] = {
     "dumbbell_bicep_curl": "dumbbell_curl",
@@ -138,6 +167,10 @@ TOTAL_STEPS = 11
 @dataclass
 class PipelineConfig:
     """Configuration du pipeline."""
+    # Provider
+    use_minimax_motion_coach: bool = False
+    minimax_fallback_to_local: bool = False
+
     # Validation
     skip_validation: bool = False
     min_duration: float = 3.0
@@ -1114,6 +1147,76 @@ def _append_rules_db_detection_candidates(
     detection.top_candidates = detection.top_candidates[: max(1, int(limit))]
 
 
+def _apply_minimax_analysis_to_result(
+    result: PipelineResult,
+    analysis: MiniMaxAnalysis,
+) -> PipelineResult:
+    """Map MiniMax structured output to the internal PipelineResult schema."""
+    raw_name = analysis.exercise_slug or analysis.exercise_display
+    mapped_name = _map_model_exercise_name(raw_name)
+
+    try:
+        exercise_enum = Exercise(mapped_name)
+    except ValueError:
+        exercise_enum = Exercise.UNKNOWN
+
+    detection = DetectionResult(
+        exercise=exercise_enum,
+        confidence=max(0.0, min(1.0, float(analysis.exercise_confidence or 0.0))),
+        reasoning="[MiniMax Motion Coach] analyse vision complete",
+    )
+    detection.top_candidates = [
+        {
+            "exercise": exercise_enum.value,
+            "display_name": analysis.exercise_display or detection.display_name,
+            "source": "minimax_motion_coach",
+            "confidence": round(float(detection.confidence), 3),
+            "score": round(float(detection.confidence), 3),
+        }
+    ]
+    result.detection = detection
+
+    rep_seg = RepSegmentation()
+    rep_seg.total_reps = max(0, int(analysis.reps_total or 0))
+    rep_seg.complete_reps = max(0, int(analysis.reps_complete or rep_seg.total_reps))
+    rep_seg.partial_reps = max(0, int(analysis.reps_partial or max(0, rep_seg.total_reps - rep_seg.complete_reps)))
+    try:
+        _intensity_score = int(float(analysis.intensity_score))
+    except Exception:
+        _intensity_score = 0
+    rep_seg.intensity_score = max(0, min(100, _intensity_score))
+    rep_seg.intensity_label = str(analysis.intensity_label or "indeterminee")
+    rep_seg.avg_inter_rep_rest_s = max(0.0, float(analysis.avg_inter_rep_rest_s or 0.0))
+    rep_seg.median_inter_rep_rest_s = rep_seg.avg_inter_rep_rest_s
+    rep_seg.max_inter_rep_rest_s = rep_seg.avg_inter_rep_rest_s
+    rep_seg.intensity_confidence = "moderee"
+    rep_seg.rest_measure_method = "minimax_motion_coach"
+    result.reps = rep_seg
+
+    try:
+        _score = int(float(analysis.score))
+    except Exception:
+        _score = 0
+    score = max(0, min(100, _score))
+    display_name = analysis.exercise_display or detection.display_name
+    report_text = (analysis.report_text or analysis.raw_response or "").strip()
+    if not report_text:
+        report_text = "Analyse MiniMax terminee."
+
+    result.report = Report(
+        exercise=exercise_enum.value,
+        exercise_display=display_name,
+        score=score,
+        report_text=report_text,
+        positives=analysis.positives,
+        corrections=analysis.corrections,
+        score_breakdown=analysis.score_breakdown,
+        raw_llm_response=analysis.raw_response,
+        model_used=analysis.model_used,
+    )
+    return result
+
+
 def run_pipeline(
     video_path: str,
     config: PipelineConfig | None = None,
@@ -1135,6 +1238,44 @@ def run_pipeline(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     result = PipelineResult(video_path=str(video), output_dir=str(out_dir))
+
+    # ── Provider prioritaire : MiniMax Motion Coach ─────────────────────
+    if cfg.use_minimax_motion_coach:
+        logger.info("Provider MiniMax Motion Coach active — tentative d'analyse externe.")
+        _notify_progress(cfg, 5, "MiniMax Motion Coach: analyse")
+        t0_minimax = time.monotonic()
+        try:
+            minimax_analysis = run_minimax_motion_coach(str(video))
+            result = _apply_minimax_analysis_to_result(result, minimax_analysis)
+            result.timings["minimax_motion_coach"] = time.monotonic() - t0_minimax
+            _notify_progress(cfg, 10, "MiniMax Motion Coach: rapport")
+
+            if cfg.save_json:
+                try:
+                    json_data = pipeline_result_to_dict(result)
+                    json_path = out_dir / "analysis_result.json"
+                    with open(json_path, "w", encoding="utf-8") as f:
+                        json.dump(json_data, f, ensure_ascii=False, indent=2)
+                    result.json_path = str(json_path)
+                except Exception as e:
+                    result.errors.append(f"Sauvegarde JSON échouée: {e}")
+
+            result.success = result.report is not None
+            result.total_time = time.monotonic() - pipeline_start
+            logger.info(
+                "Pipeline MiniMax terminé en %.1fs (succès: %s)",
+                result.total_time,
+                result.success,
+            )
+            return result
+        except Exception as e:
+            result.errors.append(f"MiniMax Motion Coach échoué: {e}")
+            logger.error("MiniMax Motion Coach échoué: %s", e, exc_info=True)
+            if not cfg.minimax_fallback_to_local:
+                result.user_messages.append(_minimax_user_message(str(e)))
+                result.total_time = time.monotonic() - pipeline_start
+                return result
+            logger.warning("Fallback vers pipeline local après échec MiniMax.")
 
     # ── Étape 1 : Validation vidéo ──────────────────────────────────────
     if not cfg.skip_validation:

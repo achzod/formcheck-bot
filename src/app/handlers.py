@@ -625,6 +625,8 @@ async def _run_analysis(
             save_json=True,
             morpho_profile=morpho_data,
             progress_callback=_progress_cb,
+            use_minimax_motion_coach=app_settings.minimax_enabled,
+            minimax_fallback_to_local=app_settings.minimax_fallback_to_local,
         )
         result: PipelineResult = await run_pipeline_async(video_path, config)
 

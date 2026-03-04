@@ -16,6 +16,43 @@ class Settings(BaseSettings):
     # LLM APIs
     openai_api_key: str = ""
     anthropic_api_key: str = ""
+    gemini_api_key: str = ""
+
+    # MiniMax Motion Coach
+    minimax_enabled: bool = True
+    minimax_base_url: str = "https://agent.minimax.io"
+    minimax_token: str = ""
+    minimax_user_id: str = ""
+    minimax_device_id: str = ""
+    minimax_uuid: str = ""
+    minimax_chat_id: str = ""
+    minimax_chat_type: int = 2
+    minimax_lang: str = "en"
+    minimax_browser_language: str = "fr-FR"
+    minimax_os_name: str = "Mac"
+    minimax_browser_name: str = "chrome"
+    minimax_browser_platform: str = "MacIntel"
+    minimax_device_memory: int = 8
+    minimax_cpu_core_num: int = 8
+    minimax_screen_width: int = 1920
+    minimax_screen_height: int = 1080
+    minimax_app_id: int = 3001
+    minimax_version_code: int = 22201
+    minimax_biz_id: int = 3
+    minimax_client: str = "web"
+    minimax_timezone_offset: int = 0
+    minimax_timeout_s: int = 180
+    minimax_poll_interval_s: float = 2.0
+    minimax_model_option: int = 0
+    minimax_prompt_template: str = ""
+    minimax_fallback_to_local: bool = False
+    minimax_use_cloudscraper: bool = True
+    minimax_user_agent: str = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/145.0.0.0 Safari/537.36"
+    )
+    minimax_cookie: str = ""
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./formcheck.db"
