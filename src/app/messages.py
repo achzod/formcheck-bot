@@ -314,6 +314,11 @@ ERROR_ANALYSIS_FAILED = (
     "Essaie de renvoyer la video. Si ca persiste, tape *guide*."
 )
 
+ERROR_MINIMAX_UNAVAILABLE = (
+    "Analyse MiniMax temporairement indisponible sur cette video.\n"
+    "Reessaie dans quelques instants."
+)
+
 ERROR_VIDEO_QUALITY = (
     "La qualite de cette video ne permet pas une analyse fiable.\n\n"
     "{errors}\n\n"

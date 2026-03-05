@@ -148,6 +148,7 @@ class PipelineConfig:
     # Provider
     use_minimax_motion_coach: bool = False
     minimax_fallback_to_local: bool = True
+    minimax_strict_source: bool = True
     minimax_local_augmentation: bool = False
 
     # Validation
@@ -334,6 +335,62 @@ def _map_model_exercise_name(raw_name: str | None) -> str:
         return "lateral_raise"
 
     return name
+
+
+_EXERCISE_VALUES = {ex.value for ex in Exercise}
+
+
+def _map_minimax_exercise_name(slug: str | None, display_name: str | None) -> str:
+    """Minimal mapping for MiniMax outputs.
+
+    Principle:
+    - Trust MiniMax slug when already supported.
+    - Use only explicit low-risk aliases.
+    - Avoid broad heuristic remaps/rules-db in MiniMax path.
+    """
+    slug_norm = _normalize_exercise_name(slug)
+    display_norm = _normalize_exercise_name(display_name)
+    chest_tokens = ("chest", "pector", "pec", "poitrine")
+    leg_tokens = ("leg", "cuisse", "jamb", "quad")
+    if slug_norm == "leg_press" and any(token in display_norm for token in chest_tokens):
+        return "machine_chest_press"
+    if slug_norm in {"bench_press", "machine_chest_press"} and any(token in display_norm for token in leg_tokens):
+        return "leg_press"
+    if slug_norm in _EXERCISE_VALUES:
+        return slug_norm
+
+    explicit_aliases = {
+        "chest_press": "machine_chest_press",
+        "machine_press": "machine_chest_press",
+        "seated_chest_press": "machine_chest_press",
+        "military_press": "ohp",
+        "overhead_press": "ohp",
+        "lat_pull_down": "lat_pulldown",
+        "lat_pulldown": "lat_pulldown",
+        "cable_row": "cable_row",
+        "barbell_row": "barbell_row",
+        "bent_over_row": "barbell_row",
+    }
+    if slug_norm in explicit_aliases:
+        return explicit_aliases[slug_norm]
+
+    if not display_norm:
+        return ""
+    if "chest" in display_norm and "press" in display_norm:
+        return "machine_chest_press"
+    if ("pector" in display_norm or "poitrine" in display_norm) and "press" in display_norm:
+        return "machine_chest_press"
+    if "leg" in display_norm and "press" in display_norm:
+        return "leg_press"
+    if "presse_a_cuisses" in display_norm:
+        return "leg_press"
+    if "lat" in display_norm and ("pulldown" in display_norm or "tirage_vertical" in display_norm):
+        return "lat_pulldown"
+    if "overhead" in display_norm and "press" in display_norm:
+        return "ohp"
+    if "military" in display_norm and "press" in display_norm:
+        return "ohp"
+    return ""
 
 
 def _exercise_group(exercise_name: str) -> str:
@@ -1151,21 +1208,13 @@ def _apply_minimax_analysis_to_result(
     analysis: MiniMaxAnalysis,
 ) -> PipelineResult:
     """Map MiniMax structured output to the internal PipelineResult schema."""
-    raw_name = analysis.exercise_slug or analysis.exercise_display
-    mapped_name = _map_model_exercise_name(raw_name)
-
-    # Contradiction guard: if slug says lower-body press but display says chest/pectoral press,
-    # trust the human-readable display from MiniMax.
-    display_norm = _normalize_exercise_name(analysis.exercise_display)
-    if mapped_name == "leg_press" and any(token in display_norm for token in ("chest", "pector", "pec", "poitrine")):
-        mapped_name = "machine_chest_press"
-    if mapped_name in {"bench_press", "machine_chest_press"} and any(
-        token in display_norm for token in ("leg_press", "presse_a_cuisses", "jamb", "quad")
-    ):
-        mapped_name = "leg_press"
+    mapped_name = _map_minimax_exercise_name(
+        analysis.exercise_slug,
+        analysis.exercise_display,
+    )
 
     try:
-        exercise_enum = Exercise(mapped_name)
+        exercise_enum = Exercise(mapped_name) if mapped_name else Exercise.UNKNOWN
     except ValueError:
         exercise_enum = Exercise.UNKNOWN
 
@@ -1455,12 +1504,17 @@ def run_pipeline(
         except Exception as e:
             result.errors.append(f"MiniMax Motion Coach échoué: {e}")
             logger.error("MiniMax Motion Coach échoué: %s", e, exc_info=True)
-            if not cfg.minimax_fallback_to_local:
-                logger.warning(
-                    "MiniMax fallback desactive, mais fail-open force: on continue en local."
+            if cfg.minimax_strict_source:
+                result.user_messages.append(
+                    "Analyse MiniMax indisponible sur cette video. Reessaie dans quelques instants."
                 )
-            else:
+                result.total_time = time.monotonic() - pipeline_start
+                return result
+            if cfg.minimax_fallback_to_local:
                 logger.warning("Fallback vers pipeline local après échec MiniMax.")
+            else:
+                result.total_time = time.monotonic() - pipeline_start
+                return result
 
     # ── Étape 1 : Validation vidéo ──────────────────────────────────────
     if not cfg.skip_validation:

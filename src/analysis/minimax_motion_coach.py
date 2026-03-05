@@ -38,11 +38,13 @@ _DEFAULT_USER_AGENT = (
 )
 _DEFAULT_ANALYSIS_PROMPT = (
     "Tu es un coach biomecanique expert.\n"
-    "Analyse la video envoyee et reponds UNIQUEMENT en JSON valide (sans markdown).\n"
+    "Analyse la video envoyee et reponds UNIQUEMENT en JSON valide (sans markdown, sans texte hors JSON).\n"
     "Tu t'adresses DIRECTEMENT au client, en francais, ton coach pro, concret et actionnable.\n"
+    "Objectif: detecter l'exercice EXACT, compter les reps exactes, evaluer intensite/repos, et fournir un rapport sectionne complet.\n"
+    "Ne devine pas: si un point est incertain, ecris-le explicitement dans la section concernee.\n"
     "Schema JSON strict:\n"
     "{\n"
-    '  "exercise": {"name": "snake_case", "display_name_fr": "string", "confidence": 0.0},\n'
+    '  "exercise": {"name": "snake_case_exercise_exact", "display_name_fr": "string", "confidence": 0.0},\n'
     '  "score": 0,\n'
     '  "reps": {"total": 0, "complete": 0, "partial": 0},\n'
     '  "intensity": {"score": 0, "label": "tres elevee|elevee|moderee|faible|tres faible", "avg_inter_rep_rest_s": 0.0},\n'
@@ -60,9 +62,14 @@ _DEFAULT_ANALYSIS_PROMPT = (
     '    "plan_action": ["action 1", "action 2", "action 3"],\n'
     '    "next_video": "recommandation angle camera pour la prochaine video"\n'
     "  },\n"
-    '  "report_markdown": "optionnel: rapport long deja sectionne"\n'
+    '  "report_markdown": "rapport long sectionne AVEC ces titres EXACTS: ANALYSE BIOMECANIQUE, RESUME, POINTS POSITIFS, AMPLITUDE DE MOUVEMENT, CORRECTIONS PRIORITAIRES, ANALYSE DU TEMPO ET DES PHASES, INTENSITE DE SERIE (DENSITE), COMPENSATIONS ET BIOMECANIQUE AVANCEE, DECOMPOSITION DU SCORE, POINT BIOMECANIQUE, RECOMMANDATION POUR LA PROCHAINE VIDEO, PLAN ACTION"\n'
     "}\n"
-    "Contraintes: score sur 100, reps strictement comptees, intensite inclut le repos moyen inter-reps.\n"
+    "Contraintes:\n"
+    "- score global sur 100\n"
+    "- score_breakdown plafonds stricts: Securite<=40, Efficacite technique<=30, Controle et tempo<=20, Symetrie<=10\n"
+    "- reps strictement comptees sur la video (pas d'estimation)\n"
+    "- intensite inclut repos moyen inter-reps\n"
+    "- exercise.name doit correspondre EXACTEMENT a l'exercice vu (ex: machine_chest_press, leg_press, lat_pulldown, etc.)\n"
     "Optimisation tokens: sois precis mais concis. Chaque section textuelle: 2 a 4 phrases maximum.\n"
     "Ne renvoie aucune phrase hors JSON."
 )

@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     minimax_model_option: int = 0
     minimax_prompt_template: str = ""
     minimax_fallback_to_local: bool = True
+    minimax_strict_source: bool = True
     minimax_use_cloudscraper: bool = True
     minimax_request_max_attempts: int = 3
     minimax_retry_backoff_s: float = 1.0

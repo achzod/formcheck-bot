@@ -965,13 +965,18 @@ def generate_html_report(
 
     # ── Rapport client: fallback deterministic si sortie LLM trop faible ──
     raw_report_text = (report.report_text or "").strip()
-    quality_score = _report_quality_score(raw_report_text)
-    use_deterministic_fallback = quality_score < 56
-    report_text = (
-        _build_deterministic_report_text(report, pipeline_result, client_name)
-        if use_deterministic_fallback
-        else raw_report_text
-    )
+    model_used = str(getattr(report, "model_used", "") or "").strip().lower()
+    use_minimax_raw = ("minimax" in model_used)
+    if use_minimax_raw:
+        report_text = raw_report_text
+    else:
+        quality_score = _report_quality_score(raw_report_text)
+        use_deterministic_fallback = quality_score < 56
+        report_text = (
+            _build_deterministic_report_text(report, pipeline_result, client_name)
+            if use_deterministic_fallback
+            else raw_report_text
+        )
     report_html = _format_report_html(report_text)
     client_intro_html = _build_client_intro_card(report, pipeline_result, client_name)
 

@@ -614,26 +614,28 @@ async def _run_analysis(
 
         # Run pipeline in thread pool (CPU-bound)
         include_annotated_frames = bool(app_settings.report_include_annotated_frames)
+        strict_minimax_source = bool(
+            app_settings.minimax_enabled and app_settings.minimax_strict_source
+        )
         config = PipelineConfig(
             save_annotated_frames=include_annotated_frames,
             save_json=True,
             morpho_profile=morpho_data,
             progress_callback=_progress_cb,
             use_minimax_motion_coach=app_settings.minimax_enabled,
-            # Fail-open obligatoire: si MiniMax plante, on bascule localement
-            # sans jamais exposer une erreur MiniMax au client WhatsApp.
-            minimax_fallback_to_local=True,
+            minimax_fallback_to_local=not strict_minimax_source,
+            minimax_strict_source=strict_minimax_source,
             # Mode strict demande: analyse MiniMax pure (pas de surcouche locale)
             # quand MiniMax repond.
             minimax_local_augmentation=False,
         )
         result: PipelineResult = await run_pipeline_async(video_path, config)
 
-        # Filet de securite supplementaire:
-        # meme si le fail-open interne n'a pas suffi, on relance un passage local.
+        # En mode non-strict seulement: filet de securite local si MiniMax indisponible.
         if (
             (not result.success or not result.report)
             and app_settings.minimax_enabled
+            and not strict_minimax_source
         ):
             try:
                 local_config = PipelineConfig(
@@ -643,6 +645,7 @@ async def _run_analysis(
                     progress_callback=_progress_cb,
                     use_minimax_motion_coach=False,
                     minimax_fallback_to_local=False,
+                    minimax_strict_source=False,
                     minimax_local_augmentation=False,
                 )
                 local_result: PipelineResult = await run_pipeline_async(video_path, local_config)
@@ -680,7 +683,22 @@ async def _run_analysis(
                 })
             except Exception:
                 pass
-            # Fallback : analyse visuelle GPT-4o même si MediaPipe a failli
+            if strict_minimax_source:
+                # Source stricte MiniMax: aucun fallback local/GPT.
+                if result.user_messages:
+                    await wa.send_text(phone, result.user_messages[0])
+                else:
+                    await wa.send_text(phone, msg.ERROR_MINIMAX_UNAVAILABLE)
+                cleanup_video(video_path)
+                if preview_frame_path:
+                    try:
+                        Path(preview_frame_path).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                _active_analyses.pop(phone, None)
+                return
+
+            # Fallback non-strict : analyse visuelle GPT-4o même si MediaPipe a failli
             fallback_sent = False
             try:
                 # Chercher la meilleure frame disponible : extraction > preview

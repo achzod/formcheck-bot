@@ -81,6 +81,24 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
         self.assertIn("Symetrie: 10/10", html)
         self.assertNotIn("Symetrie: 12/10", html)
 
+    def test_minimax_report_uses_raw_text_without_local_fallback(self) -> None:
+        report = Report(
+            exercise="machine_chest_press",
+            exercise_display="Presse Pectorale Machine",
+            score=79,
+            report_text="RESUME\nExecution correcte.\n",
+            model_used="minimax_motion_coach",
+        )
+        html, _, _ = generate_html_report(
+            report=report,
+            annotated_frames={},
+            analysis_id="minimaxraw",
+            pipeline_result=None,
+            client_name="Client",
+        )
+        self.assertIn("Execution correcte.", html)
+        self.assertNotIn("PLAN D&#x27;ACTION", html)
+
 
 if __name__ == "__main__":
     unittest.main()
