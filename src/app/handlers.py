@@ -617,15 +617,17 @@ async def _run_analysis(
         strict_minimax_source = bool(
             app_settings.minimax_enabled and app_settings.minimax_strict_source
         )
+        # Production no-fail policy:
+        # MiniMax remains the primary analyzer, but local fallback is always enabled
+        # to avoid user-facing "MiniMax indisponible" dead-ends.
+        fallback_local_enabled = True
         config = PipelineConfig(
             save_annotated_frames=include_annotated_frames,
             save_json=True,
             morpho_profile=morpho_data,
             progress_callback=_progress_cb,
             use_minimax_motion_coach=app_settings.minimax_enabled,
-            # Respect explicit env policy even in strict mode:
-            # MiniMax remains primary, local rescue is used only if MiniMax fails.
-            minimax_fallback_to_local=bool(app_settings.minimax_fallback_to_local),
+            minimax_fallback_to_local=fallback_local_enabled,
             minimax_strict_source=strict_minimax_source,
             # Mode strict demande: analyse MiniMax pure (pas de surcouche locale)
             # quand MiniMax repond.
@@ -637,7 +639,7 @@ async def _run_analysis(
         if (
             (not result.success or not result.report)
             and app_settings.minimax_enabled
-            and bool(app_settings.minimax_fallback_to_local)
+            and fallback_local_enabled
         ):
             try:
                 local_config = PipelineConfig(
@@ -685,7 +687,7 @@ async def _run_analysis(
                 })
             except Exception:
                 pass
-            if strict_minimax_source and not bool(app_settings.minimax_fallback_to_local):
+            if strict_minimax_source and not fallback_local_enabled:
                 # Source stricte MiniMax: aucun fallback local/GPT.
                 if result.user_messages:
                     await wa.send_text(phone, result.user_messages[0])
