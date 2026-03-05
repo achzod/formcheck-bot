@@ -142,7 +142,7 @@ class PipelineConfig:
     # Provider
     use_minimax_motion_coach: bool = False
     minimax_fallback_to_local: bool = True
-    minimax_local_augmentation: bool = True
+    minimax_local_augmentation: bool = False
 
     # Validation
     skip_validation: bool = False

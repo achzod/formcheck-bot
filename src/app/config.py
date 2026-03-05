@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     minimax_target_fps: int = 24
     minimax_target_video_bitrate_kbps: int = 1400
     minimax_keep_audio: bool = False
-    minimax_local_augmentation: bool = True
+    minimax_local_augmentation: bool = False
     minimax_user_agent: str = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "

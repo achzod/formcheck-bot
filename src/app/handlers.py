@@ -629,7 +629,9 @@ async def _run_analysis(
             # Fail-open obligatoire: si MiniMax plante, on bascule localement
             # sans jamais exposer une erreur MiniMax au client WhatsApp.
             minimax_fallback_to_local=True,
-            minimax_local_augmentation=app_settings.minimax_local_augmentation,
+            # Mode strict demande: analyse MiniMax pure (pas de surcouche locale)
+            # quand MiniMax repond.
+            minimax_local_augmentation=False,
         )
         result: PipelineResult = await run_pipeline_async(video_path, config)
 
@@ -647,7 +649,7 @@ async def _run_analysis(
                     progress_callback=_progress_cb,
                     use_minimax_motion_coach=False,
                     minimax_fallback_to_local=False,
-                    minimax_local_augmentation=app_settings.minimax_local_augmentation,
+                    minimax_local_augmentation=False,
                 )
                 local_result: PipelineResult = await run_pipeline_async(video_path, local_config)
                 if local_result.success and local_result.report:

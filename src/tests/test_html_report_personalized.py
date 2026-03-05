@@ -50,6 +50,37 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
         self.assertIn("INTENSITE DE SERIE (DENSITE)", html)
         self.assertIn("PLAN D&#x27;ACTION", html)
 
+    def test_clamps_invalid_symetrie_line_in_report_text_and_gauge(self) -> None:
+        report = Report(
+            exercise="row",
+            exercise_display="Row",
+            score=75,
+            report_text=(
+                "DECOMPOSITION DU SCORE\n"
+                "Securite: 35/40\n"
+                "Efficacite technique: 22/30\n"
+                "Controle et tempo: 16/20\n"
+                "Symetrie: 12/10\n"
+            ),
+            score_breakdown={
+                "Securite": 35,
+                "Efficacite technique": 22,
+                "Controle et tempo": 16,
+                "Symetrie": 12,
+            },
+        )
+
+        html, _, _ = generate_html_report(
+            report=report,
+            annotated_frames={},
+            analysis_id="symtest",
+            pipeline_result=None,
+            client_name="Client",
+        )
+
+        self.assertIn("Symetrie: 10/10", html)
+        self.assertNotIn("Symetrie: 12/10", html)
+
 
 if __name__ == "__main__":
     unittest.main()

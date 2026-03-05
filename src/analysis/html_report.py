@@ -64,6 +64,48 @@ def _bar_color(category: str) -> str:
     return "#5a4a3a"
 
 
+def _sanitize_breakdown_line(line: str) -> str:
+    raw = (line or "").strip()
+    if not raw:
+        return raw
+
+    norm = (
+        raw.lower()
+        .replace("é", "e")
+        .replace("è", "e")
+        .replace("&", "et")
+    )
+    max_value: int | None = None
+    if "securite" in norm:
+        max_value = 40
+    elif "efficacite" in norm:
+        max_value = 30
+    elif "controle" in norm or "tempo" in norm:
+        max_value = 20
+    elif "symetrie" in norm or "symmetry" in norm:
+        max_value = 10
+
+    if max_value is None:
+        return raw
+
+    match = re.search(r"(-?\d{1,3})\s*/\s*(\d{1,3})", raw)
+    if not match:
+        return raw
+
+    try:
+        value = int(match.group(1))
+    except Exception:
+        value = 0
+    value = max(0, min(max_value, value))
+
+    return "{}{}/{}{}".format(
+        raw[: match.start()],
+        value,
+        max_value,
+        raw[match.end() :],
+    )
+
+
 # Titres de sections attendus du rapport LLM
 _SECTION_TITLES = [
     "ANALYSE BIOMECANIQUE",
@@ -208,7 +250,8 @@ def _format_report_html(report_text: str) -> str:
 
         # Score breakdown lines
         if re.match(r"^(Securite|Efficacite|Controle|Symetrie)", stripped, re.IGNORECASE) and "/" in stripped:
-            html_parts.append(f'<p class="score-cat">{stripped}</p>')
+            safe_line = _sanitize_breakdown_line(stripped)
+            html_parts.append(f'<p class="score-cat">{safe_line}</p>')
             continue
 
         # Numbered items (corrections, exercices)
@@ -265,17 +308,17 @@ def _estimate_breakdown(score: int) -> dict[str, int]:
 def _normalized_breakdown(report: Report) -> dict[str, int]:
     if report.score_breakdown:
         normalized: dict[str, int] = {}
-        aliases = (
-            ("Securite", ("securite",)),
-            ("Efficacite technique", ("efficacite", "technique")),
-            ("Controle et tempo", ("controle", "tempo")),
-            ("Symetrie", ("symetrie", "symmetry")),
+        aliases: tuple[tuple[str, tuple[tuple[str, ...], ...]], ...] = (
+            ("Securite", (("securite",),)),
+            ("Efficacite technique", (("efficacite", "technique"), ("efficacite",), ("technique",))),
+            ("Controle et tempo", (("controle", "tempo"), ("controle",), ("tempo",))),
+            ("Symetrie", (("symetrie",), ("symmetry",))),
         )
-        for canonical, keys in aliases:
+        for canonical, token_groups in aliases:
             value = None
             for key, raw_val in report.score_breakdown.items():
                 norm_key = str(key).lower().replace("é", "e").replace("è", "e")
-                if all(token in norm_key for token in keys):
+                if any(all(token in norm_key for token in group) for group in token_groups):
                     try:
                         value = int(raw_val)
                     except Exception:
@@ -832,14 +875,10 @@ def generate_html_report(
     ]
 
     if report.score_breakdown:
+        normalized = _normalized_breakdown(report)
         gauges = []
         for label, key, max_val, description in breakdown_config:
-            val = 0
-            for k, v in report.score_breakdown.items():
-                norm_k = k.lower().replace("é", "e").replace("è", "e").replace("&", "et")
-                if key in norm_k:
-                    val = v
-                    break
+            val = int(normalized.get(label, 0) or 0)
             pct = min(100, int(val / max_val * 100)) if max_val else 0
             color = _bar_color(key)
 

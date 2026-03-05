@@ -130,6 +130,26 @@ class MiniMaxParsingTests(unittest.TestCase):
         self.assertEqual(out.intensity_label, "elevee")
         self.assertAlmostEqual(out.avg_inter_rep_rest_s, 0.92, places=2)
 
+    def test_score_breakdown_is_clamped_per_category(self) -> None:
+        text = """
+{
+  "exercise": {"name": "lat_pulldown", "display_name_fr": "Lat Pulldown", "confidence": 0.91},
+  "score": 82,
+  "reps": {"total": 8, "complete": 8, "partial": 0},
+  "score_breakdown": {
+    "Securite": 44,
+    "Efficacite technique": 31,
+    "Controle et tempo": 25,
+    "Symetrie": 12
+  }
+}
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.score_breakdown.get("Securite"), 40)
+        self.assertEqual(out.score_breakdown.get("Efficacite technique"), 30)
+        self.assertEqual(out.score_breakdown.get("Controle et tempo"), 20)
+        self.assertEqual(out.score_breakdown.get("Symetrie"), 10)
+
 
 class MiniMaxMessageExtractionTests(unittest.TestCase):
     def test_extract_agent_message_ignores_known_ids(self) -> None:

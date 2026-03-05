@@ -444,6 +444,51 @@ def _estimate_score_breakdown(score: int) -> dict[str, int]:
     }
 
 
+def _normalize_score_breakdown(
+    raw_breakdown: dict[str, Any] | None,
+    *,
+    total_score: int,
+) -> dict[str, int]:
+    if not isinstance(raw_breakdown, dict) or not raw_breakdown:
+        return _estimate_score_breakdown(total_score) if total_score > 0 else {}
+
+    aliases: tuple[tuple[str, tuple[tuple[str, ...], ...], int], ...] = (
+        ("Securite", (("securite",),), 40),
+        ("Efficacite technique", (("efficacite", "technique"), ("efficacite",), ("technique",)), 30),
+        ("Controle et tempo", (("controle", "tempo"), ("controle",), ("tempo",)), 20),
+        ("Symetrie", (("symetrie",), ("symmetry",)), 10),
+    )
+
+    out: dict[str, int] = {}
+    matched = 0
+    for canonical, token_groups, max_value in aliases:
+        value: int | None = None
+        for key, raw_val in raw_breakdown.items():
+            norm_key = (
+                str(key)
+                .strip()
+                .lower()
+                .replace("é", "e")
+                .replace("è", "e")
+                .replace("&", "et")
+            )
+            if any(all(token in norm_key for token in group) for group in token_groups):
+                try:
+                    parsed = int(float(raw_val))
+                except Exception:
+                    parsed = 0
+                value = max(0, min(max_value, parsed))
+                matched += 1
+                break
+        if value is None:
+            value = 0
+        out[canonical] = value
+
+    if matched == 0 and total_score > 0:
+        return _estimate_score_breakdown(total_score)
+    return out
+
+
 def _build_structured_report_text(analysis: MiniMaxAnalysis) -> str:
     exercise_display = analysis.exercise_display or "Exercice non identifie"
     reps_total = max(0, int(analysis.reps_total or 0))
@@ -1049,11 +1094,10 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
             analysis.intensity_label = raw_label or _intensity_label_from_score(analysis.intensity_score)
 
         score_breakdown = payload.get("score_breakdown", {})
-        if isinstance(score_breakdown, dict):
-            analysis.score_breakdown = {
-                str(k): _clamp_int(v)
-                for k, v in score_breakdown.items()
-            }
+        analysis.score_breakdown = _normalize_score_breakdown(
+            score_breakdown if isinstance(score_breakdown, dict) else None,
+            total_score=analysis.score,
+        )
 
         positives = payload.get("positives", [])
         if isinstance(positives, list):
