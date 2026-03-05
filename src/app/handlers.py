@@ -18,7 +18,6 @@ from app.config import settings as app_settings
 from app.media_handler import (
     VIDEOS_DIR,
     cleanup_video,
-    publish_annotated_frames,
     save_video,
 )
 from app.stripe_handler import create_all_checkout_urls
@@ -36,12 +35,6 @@ _ANALYSIS_TIMEOUT = 300  # 5 minutes max per analysis
 # Morpho flow states are now persisted in DB (morpho_flow_state table).
 # Legacy in-memory dicts removed — use db.get_morpho_flow_state() etc.
 
-# Labels humains pour les frames annotées
-_FRAME_LABELS: dict[str, str] = {
-    "start": "Position de depart",
-    "mid": "Pic de contraction",
-    "end": "Lockout / Retour",
-}
 _LOCAL_VIDEO_MAX_BYTES = 24 * 1024 * 1024
 _CLIP_BATCH_TIMEOUT_S = 30 * 60
 _MAX_CLIPS_PER_BATCH = 6
@@ -620,8 +613,9 @@ async def _run_analysis(
                 pass
 
         # Run pipeline in thread pool (CPU-bound)
+        include_annotated_frames = bool(app_settings.report_include_annotated_frames)
         config = PipelineConfig(
-            save_annotated_frames=True,
+            save_annotated_frames=include_annotated_frames,
             save_json=True,
             morpho_profile=morpho_data,
             progress_callback=_progress_cb,
@@ -643,7 +637,7 @@ async def _run_analysis(
         ):
             try:
                 local_config = PipelineConfig(
-                    save_annotated_frames=True,
+                    save_annotated_frames=include_annotated_frames,
                     save_json=True,
                     morpho_profile=morpho_data,
                     progress_callback=_progress_cb,
@@ -755,7 +749,7 @@ async def _run_analysis(
         from app.config import settings
         html_content, report_id, report_token = generate_html_report(
             report=result.report,
-            annotated_frames=result.annotated_frames,
+            annotated_frames=(result.annotated_frames if include_annotated_frames else {}),
             analysis_id=str(analysis_id),
             pipeline_result=result,
             client_name=(user_updated.name if user_updated else None),
@@ -819,20 +813,11 @@ async def _run_analysis(
             )
             await wa.send_text(phone, minimal_msg)
 
-        # Only send annotated frame if confidence is high enough
-        # Low confidence = likely wrong person tracked = embarrassing
-        conf_score = result.confidence.overall_score if result.confidence else 0
-        logger.info("Confidence score: %d — annotated frame %s",
-                     conf_score, "SENT" if conf_score >= 75 else "HIDDEN")
-        if result.annotated_frames and conf_score >= 75:
-            published = publish_annotated_frames(result.annotated_frames)
-            for label, filename, url in published:
-                if label == "mid":
-                    try:
-                        await wa.send_image(phone, url, caption="Pic de contraction")
-                    except Exception:
-                        logger.exception("Failed to send annotated frame %s", label)
-                    break
+        # Annotated frames intentionally disabled by default to avoid noisy/incorrect keypoint overlays.
+        if include_annotated_frames:
+            conf_score = result.confidence.overall_score if result.confidence else 0
+            logger.info("Confidence score: %d — annotated frame %s",
+                        conf_score, "SENT" if conf_score >= 75 else "HIDDEN")
 
         # Cleanup temp video + preview frame
         cleanup_video(video_path)

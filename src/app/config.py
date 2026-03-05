@@ -77,6 +77,7 @@ class Settings(BaseSettings):
     verify_twilio_signature: bool = True  # Reject unsigned/invalid webhook calls
     upload_max_mb: int = 1024  # Web upload fallback for heavy videos
     upload_chunk_size_mb: int = 2
+    report_include_annotated_frames: bool = False
 
     # Phase de test — toutes les analyses gratuites
     # Remettre a False pour reactiver le paywall Stripe
