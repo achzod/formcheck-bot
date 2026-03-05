@@ -125,6 +125,12 @@ def _load_settings():
             minimax_poll_interval_s = float(os.getenv("MINIMAX_POLL_INTERVAL_S", "2"))
             minimax_model_option = int(os.getenv("MINIMAX_MODEL_OPTION", "0"))
             minimax_prompt_template = os.getenv("MINIMAX_PROMPT_TEMPLATE", "")
+            minimax_prefer_motion_coach_chat = _as_bool(os.getenv("MINIMAX_PREFER_MOTION_COACH_CHAT"), True)
+            minimax_require_motion_coach_chat = _as_bool(os.getenv("MINIMAX_REQUIRE_MOTION_COACH_CHAT"), True)
+            minimax_motion_coach_keywords = os.getenv(
+                "MINIMAX_MOTION_COACH_KEYWORDS",
+                "ai motion coach|motion coach|video motion analysis",
+            )
             minimax_fallback_to_local = _as_bool(os.getenv("MINIMAX_FALLBACK_TO_LOCAL"), True)
             minimax_use_cloudscraper = _as_bool(os.getenv("MINIMAX_USE_CLOUDSCRAPER"), True)
             minimax_request_max_attempts = int(os.getenv("MINIMAX_REQUEST_MAX_ATTEMPTS", "3"))
@@ -1154,6 +1160,104 @@ def _iter_dicts(obj: Any):
             yield from _iter_dicts(item)
 
 
+_CHAT_NAME_KEYS = (
+    "chat_name",
+    "chat_title",
+    "title",
+    "name",
+    "display_name",
+    "bot_name",
+    "expert_name",
+    "workspace_name",
+    "session_name",
+)
+
+
+def _motion_coach_keywords() -> list[str]:
+    raw = str(getattr(settings, "minimax_motion_coach_keywords", "") or "").strip().lower()
+    if not raw:
+        raw = "ai motion coach|motion coach|video motion analysis"
+    items = [item.strip() for item in raw.split("|") if item.strip()]
+    return items or ["motion coach"]
+
+
+def _is_motion_coach_label(text: str) -> bool:
+    norm = (text or "").strip().lower()
+    if not norm:
+        return False
+    return any(keyword in norm for keyword in _motion_coach_keywords())
+
+
+def _extract_chat_name(payload: Any) -> str:
+    best = ""
+    for node in _iter_dicts(payload):
+        if not isinstance(node, dict):
+            continue
+        for key in _CHAT_NAME_KEYS:
+            value = node.get(key)
+            if not isinstance(value, str):
+                continue
+            txt = value.strip()
+            if not txt:
+                continue
+            if _is_motion_coach_label(txt):
+                return txt
+            if len(txt) > len(best):
+                best = txt
+    return best
+
+
+def _extract_chat_candidates(payload: Any) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for node in _iter_dicts(payload):
+        if not isinstance(node, dict):
+            continue
+        raw_chat_id = node.get("chat_id")
+        if raw_chat_id in (None, ""):
+            continue
+        chat_id = str(raw_chat_id).strip()
+        if not chat_id:
+            continue
+        name = ""
+        for key in _CHAT_NAME_KEYS:
+            value = node.get(key)
+            if isinstance(value, str) and value.strip():
+                name = value.strip()
+                break
+        item = (chat_id, name)
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def _resolve_target_chat_id(
+    client: "_MiniMaxClient",
+    configured_chat_id: str,
+) -> tuple[str, str, str]:
+    """Return (chat_id, chat_name, source)."""
+    prefer_motion = _as_bool(getattr(settings, "minimax_prefer_motion_coach_chat", True), True)
+    if prefer_motion:
+        try:
+            resp = client.request("POST", "/matrix/api/v1/chat/list_chat", payload={})
+            candidates = _extract_chat_candidates(resp)
+            for cand_chat_id, cand_name in candidates:
+                if _is_motion_coach_label(cand_name):
+                    return cand_chat_id, cand_name, "list_chat_motion_match"
+            # Keep first candidate only as a weak fallback if no configured chat id is set.
+            if (not configured_chat_id) and candidates:
+                first_id, first_name = candidates[0]
+                return first_id, first_name, "list_chat_first"
+        except Exception as exc:
+            logger.warning("MiniMax list_chat lookup failed: %s", exc)
+
+    if configured_chat_id:
+        return configured_chat_id, "", "configured_chat_id"
+    raise RuntimeError("MiniMax chat target unresolved: set MINIMAX_CHAT_ID or enable list_chat discovery")
+
+
 def _extract_message_text(msg: dict[str, Any]) -> str:
     def _iter_text_candidates(value: Any):
         if isinstance(value, str):
@@ -1627,15 +1731,17 @@ class _MiniMaxClient:
 
 def _validate_settings() -> list[str]:
     missing: list[str] = []
+    prefer_motion = _as_bool(getattr(settings, "minimax_prefer_motion_coach_chat", True), True)
     required = {
         "minimax_token": settings.minimax_token,
         "minimax_user_id": settings.minimax_user_id,
         "minimax_device_id": settings.minimax_device_id,
-        "minimax_chat_id": settings.minimax_chat_id,
     }
     for key, value in required.items():
         if not str(value or "").strip():
             missing.append(key)
+    if (not prefer_motion) and not str(getattr(settings, "minimax_chat_id", "") or "").strip():
+        missing.append("minimax_chat_id")
     return missing
 
 
@@ -1680,13 +1786,37 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
     start = time.monotonic()
 
     try:
-        chat_id = str(settings.minimax_chat_id)
+        configured_chat_id = str(getattr(settings, "minimax_chat_id", "") or "").strip()
+        chat_id, chat_name_hint, chat_source = _resolve_target_chat_id(
+            client,
+            configured_chat_id=configured_chat_id,
+        )
         baseline_ids: set[str] = set()
+        baseline_name = chat_name_hint
+        motion_chat_validated = False
         try:
             baseline = client.get_chat_detail(chat_id)
             _, baseline_ids, _ = _extract_agent_message(baseline, known_message_ids=set())
+            if not baseline_name:
+                baseline_name = _extract_chat_name(baseline)
         except Exception as exc:
             logger.warning("MiniMax baseline get_chat_detail failed (continuing): %s", exc)
+
+        require_motion = _as_bool(getattr(settings, "minimax_require_motion_coach_chat", True), True)
+        if require_motion:
+            if baseline_name:
+                motion_chat_validated = _is_motion_coach_label(baseline_name)
+                if not motion_chat_validated:
+                    raise RuntimeError(
+                        "MiniMax chat mismatch: '{}' is not AI Motion Coach."
+                        .format(baseline_name)
+                    )
+            elif chat_source == "list_chat_motion_match":
+                motion_chat_validated = True
+            else:
+                raise RuntimeError(
+                    "MiniMax chat mismatch: unable to validate AI Motion Coach target chat."
+                )
 
         asset = client.upload_video(prepared.path)
         send_resp = client.send_video_message(
@@ -1729,6 +1859,9 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         analysis.metadata.update(
             {
                 "chat_id": sent_chat_id,
+                "chat_name": baseline_name,
+                "chat_source": chat_source,
+                "motion_coach_validated": bool(motion_chat_validated),
                 "file_id": asset.file_id,
                 "file_url": asset.file_url,
                 "object_key": asset.object_key,

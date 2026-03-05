@@ -272,6 +272,8 @@ try:
                 "enabled": bool(settings.minimax_enabled),
                 "strict_source": bool(settings.minimax_strict_source),
                 "fallback_to_local": bool(settings.minimax_fallback_to_local),
+                "prefer_motion_coach_chat": bool(settings.minimax_prefer_motion_coach_chat),
+                "require_motion_coach_chat": bool(settings.minimax_require_motion_coach_chat),
                 "timeout_s": int(settings.minimax_timeout_s or 0),
                 "poll_interval_s": float(settings.minimax_poll_interval_s or 0.0),
             },
@@ -293,6 +295,8 @@ try:
                 "minimax_enabled": bool(settings.minimax_enabled),
                 "minimax_strict_source": bool(settings.minimax_strict_source),
                 "minimax_fallback_to_local": bool(settings.minimax_fallback_to_local),
+                "minimax_prefer_motion_coach_chat": bool(settings.minimax_prefer_motion_coach_chat),
+                "minimax_require_motion_coach_chat": bool(settings.minimax_require_motion_coach_chat),
                 "minimax_timeout_s": int(settings.minimax_timeout_s or 0),
             },
         }

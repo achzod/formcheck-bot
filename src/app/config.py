@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     minimax_poll_interval_s: float = 2.0
     minimax_model_option: int = 0
     minimax_prompt_template: str = ""
+    minimax_prefer_motion_coach_chat: bool = True
+    minimax_require_motion_coach_chat: bool = True
+    minimax_motion_coach_keywords: str = "ai motion coach|motion coach|video motion analysis"
     minimax_fallback_to_local: bool = True
     minimax_strict_source: bool = True
     minimax_use_cloudscraper: bool = True

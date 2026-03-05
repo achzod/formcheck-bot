@@ -20,7 +20,10 @@ from analysis.minimax_motion_coach import (
     _YY_SUFFIX,
     _cache_get,
     _cache_put,
+    _extract_chat_candidates,
     _extract_agent_message,
+    _is_motion_coach_label,
+    _resolve_target_chat_id,
     _is_retryable_minimax_error,
     _parse_analysis_payload,
     MiniMaxAnalysis,
@@ -214,6 +217,51 @@ class MiniMaxMessageExtractionTests(unittest.TestCase):
         self.assertEqual(chat_status, 1)
         self.assertIn("11", ids)
         self.assertIn("Rapport MiniMax complet", text)
+
+
+class MiniMaxTargetChatResolutionTests(unittest.TestCase):
+    def test_motion_coach_keyword_match(self) -> None:
+        self.assertTrue(_is_motion_coach_label("AI Motion Coach"))
+        self.assertTrue(_is_motion_coach_label("Video Motion Analysis Assistant"))
+        self.assertFalse(_is_motion_coach_label("Marketing Copilot"))
+
+    def test_extract_chat_candidates(self) -> None:
+        payload = {
+            "data": {
+                "sessions": [
+                    {"chat_id": 1, "chat_name": "General Chat"},
+                    {"chat_id": 2, "title": "AI Motion Coach"},
+                ]
+            }
+        }
+        out = _extract_chat_candidates(payload)
+        self.assertIn(("1", "General Chat"), out)
+        self.assertIn(("2", "AI Motion Coach"), out)
+
+    def test_resolve_target_chat_prefers_motion_coach_from_list_chat(self) -> None:
+        class _DummyClient:
+            @staticmethod
+            def request(method: str, path: str, *, payload=None):
+                assert method == "POST"
+                assert path == "/matrix/api/v1/chat/list_chat"
+                return {
+                    "data": {
+                        "sessions": [
+                            {"chat_id": 77, "chat_name": "General"},
+                            {"chat_id": 88, "chat_name": "AI Motion Coach"},
+                        ]
+                    }
+                }
+
+        old_prefer = minimax_settings.minimax_prefer_motion_coach_chat
+        minimax_settings.minimax_prefer_motion_coach_chat = True
+        try:
+            chat_id, name, source = _resolve_target_chat_id(_DummyClient(), configured_chat_id="42")
+        finally:
+            minimax_settings.minimax_prefer_motion_coach_chat = old_prefer
+        self.assertEqual(chat_id, "88")
+        self.assertEqual(name, "AI Motion Coach")
+        self.assertEqual(source, "list_chat_motion_match")
 
 
 class MiniMaxPipelineMappingTests(unittest.TestCase):
