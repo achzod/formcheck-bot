@@ -150,6 +150,22 @@ class MiniMaxParsingTests(unittest.TestCase):
         self.assertEqual(out.score_breakdown.get("Controle et tempo"), 20)
         self.assertEqual(out.score_breakdown.get("Symetrie"), 10)
 
+    def test_score_breakdown_is_not_invented_when_absent(self) -> None:
+        text = """
+{
+  "exercise": {"name": "machine_chest_press", "display_name_fr": "Presse Pectorale Machine", "confidence": 0.94},
+  "score": 86,
+  "reps": {"total": 10, "complete": 10, "partial": 0},
+  "sections": {
+    "resume": "Execution globalement solide.",
+    "tempo": "Excentrique a ralentir sur les deux dernieres reps."
+  }
+}
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.score_breakdown, {})
+        self.assertIn("MiniMax n'a pas fourni de decomposition detaillee du score.", out.report_text)
+
 
 class MiniMaxMessageExtractionTests(unittest.TestCase):
     def test_extract_agent_message_ignores_known_ids(self) -> None:
@@ -198,7 +214,7 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         self.assertEqual(out.reps.intensity_score, 74)
         self.assertEqual(out.detection.exercise.value, "lat_pulldown")
 
-    def test_pipeline_mapping_prefers_chest_display_when_slug_is_leg_press(self) -> None:
+    def test_pipeline_mapping_keeps_minimax_slug_when_display_conflicts(self) -> None:
         base = PipelineResult(video_path="video.mp4", output_dir="out")
         analysis = MiniMaxAnalysis(
             exercise_slug="leg_press",
@@ -215,7 +231,7 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         )
         out = _apply_minimax_analysis_to_result(base, analysis)
         assert out.detection is not None
-        self.assertEqual(out.detection.exercise.value, "machine_chest_press")
+        self.assertEqual(out.detection.exercise.value, "leg_press")
 
 
 class MiniMaxCacheTests(unittest.TestCase):

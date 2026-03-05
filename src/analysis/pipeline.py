@@ -345,17 +345,10 @@ def _map_minimax_exercise_name(slug: str | None, display_name: str | None) -> st
 
     Principle:
     - Trust MiniMax slug when already supported.
-    - Use only explicit low-risk aliases.
-    - Avoid broad heuristic remaps/rules-db in MiniMax path.
+    - Allow only a tiny alias list for known MiniMax naming variants.
+    - Never reinterpret from display text in strict MiniMax mode.
     """
     slug_norm = _normalize_exercise_name(slug)
-    display_norm = _normalize_exercise_name(display_name)
-    chest_tokens = ("chest", "pector", "pec", "poitrine")
-    leg_tokens = ("leg", "cuisse", "jamb", "quad")
-    if slug_norm == "leg_press" and any(token in display_norm for token in chest_tokens):
-        return "machine_chest_press"
-    if slug_norm in {"bench_press", "machine_chest_press"} and any(token in display_norm for token in leg_tokens):
-        return "leg_press"
     if slug_norm in _EXERCISE_VALUES:
         return slug_norm
 
@@ -373,23 +366,6 @@ def _map_minimax_exercise_name(slug: str | None, display_name: str | None) -> st
     }
     if slug_norm in explicit_aliases:
         return explicit_aliases[slug_norm]
-
-    if not display_norm:
-        return ""
-    if "chest" in display_norm and "press" in display_norm:
-        return "machine_chest_press"
-    if ("pector" in display_norm or "poitrine" in display_norm) and "press" in display_norm:
-        return "machine_chest_press"
-    if "leg" in display_norm and "press" in display_norm:
-        return "leg_press"
-    if "presse_a_cuisses" in display_norm:
-        return "leg_press"
-    if "lat" in display_norm and ("pulldown" in display_norm or "tirage_vertical" in display_norm):
-        return "lat_pulldown"
-    if "overhead" in display_norm and "press" in display_norm:
-        return "ohp"
-    if "military" in display_norm and "press" in display_norm:
-        return "ohp"
     return ""
 
 
