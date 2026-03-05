@@ -184,6 +184,37 @@ class MiniMaxMessageExtractionTests(unittest.TestCase):
         self.assertEqual(chat_status, 2)
         self.assertIn("3", ids)
 
+    def test_extract_agent_message_accepts_non_user_types_and_nested_content(self) -> None:
+        payload = {
+            "data": {
+                "chat_status": 1,
+                "messages": [
+                    {
+                        "msg_id": "10",
+                        "msg_type": 1,
+                        "msg_content": "user prompt",
+                        "timestamp": 10,
+                    },
+                    {
+                        "msg_id": "11",
+                        "msg_type": 12,
+                        "msg_content": {
+                            "payload": {
+                                "segments": [
+                                    {"text": "Rapport MiniMax complet: 8 reps detectees."}
+                                ]
+                            }
+                        },
+                        "timestamp": 11,
+                    },
+                ],
+            }
+        }
+        text, ids, chat_status = _extract_agent_message(payload, known_message_ids={"10"})
+        self.assertEqual(chat_status, 1)
+        self.assertIn("11", ids)
+        self.assertIn("Rapport MiniMax complet", text)
+
 
 class MiniMaxPipelineMappingTests(unittest.TestCase):
     def test_pipeline_mapping_from_minimax_analysis(self) -> None:

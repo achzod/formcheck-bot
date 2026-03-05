@@ -623,7 +623,9 @@ async def _run_analysis(
             morpho_profile=morpho_data,
             progress_callback=_progress_cb,
             use_minimax_motion_coach=app_settings.minimax_enabled,
-            minimax_fallback_to_local=not strict_minimax_source,
+            # Respect explicit env policy even in strict mode:
+            # MiniMax remains primary, local rescue is used only if MiniMax fails.
+            minimax_fallback_to_local=bool(app_settings.minimax_fallback_to_local),
             minimax_strict_source=strict_minimax_source,
             # Mode strict demande: analyse MiniMax pure (pas de surcouche locale)
             # quand MiniMax repond.
@@ -635,7 +637,7 @@ async def _run_analysis(
         if (
             (not result.success or not result.report)
             and app_settings.minimax_enabled
-            and not strict_minimax_source
+            and bool(app_settings.minimax_fallback_to_local)
         ):
             try:
                 local_config = PipelineConfig(
@@ -683,7 +685,7 @@ async def _run_analysis(
                 })
             except Exception:
                 pass
-            if strict_minimax_source:
+            if strict_minimax_source and not bool(app_settings.minimax_fallback_to_local):
                 # Source stricte MiniMax: aucun fallback local/GPT.
                 if result.user_messages:
                     await wa.send_text(phone, result.user_messages[0])

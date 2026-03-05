@@ -1480,7 +1480,8 @@ def run_pipeline(
         except Exception as e:
             result.errors.append(f"MiniMax Motion Coach échoué: {e}")
             logger.error("MiniMax Motion Coach échoué: %s", e, exc_info=True)
-            if cfg.minimax_strict_source:
+            # Strict mode blocks only when explicit no-fallback policy is configured.
+            if cfg.minimax_strict_source and not cfg.minimax_fallback_to_local:
                 result.user_messages.append(
                     "Analyse MiniMax indisponible sur cette video. Reessaie dans quelques instants."
                 )

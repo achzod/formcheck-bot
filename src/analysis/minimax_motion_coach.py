@@ -1155,6 +1155,20 @@ def _iter_dicts(obj: Any):
 
 
 def _extract_message_text(msg: dict[str, Any]) -> str:
+    def _iter_text_candidates(value: Any):
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                yield text
+            return
+        if isinstance(value, dict):
+            for nested in value.values():
+                yield from _iter_text_candidates(nested)
+            return
+        if isinstance(value, list):
+            for item in value:
+                yield from _iter_text_candidates(item)
+
     for key in ("msg_content", "content", "text", "answer"):
         value = msg.get(key)
         if isinstance(value, str) and value.strip():
@@ -1163,7 +1177,17 @@ def _extract_message_text(msg: dict[str, Any]) -> str:
             nested = value.get("text") or value.get("content") or value.get("answer")
             if isinstance(nested, str) and nested.strip():
                 return nested.strip()
-    return ""
+    # Fallback: recursively scan the message payload for the most meaningful text.
+    best = ""
+    for candidate in _iter_text_candidates(msg):
+        normalized = candidate.strip()
+        if len(normalized) <= 12:
+            continue
+        if normalized.startswith("http://") or normalized.startswith("https://"):
+            continue
+        if len(normalized) > len(best):
+            best = normalized
+    return best
 
 
 def _extract_agent_message(
@@ -1204,7 +1228,9 @@ def _extract_agent_message(
             msg_type = int(msg.get("msg_type", 0) or 0)
         except Exception:
             msg_type = 0
-        if msg_type not in (2, 10):
+        # 1 = user prompt. All other message types may carry assistant output
+        # depending on MiniMax backend revisions.
+        if msg_type == 1:
             continue
 
         msg_id = str(msg.get("msg_id", ""))
@@ -1400,7 +1426,18 @@ class _MiniMaxClient:
                     if scraper is None:
                         if httpx_response is None:
                             raise RuntimeError("MiniMax transport failed and cloudscraper unavailable")
-                        httpx_response.raise_for_status()
+                        try:
+                            httpx_response.raise_for_status()
+                        except httpx.HTTPStatusError as http_exc:
+                            snippet = (httpx_response.text or "").strip().replace("\n", " ")
+                            if len(snippet) > 240:
+                                snippet = snippet[:240]
+                            raise RuntimeError(
+                                "MiniMax HTTP {}: {}".format(
+                                    int(httpx_response.status_code),
+                                    snippet or str(http_exc),
+                                )
+                            ) from http_exc
                         response_obj = httpx_response
                     else:
                         request_kwargs: dict[str, Any] = {
@@ -1420,10 +1457,29 @@ class _MiniMaxClient:
                                 snippet = snippet[:240]
                             raise RuntimeError("MiniMax HTTP {}: {}".format(status_code, snippet))
                 else:
-                    httpx_response.raise_for_status()
+                    try:
+                        httpx_response.raise_for_status()
+                    except httpx.HTTPStatusError as http_exc:
+                        snippet = (httpx_response.text or "").strip().replace("\n", " ")
+                        if len(snippet) > 240:
+                            snippet = snippet[:240]
+                        raise RuntimeError(
+                            "MiniMax HTTP {}: {}".format(
+                                int(httpx_response.status_code),
+                                snippet or str(http_exc),
+                            )
+                        ) from http_exc
                     response_obj = httpx_response
 
-                data = response_obj.json()
+                try:
+                    data = response_obj.json()
+                except Exception as json_exc:
+                    snippet = str(getattr(response_obj, "text", "") or "").strip().replace("\n", " ")
+                    if len(snippet) > 240:
+                        snippet = snippet[:240]
+                    raise RuntimeError(
+                        "MiniMax invalid JSON response: {}".format(snippet or str(json_exc))
+                    ) from json_exc
                 base_resp = data.get("base_resp", {})
                 if isinstance(base_resp, dict):
                     status_code = int(base_resp.get("status_code", 0) or 0)
@@ -1613,6 +1669,13 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         return cached
 
     prepared = _prepare_video_for_minimax(video_path)
+    # Long/heavy videos can require significantly longer async processing on MiniMax.
+    base_duration_s = max(
+        float(prepared.prepared_duration_s or 0.0),
+        float(prepared.source_duration_s or 0.0),
+    )
+    adaptive_timeout_s = int(120 + (base_duration_s * 3.0))
+    timeout_s_effective = max(timeout_s, min(600, adaptive_timeout_s))
     client = _MiniMaxClient(timeout_s=timeout_s)
     start = time.monotonic()
 
@@ -1639,7 +1702,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         stable_rounds = 0
         current_ids = set(baseline_ids)
         last_chat_status = 0
-        deadline = time.monotonic() + timeout_s
+        deadline = time.monotonic() + timeout_s_effective
 
         while time.monotonic() < deadline:
             detail = client.get_chat_detail(sent_chat_id)
@@ -1670,6 +1733,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
                 "file_url": asset.file_url,
                 "object_key": asset.object_key,
                 "elapsed_s": round(elapsed, 2),
+                "timeout_s_effective": int(timeout_s_effective),
                 "chat_status": last_chat_status,
                 "cache_hit": False,
                 "video_hash": video_hash,
