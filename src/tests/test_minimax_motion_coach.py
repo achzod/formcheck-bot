@@ -198,6 +198,25 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         self.assertEqual(out.reps.intensity_score, 74)
         self.assertEqual(out.detection.exercise.value, "lat_pulldown")
 
+    def test_pipeline_mapping_prefers_chest_display_when_slug_is_leg_press(self) -> None:
+        base = PipelineResult(video_path="video.mp4", output_dir="out")
+        analysis = MiniMaxAnalysis(
+            exercise_slug="leg_press",
+            exercise_display="Presse Pectorale Machine",
+            exercise_confidence=0.90,
+            score=80,
+            reps_total=10,
+            reps_complete=10,
+            reps_partial=0,
+            intensity_score=71,
+            intensity_label="elevee",
+            avg_inter_rep_rest_s=0.9,
+            report_text="Rapport MiniMax",
+        )
+        out = _apply_minimax_analysis_to_result(base, analysis)
+        assert out.detection is not None
+        self.assertEqual(out.detection.exercise.value, "machine_chest_press")
+
 
 class MiniMaxCacheTests(unittest.TestCase):
     def test_cache_roundtrip_returns_analysis(self) -> None:

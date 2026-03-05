@@ -107,6 +107,12 @@ _GEMINI_EXERCISE_ALIASES: dict[str, str] = {
     "military_press": "ohp",
     "barbell_bench_press": "bench_press",
     "flat_bench_press": "bench_press",
+    "machine_chest_press": "machine_chest_press",
+    "seated_chest_press": "machine_chest_press",
+    "plate_loaded_chest_press": "machine_chest_press",
+    "chest_press_machine": "machine_chest_press",
+    "presse_pectorale_machine": "machine_chest_press",
+    "presse_pectorale": "machine_chest_press",
     "incline_dumbbell_press": "incline_bench",
     "barbell_squat": "squat",
     "back_squat": "squat",
@@ -235,6 +241,19 @@ def _map_model_exercise_name(raw_name: str | None) -> str:
     if name in _GEMINI_EXERCISE_ALIASES:
         return _GEMINI_EXERCISE_ALIASES[name]
 
+    # Guardrail: avoid chest-press -> leg-press confusion on open vocabulary labels.
+    chest_tokens = ("chest", "pector", "pec", "poitrine")
+    leg_tokens = ("leg", "quad", "cuisse", "jamb")
+    if "press" in name:
+        has_chest = any(token in name for token in chest_tokens)
+        has_leg = any(token in name for token in leg_tokens)
+        if has_leg and not has_chest:
+            return "leg_press"
+        if has_chest and not has_leg:
+            if "machine" in name or "seated" in name or "plate" in name:
+                return "machine_chest_press"
+            return "bench_press"
+
     # Generic normalizations for common LLM variants.
     if "bulgarian" in name and ("split" in name or "lunge" in name or "squat" in name):
         return "bulgarian_split_squat"
@@ -276,14 +295,21 @@ def _map_model_exercise_name(raw_name: str | None) -> str:
     try:
         mapped, meta = resolve_to_supported_exercise(name)
         if mapped:
-            logger.info(
-                "Rules DB mapped model exercise '%s' -> '%s' (score=%.3f, pattern=%s)",
-                name,
-                mapped,
-                float(meta.get("score", 0.0) or 0.0),
-                str(meta.get("pattern", "")),
-            )
-            return mapped
+            # Safety guard: reject fuzzy mappings that contradict obvious lexical cues.
+            if mapped == "leg_press" and any(token in name for token in chest_tokens):
+                logger.warning(
+                    "Ignoring rules-db mapping '%s' -> 'leg_press' due chest lexical cues.",
+                    name,
+                )
+            else:
+                logger.info(
+                    "Rules DB mapped model exercise '%s' -> '%s' (score=%.3f, pattern=%s)",
+                    name,
+                    mapped,
+                    float(meta.get("score", 0.0) or 0.0),
+                    str(meta.get("pattern", "")),
+                )
+                return mapped
     except Exception as exc:
         logger.debug("Rules DB mapping failed for '%s': %s", name, exc)
 
@@ -1127,6 +1153,16 @@ def _apply_minimax_analysis_to_result(
     """Map MiniMax structured output to the internal PipelineResult schema."""
     raw_name = analysis.exercise_slug or analysis.exercise_display
     mapped_name = _map_model_exercise_name(raw_name)
+
+    # Contradiction guard: if slug says lower-body press but display says chest/pectoral press,
+    # trust the human-readable display from MiniMax.
+    display_norm = _normalize_exercise_name(analysis.exercise_display)
+    if mapped_name == "leg_press" and any(token in display_norm for token in ("chest", "pector", "pec", "poitrine")):
+        mapped_name = "machine_chest_press"
+    if mapped_name in {"bench_press", "machine_chest_press"} and any(
+        token in display_norm for token in ("leg_press", "presse_a_cuisses", "jamb", "quad")
+    ):
+        mapped_name = "leg_press"
 
     try:
         exercise_enum = Exercise(mapped_name)
