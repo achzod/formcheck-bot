@@ -1666,7 +1666,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         "{}|{}|{}".format(
             prompt,
             int(getattr(settings, "minimax_model_option", 0) or 0),
-            "v2",
+            "v3",
         )
     )
     cached = _cache_get(video_hash, prompt_hash)
