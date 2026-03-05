@@ -617,10 +617,12 @@ async def _run_analysis(
         strict_minimax_source = bool(
             app_settings.minimax_enabled and app_settings.minimax_strict_source
         )
-        # Production no-fail policy:
-        # MiniMax remains the primary analyzer, but local fallback is always enabled
-        # to avoid user-facing "MiniMax indisponible" dead-ends.
-        fallback_local_enabled = True
+        # Respect runtime policy from env:
+        # - if False: strict MiniMax-only (no local rescue path)
+        # - if True: local deterministic rescue allowed when MiniMax fails
+        fallback_local_enabled = bool(
+            app_settings.minimax_enabled and app_settings.minimax_fallback_to_local
+        )
         config = PipelineConfig(
             save_annotated_frames=include_annotated_frames,
             save_json=True,
@@ -658,6 +660,20 @@ async def _run_analysis(
                         "Deterministic local rescue succeeded (analysis_id=%s)",
                         analysis_id,
                     )
+                    try:
+                        from app.debug_log import log_error as _log_dbg
+
+                        _log_dbg(
+                            "analysis_source_override",
+                            "local_rescue_after_minimax_failure",
+                            {
+                                "analysis_id": analysis_id,
+                                "strict_minimax_source": strict_minimax_source,
+                                "fallback_local_enabled": fallback_local_enabled,
+                            },
+                        )
+                    except Exception:
+                        pass
                     result = local_result
                 else:
                     logger.error(
@@ -684,6 +700,8 @@ async def _run_analysis(
                     "phone": phone,
                     "video_path": video_path,
                     "timings": str(result.timings),
+                    "strict_minimax_source": strict_minimax_source,
+                    "fallback_local_enabled": fallback_local_enabled,
                 })
             except Exception:
                 pass
@@ -840,6 +858,43 @@ async def _run_analysis(
             conf_score = result.confidence.overall_score if result.confidence else 0
             logger.info("Confidence score: %d — annotated frame %s",
                         conf_score, "SENT" if conf_score >= 75 else "HIDDEN")
+
+        analysis_model = str(result.report.model_used or "").strip() if result.report else ""
+        detection_source = ""
+        if result.detection and result.detection.top_candidates:
+            detection_source = str(
+                result.detection.top_candidates[0].get("source", "")
+            ).strip()
+        if not detection_source and result.detection:
+            detection_source = "local_pipeline"
+        if not analysis_model:
+            analysis_model = "unknown"
+        if not detection_source:
+            detection_source = "unknown"
+
+        logger.info(
+            "Analysis source resolved (analysis_id=%s model=%s detection_source=%s strict=%s fallback=%s)",
+            analysis_id,
+            analysis_model,
+            detection_source,
+            strict_minimax_source,
+            fallback_local_enabled,
+        )
+        try:
+            from app.debug_log import log_error as _log_dbg
+
+            _log_dbg(
+                "analysis_source",
+                analysis_model,
+                {
+                    "analysis_id": analysis_id,
+                    "detection_source": detection_source,
+                    "strict_minimax_source": strict_minimax_source,
+                    "fallback_local_enabled": fallback_local_enabled,
+                },
+            )
+        except Exception:
+            pass
 
         # Cleanup temp video + preview frame
         cleanup_video(video_path)
