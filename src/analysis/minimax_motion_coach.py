@@ -9,6 +9,7 @@ This module calls MiniMax web APIs directly:
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
@@ -23,7 +24,7 @@ from dataclasses import asdict, dataclass, field
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 import httpx
 
@@ -135,6 +136,11 @@ def _load_settings():
             minimax_use_cloudscraper = _as_bool(os.getenv("MINIMAX_USE_CLOUDSCRAPER"), True)
             minimax_request_max_attempts = int(os.getenv("MINIMAX_REQUEST_MAX_ATTEMPTS", "3"))
             minimax_retry_backoff_s = float(os.getenv("MINIMAX_RETRY_BACKOFF_S", "1.0"))
+            minimax_browser_refresh_enabled = _as_bool(os.getenv("MINIMAX_BROWSER_REFRESH_ENABLED"), False)
+            minimax_browser_email = os.getenv("MINIMAX_BROWSER_EMAIL", "")
+            minimax_browser_password = os.getenv("MINIMAX_BROWSER_PASSWORD", "")
+            minimax_browser_headless = _as_bool(os.getenv("MINIMAX_BROWSER_HEADLESS"), True)
+            minimax_browser_timeout_s = int(os.getenv("MINIMAX_BROWSER_TIMEOUT_S", "120"))
             minimax_enable_cache = _as_bool(os.getenv("MINIMAX_ENABLE_CACHE"), True)
             minimax_cache_ttl_hours = int(os.getenv("MINIMAX_CACHE_TTL_HOURS", "168"))
             minimax_cache_path = os.getenv("MINIMAX_CACHE_PATH", "media/minimax_cache.sqlite")
@@ -1745,46 +1751,293 @@ def _validate_settings() -> list[str]:
     return missing
 
 
-def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
-    """Analyze a video using MiniMax Motion Coach chat backend."""
-    missing = _validate_settings()
+def _browser_refresh_enabled() -> bool:
+    return _as_bool(getattr(settings, "minimax_browser_refresh_enabled", False), False)
+
+
+def _extract_query_identity_from_url(url: str, out: dict[str, str]) -> None:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return
+    if "agent.minimax.io" not in (parsed.netloc or ""):
+        return
+    if "/matrix/api/v1/chat/" not in (parsed.path or ""):
+        return
+    query = parse_qs(parsed.query or "")
+    for key in ("token", "user_id", "device_id", "uuid"):
+        val = (query.get(key) or [None])[0]
+        if val and not out.get(key):
+            out[key] = str(val)
+
+
+def _extract_jwt_from_text(raw: str) -> str:
+    if not raw:
+        return ""
+    match = re.search(r"([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)", raw)
+    return str(match.group(1) if match else "")
+
+
+def _decode_user_id_from_token(token: str) -> str:
+    token = (token or "").strip()
+    if token.count(".") != 2:
+        return ""
+    try:
+        payload = token.split(".")[1]
+        padding = "=" * (-len(payload) % 4)
+        decoded = base64.urlsafe_b64decode(payload + padding).decode("utf-8", errors="ignore")
+        obj = json.loads(decoded)
+    except Exception:
+        return ""
+
+    if isinstance(obj, dict):
+        user = obj.get("user")
+        if isinstance(user, dict):
+            user_id = str(user.get("id") or "").strip()
+            if user_id:
+                return user_id
+        uid = str(obj.get("user_id") or "").strip()
+        if uid:
+            return uid
+    return ""
+
+
+def _minimax_login_if_needed(page: Any, email: str, password: str, timeout_ms: int) -> None:
+    email_selectors = (
+        "input[type='email']",
+        "input[name='email']",
+        "input[placeholder*='mail' i]",
+    )
+    password_selectors = (
+        "input[type='password']",
+        "input[name='password']",
+        "input[placeholder*='password' i]",
+        "input[placeholder*='mot de passe' i]",
+    )
+    submit_selectors = (
+        "button[type='submit']",
+        "button:has-text('Log in')",
+        "button:has-text('Sign in')",
+        "button:has-text('Continue')",
+        "button:has-text('Connexion')",
+        "button:has-text('Se connecter')",
+    )
+
+    email_locator = None
+    for selector in email_selectors:
+        try:
+            locator = page.locator(selector).first
+            if locator and locator.count() > 0 and locator.is_visible(timeout=1500):
+                email_locator = locator
+                break
+        except Exception:
+            continue
+    if email_locator is None:
+        return
+
+    password_locator = None
+    for selector in password_selectors:
+        try:
+            locator = page.locator(selector).first
+            if locator and locator.count() > 0:
+                password_locator = locator
+                break
+        except Exception:
+            continue
+    if password_locator is None:
+        raise RuntimeError("MiniMax browser login failed: password field not found")
+
+    email_locator.fill(email, timeout=timeout_ms)
+    password_locator.fill(password, timeout=timeout_ms)
+
+    submitted = False
+    for selector in submit_selectors:
+        try:
+            locator = page.locator(selector).first
+            if locator and locator.count() > 0 and locator.is_enabled():
+                locator.click(timeout=4000)
+                submitted = True
+                break
+        except Exception:
+            continue
+    if not submitted:
+        try:
+            password_locator.press("Enter", timeout=2000)
+            submitted = True
+        except Exception:
+            pass
+    if not submitted:
+        raise RuntimeError("MiniMax browser login failed: submit action not found")
+
+    try:
+        page.wait_for_timeout(2200)
+    except Exception:
+        pass
+
+
+def _refresh_minimax_session_via_browser() -> dict[str, Any]:
+    email = str(getattr(settings, "minimax_browser_email", "") or "").strip()
+    password = str(getattr(settings, "minimax_browser_password", "") or "").strip()
+    if not email or not password:
+        raise RuntimeError("MiniMax browser refresh disabled: missing MINIMAX_BROWSER_EMAIL/PASSWORD")
+
+    timeout_s = max(45, int(getattr(settings, "minimax_browser_timeout_s", 120) or 120))
+    timeout_ms = timeout_s * 1000
+    headless = _as_bool(getattr(settings, "minimax_browser_headless", True), True)
+
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+    except Exception as exc:
+        raise RuntimeError(
+            "Playwright unavailable for MiniMax browser refresh. Install dependency and Chromium."
+        ) from exc
+
+    captured: dict[str, str] = {}
+    storage_dump: dict[str, str] = {}
+    cookies: list[dict[str, Any]] = []
+
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(headless=headless)
+        except Exception as launch_exc:
+            # Render/runtime safety net: install Chromium once if missing.
+            logger.warning("Playwright Chromium launch failed, trying install: %s", launch_exc)
+            try:
+                subprocess.run(
+                    ["python3", "-m", "playwright", "install", "chromium"],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            except Exception as install_exc:
+                raise RuntimeError(
+                    "MiniMax browser refresh failed: Chromium not available and auto-install failed ({})"
+                    .format(install_exc)
+                ) from launch_exc
+            browser = p.chromium.launch(headless=headless)
+        try:
+            context = browser.new_context()
+            page = context.new_page()
+            page.on("request", lambda req: _extract_query_identity_from_url(req.url, captured))
+
+            page.goto("https://agent.minimax.io/experts", wait_until="domcontentloaded", timeout=timeout_ms)
+            _minimax_login_if_needed(page, email, password, timeout_ms)
+            page.goto("https://agent.minimax.io/experts", wait_until="domcontentloaded", timeout=timeout_ms)
+
+            # Force one authenticated chat API call from browser context to surface query identity.
+            try:
+                page.evaluate(
+                    """async () => {
+                        try {
+                            await fetch('/matrix/api/v1/chat/list_chat', {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: {'content-type': 'application/json'},
+                                body: '{}'
+                            });
+                        } catch (_) {}
+                    }"""
+                )
+            except Exception:
+                pass
+
+            # Give time for request listeners and app boot API calls.
+            deadline = time.time() + max(12, timeout_s // 3)
+            while time.time() < deadline:
+                if captured.get("token"):
+                    break
+                page.wait_for_timeout(350)
+
+            try:
+                storage_raw = page.evaluate(
+                    """() => {
+                        const out = {};
+                        try {
+                            for (let i = 0; i < localStorage.length; i++) {
+                                const k = localStorage.key(i);
+                                if (!k) continue;
+                                out[k] = localStorage.getItem(k) || '';
+                            }
+                        } catch (_) {}
+                        return out;
+                    }"""
+                )
+                if isinstance(storage_raw, dict):
+                    storage_dump = {str(k): str(v) for k, v in storage_raw.items()}
+            except Exception:
+                storage_dump = {}
+
+            cookies = context.cookies("https://agent.minimax.io")
+        finally:
+            try:
+                browser.close()
+            except Exception:
+                pass
+
+    if not captured.get("token"):
+        for value in storage_dump.values():
+            jwt = _extract_jwt_from_text(str(value))
+            if jwt:
+                captured["token"] = jwt
+                break
+
+    if not captured.get("user_id"):
+        token_user_id = _decode_user_id_from_token(captured.get("token", ""))
+        if token_user_id:
+            captured["user_id"] = token_user_id
+
+    cookie_header = "; ".join(
+        "{}={}".format(str(c.get("name", "")), str(c.get("value", "")))
+        for c in cookies
+        if c.get("name") and c.get("value")
+    )
+    if cookie_header:
+        captured["cookie"] = cookie_header
+
+    # Keep previous values if browser refresh returned only partial identity.
+    if captured.get("token"):
+        settings.minimax_token = captured["token"]
+    if captured.get("user_id"):
+        settings.minimax_user_id = captured["user_id"]
+    if captured.get("device_id"):
+        settings.minimax_device_id = captured["device_id"]
+    if captured.get("uuid"):
+        settings.minimax_uuid = captured["uuid"]
+    if captured.get("cookie"):
+        settings.minimax_cookie = captured["cookie"]
+
+    missing = []
+    if not str(getattr(settings, "minimax_token", "") or "").strip():
+        missing.append("token")
+    if not str(getattr(settings, "minimax_user_id", "") or "").strip():
+        missing.append("user_id")
     if missing:
-        raise RuntimeError("MiniMax configuration incomplete: {}".format(", ".join(missing)))
-
-    timeout_s = max(30, int(settings.minimax_timeout_s or 180))
-    poll_interval = max(0.8, float(settings.minimax_poll_interval_s or 2.0))
-
-    prompt = (settings.minimax_prompt_template or _DEFAULT_ANALYSIS_PROMPT).strip()
-    video_hash = _md5_file(Path(video_path))
-    prompt_hash = _md5_text(
-        "{}|{}|{}".format(
-            prompt,
-            int(getattr(settings, "minimax_model_option", 0) or 0),
-            "v3",
+        raise RuntimeError(
+            "MiniMax browser refresh incomplete: missing {}".format(",".join(missing))
         )
-    )
-    cached = _cache_get(video_hash, prompt_hash)
-    if cached is not None:
-        cached.metadata.update(
-            {
-                "video_hash": video_hash,
-                "prompt_hash": prompt_hash,
-                "cache_hit": True,
-            }
-        )
-        return cached
 
-    prepared = _prepare_video_for_minimax(video_path)
-    # Long/heavy videos can require significantly longer async processing on MiniMax.
-    base_duration_s = max(
-        float(prepared.prepared_duration_s or 0.0),
-        float(prepared.source_duration_s or 0.0),
-    )
-    adaptive_timeout_s = int(120 + (base_duration_s * 3.0))
-    timeout_s_effective = max(timeout_s, min(600, adaptive_timeout_s))
+    return {
+        "token_refreshed": bool(captured.get("token")),
+        "user_id_refreshed": bool(captured.get("user_id")),
+        "device_id_refreshed": bool(captured.get("device_id")),
+        "uuid_refreshed": bool(captured.get("uuid")),
+        "cookie_refreshed": bool(captured.get("cookie")),
+    }
+
+
+def _run_minimax_direct_once(
+    *,
+    prepared: _PreparedVideo,
+    prompt: str,
+    timeout_s: int,
+    poll_interval: float,
+    timeout_s_effective: int,
+    video_hash: str,
+    prompt_hash: str,
+) -> MiniMaxAnalysis:
     client = _MiniMaxClient(timeout_s=timeout_s)
     start = time.monotonic()
-
     try:
         configured_chat_id = str(getattr(settings, "minimax_chat_id", "") or "").strip()
         chat_id, chat_name_hint, chat_source = _resolve_target_chat_id(
@@ -1846,7 +2099,6 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
                     best_text = candidate
                     stable_rounds = 0
 
-                # chat_status 1 = generating; any other status generally means terminal.
                 if chat_status != 1 or stable_rounds >= 2:
                     break
             time.sleep(poll_interval)
@@ -1882,12 +2134,104 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         )
         if not analysis.report_text:
             analysis.report_text = best_text
+        return analysis
+    finally:
+        client.close()
+
+
+def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
+    """Analyze a video using MiniMax Motion Coach chat backend."""
+    missing = _validate_settings()
+    if missing:
+        raise RuntimeError("MiniMax configuration incomplete: {}".format(", ".join(missing)))
+
+    timeout_s = max(30, int(settings.minimax_timeout_s or 180))
+    poll_interval = max(0.8, float(settings.minimax_poll_interval_s or 2.0))
+
+    prompt = (settings.minimax_prompt_template or _DEFAULT_ANALYSIS_PROMPT).strip()
+    video_hash = _md5_file(Path(video_path))
+    prompt_hash = _md5_text(
+        "{}|{}|{}".format(
+            prompt,
+            int(getattr(settings, "minimax_model_option", 0) or 0),
+            "v3",
+        )
+    )
+    cached = _cache_get(video_hash, prompt_hash)
+    if cached is not None:
+        cached.metadata.update(
+            {
+                "video_hash": video_hash,
+                "prompt_hash": prompt_hash,
+                "cache_hit": True,
+            }
+        )
+        return cached
+
+    prepared = _prepare_video_for_minimax(video_path)
+    # Long/heavy videos can require significantly longer async processing on MiniMax.
+    base_duration_s = max(
+        float(prepared.prepared_duration_s or 0.0),
+        float(prepared.source_duration_s or 0.0),
+    )
+    adaptive_timeout_s = int(120 + (base_duration_s * 3.0))
+    timeout_s_effective = max(timeout_s, min(600, adaptive_timeout_s))
+    direct_exc: Exception | None = None
+    analysis: MiniMaxAnalysis | None = None
+
+    try:
+        try:
+            analysis = _run_minimax_direct_once(
+                prepared=prepared,
+                prompt=prompt,
+                timeout_s=timeout_s,
+                poll_interval=poll_interval,
+                timeout_s_effective=timeout_s_effective,
+                video_hash=video_hash,
+                prompt_hash=prompt_hash,
+            )
+            analysis.metadata["transport"] = "direct_api"
+        except Exception as exc:
+            direct_exc = exc
+            if not _browser_refresh_enabled():
+                raise
+
+            logger.warning("MiniMax direct transport failed, trying browser refresh fallback: %s", exc)
+            refresh_meta = _refresh_minimax_session_via_browser()
+            analysis = _run_minimax_direct_once(
+                prepared=prepared,
+                prompt=prompt,
+                timeout_s=timeout_s,
+                poll_interval=poll_interval,
+                timeout_s_effective=timeout_s_effective,
+                video_hash=video_hash,
+                prompt_hash=prompt_hash,
+            )
+            analysis.metadata.update(
+                {
+                    "transport": "direct_api_after_browser_refresh",
+                    "browser_refresh": refresh_meta,
+                    "direct_error_initial": str(exc)[:220],
+                }
+            )
+
+        if analysis is None:
+            if direct_exc is None:
+                raise RuntimeError("MiniMax analysis unavailable (unknown error)")
+            raise direct_exc
+
         _cache_put(video_hash, prompt_hash, analysis)
         return analysis
+    except Exception as final_exc:
+        if direct_exc is not None and final_exc is not direct_exc:
+            raise RuntimeError(
+                "MiniMax direct failed: {} | browser fallback failed: {}"
+                .format(str(direct_exc), str(final_exc))
+            ) from final_exc
+        raise
     finally:
         if prepared.temporary:
             try:
                 Path(prepared.path).unlink(missing_ok=True)
             except Exception:
                 pass
-        client.close()

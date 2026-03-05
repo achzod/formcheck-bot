@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     minimax_use_cloudscraper: bool = True
     minimax_request_max_attempts: int = 3
     minimax_retry_backoff_s: float = 1.0
+    minimax_browser_refresh_enabled: bool = False
+    minimax_browser_email: str = ""
+    minimax_browser_password: str = ""
+    minimax_browser_headless: bool = True
+    minimax_browser_timeout_s: int = 120
     minimax_enable_cache: bool = True
     minimax_cache_ttl_hours: int = 168
     minimax_cache_path: str = "media/minimax_cache.sqlite"
