@@ -1,10 +1,8 @@
 """MiniMax Motion Coach integration (video upload + chat analysis).
 
-This module calls MiniMax web APIs directly:
-- uploads a local video file to OSS using temporary STS credentials
-- sends a chat message with the uploaded video attachment
-- polls chat detail until an agent response is available
-- parses structured JSON (preferred) or falls back to regex extraction
+Supported transports:
+- direct API (legacy): signed web API calls (upload + send + polling)
+- browser-only (preferred when enabled): Playwright UI automation with AI Motion Coach
 """
 
 from __future__ import annotations
@@ -132,15 +130,21 @@ def _load_settings():
                 "MINIMAX_MOTION_COACH_KEYWORDS",
                 "ai motion coach|motion coach|video motion analysis",
             )
-            minimax_fallback_to_local = _as_bool(os.getenv("MINIMAX_FALLBACK_TO_LOCAL"), True)
+            minimax_fallback_to_local = _as_bool(os.getenv("MINIMAX_FALLBACK_TO_LOCAL"), False)
             minimax_use_cloudscraper = _as_bool(os.getenv("MINIMAX_USE_CLOUDSCRAPER"), True)
             minimax_request_max_attempts = int(os.getenv("MINIMAX_REQUEST_MAX_ATTEMPTS", "3"))
             minimax_retry_backoff_s = float(os.getenv("MINIMAX_RETRY_BACKOFF_S", "1.0"))
             minimax_browser_refresh_enabled = _as_bool(os.getenv("MINIMAX_BROWSER_REFRESH_ENABLED"), False)
+            minimax_browser_only = _as_bool(os.getenv("MINIMAX_BROWSER_ONLY"), True)
             minimax_browser_email = os.getenv("MINIMAX_BROWSER_EMAIL", "")
             minimax_browser_password = os.getenv("MINIMAX_BROWSER_PASSWORD", "")
             minimax_browser_headless = _as_bool(os.getenv("MINIMAX_BROWSER_HEADLESS"), True)
             minimax_browser_timeout_s = int(os.getenv("MINIMAX_BROWSER_TIMEOUT_S", "120"))
+            minimax_browser_profile_dir = os.getenv("MINIMAX_BROWSER_PROFILE_DIR", "media/minimax_browser_profile")
+            minimax_motion_coach_expert_url = os.getenv(
+                "MINIMAX_MOTION_COACH_EXPERT_URL",
+                "https://agent.minimax.io/expert/chat/362683345551702",
+            )
             minimax_enable_cache = _as_bool(os.getenv("MINIMAX_ENABLE_CACHE"), True)
             minimax_cache_ttl_hours = int(os.getenv("MINIMAX_CACHE_TTL_HOURS", "168"))
             minimax_cache_path = os.getenv("MINIMAX_CACHE_PATH", "media/minimax_cache.sqlite")
@@ -1737,22 +1741,36 @@ class _MiniMaxClient:
 
 def _validate_settings() -> list[str]:
     missing: list[str] = []
-    prefer_motion = _as_bool(getattr(settings, "minimax_prefer_motion_coach_chat", True), True)
-    required = {
-        "minimax_token": settings.minimax_token,
-        "minimax_user_id": settings.minimax_user_id,
-        "minimax_device_id": settings.minimax_device_id,
+    required_browser = {
+        "minimax_browser_email": getattr(settings, "minimax_browser_email", ""),
+        "minimax_browser_password": getattr(settings, "minimax_browser_password", ""),
     }
-    for key, value in required.items():
+    for key, value in required_browser.items():
         if not str(value or "").strip():
             missing.append(key)
-    if (not prefer_motion) and not str(getattr(settings, "minimax_chat_id", "") or "").strip():
-        missing.append("minimax_chat_id")
     return missing
 
 
 def _browser_refresh_enabled() -> bool:
     return _as_bool(getattr(settings, "minimax_browser_refresh_enabled", False), False)
+
+
+def _browser_only_enabled() -> bool:
+    return _as_bool(getattr(settings, "minimax_browser_only", True), True)
+
+
+def _browser_profile_dir() -> Path:
+    raw = str(getattr(settings, "minimax_browser_profile_dir", "") or "media/minimax_browser_profile")
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _motion_coach_expert_url() -> str:
+    raw = str(getattr(settings, "minimax_motion_coach_expert_url", "") or "").strip()
+    return raw or "https://agent.minimax.io/expert/chat/362683345551702"
 
 
 def _extract_query_identity_from_url(url: str, out: dict[str, str]) -> None:
@@ -2026,6 +2044,529 @@ def _refresh_minimax_session_via_browser() -> dict[str, Any]:
     }
 
 
+def _locator_is_visible(page: Any, selector: str, timeout_ms: int = 1200) -> bool:
+    try:
+        locator = page.locator(selector).first
+        return locator.count() > 0 and locator.is_visible(timeout=timeout_ms)
+    except Exception:
+        return False
+
+
+def _click_first_visible(page: Any, selectors: tuple[str, ...], timeout_ms: int = 2500) -> bool:
+    for selector in selectors:
+        try:
+            locator = page.locator(selector).first
+            if locator.count() > 0 and locator.is_visible(timeout=timeout_ms):
+                locator.click(timeout=timeout_ms)
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _login_with_google_if_needed(page: Any, email: str, password: str, timeout_ms: int) -> None:
+    if not _locator_is_visible(page, "button:has-text('Continue with Google')", timeout_ms=900):
+        return
+
+    google_btn = page.locator("button:has-text('Continue with Google')").first
+    try:
+        google_btn.click(timeout=timeout_ms)
+    except Exception as exc:
+        raise RuntimeError("MiniMax browser login failed: cannot start Google auth flow") from exc
+
+    # Google auth can open in current tab or in a popup page.
+    google_page = page
+    start_wait = time.monotonic()
+    while (time.monotonic() - start_wait) < 12:
+        if "accounts.google.com" in (google_page.url or ""):
+            break
+        candidate = None
+        for p in page.context.pages:
+            if "accounts.google.com" in (p.url or ""):
+                candidate = p
+                break
+        if candidate is not None:
+            google_page = candidate
+            break
+        page.wait_for_timeout(250)
+
+    if "accounts.google.com" not in (google_page.url or ""):
+        # Could already be authenticated and redirected back.
+        return
+
+    try:
+        google_page.bring_to_front()
+    except Exception:
+        pass
+
+    # Account chooser fast-path.
+    account_selectors = (
+        '[data-email="{}"]'.format(email),
+        'div[aria-label="{}"]'.format(email),
+        'div:has-text("{}")'.format(email),
+    )
+    if _click_first_visible(google_page, account_selectors, timeout_ms=2000):
+        try:
+            google_page.wait_for_timeout(900)
+        except Exception:
+            pass
+
+    # Email step.
+    email_selectors = (
+        "input[type='email']",
+        "input#identifierId",
+        "input[name='identifier']",
+    )
+    for selector in email_selectors:
+        try:
+            locator = google_page.locator(selector).first
+            if locator.count() > 0 and locator.is_visible(timeout=1200):
+                locator.fill(email, timeout=timeout_ms)
+                if not _click_first_visible(
+                    google_page,
+                    ("#identifierNext button", "button:has-text('Next')", "button:has-text('Suivant')"),
+                    timeout_ms=3000,
+                ):
+                    locator.press("Enter")
+                break
+        except Exception:
+            continue
+
+    # Password step.
+    pass_selectors = (
+        "input[type='password']",
+        "input[name='Passwd']",
+    )
+    pass_filled = False
+    pass_deadline = time.monotonic() + 18
+    while time.monotonic() < pass_deadline and not pass_filled:
+        for selector in pass_selectors:
+            try:
+                locator = google_page.locator(selector).first
+                if locator.count() > 0 and locator.is_visible(timeout=1200):
+                    locator.fill(password, timeout=timeout_ms)
+                    if not _click_first_visible(
+                        google_page,
+                        ("#passwordNext button", "button:has-text('Next')", "button:has-text('Suivant')"),
+                        timeout_ms=3000,
+                    ):
+                        locator.press("Enter")
+                    pass_filled = True
+                    break
+            except Exception:
+                continue
+        if not pass_filled:
+            google_page.wait_for_timeout(250)
+
+    # Wait for redirect back to MiniMax.
+    redirect_deadline = time.monotonic() + 45
+    while time.monotonic() < redirect_deadline:
+        for p in page.context.pages:
+            if "agent.minimax.io" in (p.url or ""):
+                try:
+                    p.bring_to_front()
+                except Exception:
+                    pass
+                return
+        page.wait_for_timeout(300)
+
+    raise RuntimeError(
+        "MiniMax browser login failed: Google auth did not return to agent.minimax.io (2FA or verification required)."
+    )
+
+
+def _ensure_browser_authenticated(page: Any, email: str, password: str, timeout_ms: int) -> None:
+    # Direct login form (if available in some MiniMax variants).
+    _minimax_login_if_needed(page, email, password, timeout_ms)
+    # Google OAuth modal fallback.
+    _login_with_google_if_needed(page, email, password, timeout_ms)
+    # Best-effort close of any remaining login modal.
+    _click_first_visible(page, ("button[aria-label='Close']", "img[alt='close']", "img[alt='Close']"), timeout_ms=1200)
+
+
+def _open_motion_coach_chat(page: Any, timeout_ms: int) -> None:
+    page.goto(_motion_coach_expert_url(), wait_until="domcontentloaded", timeout=timeout_ms)
+    if _locator_is_visible(page, ".tiptap-editor", timeout_ms=4500):
+        return
+
+    # Fallback discovery flow via Experts search.
+    page.goto("https://agent.minimax.io/experts", wait_until="domcontentloaded", timeout=timeout_ms)
+    _click_first_visible(
+        page,
+        (
+            "input[placeholder='Search experts'][readonly]",
+            "div:has(input[placeholder='Search experts'])",
+            "input[placeholder='Search experts']",
+        ),
+        timeout_ms=3500,
+    )
+
+    search_box = page.locator("input[placeholder='Search experts']:not([readonly])").first
+    if search_box.count() <= 0:
+        search_box = page.locator("input[placeholder='Search experts']").last
+    if search_box.count() <= 0:
+        raise RuntimeError("MiniMax browser flow failed: search box not found")
+
+    search_box.fill("AI Motion Coach", timeout=timeout_ms)
+    try:
+        search_box.press("Enter")
+    except Exception:
+        pass
+
+    clicked = False
+    try:
+        card = page.locator("img[alt='AI Motion Coach']").first
+        if card.count() > 0:
+            card.click(timeout=timeout_ms)
+            clicked = True
+    except Exception:
+        clicked = False
+    if not clicked:
+        try:
+            page.get_by_text("AI Motion Coach", exact=False).first.click(timeout=timeout_ms)
+            clicked = True
+        except Exception:
+            clicked = False
+    if not clicked:
+        raise RuntimeError("MiniMax browser flow failed: AI Motion Coach card not found")
+
+    if not _click_first_visible(page, ("button:has-text('Start Chat')",), timeout_ms=timeout_ms):
+        raise RuntimeError("MiniMax browser flow failed: Start Chat button not found")
+
+    page.wait_for_url(re.compile(r"https://agent\.minimax\.io/(expert/chat|chat)"), timeout=timeout_ms)
+    page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
+
+
+def _upload_and_send_via_browser(page: Any, video_path: str, prompt: str, timeout_ms: int) -> None:
+    page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
+
+    # Populate prompt in the editor.
+    editor = page.locator(".tiptap-editor").first
+    editor.click(timeout=timeout_ms)
+    for hotkey in ("Meta+A", "Control+A"):
+        try:
+            page.keyboard.press(hotkey)
+        except Exception:
+            continue
+    try:
+        page.keyboard.press("Backspace")
+    except Exception:
+        pass
+    if prompt:
+        page.keyboard.type(prompt)
+
+    # Upload video file via hidden input.
+    upload_input = page.locator("input[type='file']").last
+    if upload_input.count() <= 0:
+        raise RuntimeError("MiniMax browser flow failed: upload input not found")
+    upload_input.set_input_files(video_path, timeout=timeout_ms)
+
+    # Wait briefly for upload attachment binding.
+    file_name = Path(video_path).name
+    try:
+        page.locator("text={}".format(file_name)).first.wait_for(timeout=8000)
+    except Exception:
+        page.wait_for_timeout(1300)
+
+    # Send message.
+    if not _click_first_visible(page, ("#input-send-icon", "div#input-send-icon"), timeout_ms=2200):
+        try:
+            page.keyboard.press("Enter")
+        except Exception as exc:
+            raise RuntimeError("MiniMax browser flow failed: send action not available") from exc
+
+
+def _compact_text(raw: str) -> str:
+    return re.sub(r"\s+", " ", str(raw or "")).strip()
+
+
+def _score_dom_candidate(text: str) -> int:
+    low = text.lower()
+    score = len(text)
+    if "{" in text and "}" in text:
+        score += 220
+    for token in ('"exercise"', '"reps"', '"score"', '"intensity"', '"report_markdown"', '"sections"'):
+        if token in low:
+            score += 120
+    for token in (
+        "analyse biomecanique",
+        "corrections prioritaires",
+        "intensite de serie",
+        "decomposition du score",
+        "plan action",
+    ):
+        if token in low:
+            score += 80
+    return score
+
+
+def _collect_dom_analysis_candidates(page: Any, max_items: int = 120) -> list[str]:
+    script = """
+() => {
+  const selectors = [
+    "[data-message-author-role='assistant']",
+    "[data-message-role='assistant']",
+    "[data-testid*='assistant']",
+    ".markdown-body",
+    "[class*='markdown']",
+    "[class*='assistant'] [class*='content']"
+  ];
+  const out = [];
+  for (const sel of selectors) {
+    for (const node of Array.from(document.querySelectorAll(sel))) {
+      const txt = (node && (node.innerText || node.textContent || "") || "").trim();
+      if (txt) out.push(txt);
+    }
+  }
+  return out.slice(-400);
+}
+"""
+    try:
+        raw_values = page.evaluate(script)
+    except Exception:
+        return []
+
+    if not isinstance(raw_values, list):
+        return []
+
+    filtered: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        text = _compact_text(str(raw or ""))
+        if len(text) < 60:
+            continue
+        low = text.lower()
+        if low.startswith("tu es un coach biomecanique expert"):
+            continue
+        if "analyse la video envoyee et reponds uniquement en json" in low:
+            continue
+        if "start chat" in low:
+            continue
+        if (
+            ("{" in text and "}" in text)
+            or ("analyse biomecanique" in low)
+            or ("plan action" in low)
+            or ("corrections prioritaires" in low)
+            or ("decomposition du score" in low)
+        ):
+            if text not in seen:
+                seen.add(text)
+                filtered.append(text)
+
+    if len(filtered) > max_items:
+        return filtered[-max_items:]
+    return filtered
+
+
+def _select_new_dom_candidate(candidates: list[str], baseline: set[str]) -> str:
+    fresh = [candidate for candidate in candidates if candidate not in baseline]
+    if not fresh:
+        return ""
+    fresh.sort(key=_score_dom_candidate, reverse=True)
+    return fresh[0]
+
+
+def _run_minimax_browser_only_once(
+    *,
+    prepared: _PreparedVideo,
+    prompt: str,
+    poll_interval: float,
+    timeout_s_effective: int,
+    video_hash: str,
+    prompt_hash: str,
+) -> MiniMaxAnalysis:
+    email = str(getattr(settings, "minimax_browser_email", "") or "").strip()
+    password = str(getattr(settings, "minimax_browser_password", "") or "").strip()
+    if not email or not password:
+        raise RuntimeError("MiniMax browser-only mode requires MINIMAX_BROWSER_EMAIL and MINIMAX_BROWSER_PASSWORD")
+
+    timeout_s = max(45, int(getattr(settings, "minimax_browser_timeout_s", 120) or 120))
+    timeout_ms = timeout_s * 1000
+    headless = _as_bool(getattr(settings, "minimax_browser_headless", True), True)
+    profile_dir = _browser_profile_dir()
+
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+    except Exception as exc:
+        raise RuntimeError(
+            "Playwright unavailable for MiniMax browser-only mode. Install dependency and Chromium."
+        ) from exc
+
+    start = time.monotonic()
+    state: dict[str, Any] = {
+        "sent": False,
+        "done": False,
+        "best_text": "",
+        "stable_rounds": 0,
+        "chat_status": 0,
+        "chat_status_known": False,
+        "baseline_ids": set(),
+        "known_ids": set(),
+        "dom_baseline": set(),
+        "dom_candidates_seen": 0,
+        "dom_fallback_used": False,
+        "chat_name": "",
+        "responses_seen": 0,
+    }
+
+    def _on_response(response: Any) -> None:
+        url = str(getattr(response, "url", "") or "")
+        if "/matrix/api/v1/chat/get_chat_detail" not in url:
+            return
+        try:
+            payload = response.json()
+        except Exception:
+            return
+        state["responses_seen"] = int(state.get("responses_seen", 0) or 0) + 1
+        state["chat_status_known"] = True
+        chat_name = _extract_chat_name(payload)
+        if chat_name and not state.get("chat_name"):
+            state["chat_name"] = chat_name
+
+        if not state.get("sent"):
+            _, all_ids, chat_status = _extract_agent_message(payload, known_message_ids=set())
+            state["baseline_ids"] = set(all_ids)
+            state["known_ids"] = set(all_ids)
+            state["chat_status"] = chat_status
+            return
+
+        known_ids = set(state.get("known_ids", set()))
+        candidate, all_ids, chat_status = _extract_agent_message(payload, known_message_ids=known_ids)
+        state["known_ids"] = set(all_ids)
+        state["chat_status"] = chat_status
+        if candidate:
+            if candidate == state.get("best_text", ""):
+                state["stable_rounds"] = int(state.get("stable_rounds", 0) or 0) + 1
+            else:
+                state["best_text"] = candidate
+                state["stable_rounds"] = 0
+            if chat_status != 1 or int(state.get("stable_rounds", 0) or 0) >= 2:
+                state["done"] = True
+
+    with sync_playwright() as p:
+        context = None
+        page = None
+        try:
+            try:
+                context = p.chromium.launch_persistent_context(
+                    str(profile_dir),
+                    headless=headless,
+                )
+            except Exception as launch_exc:
+                logger.warning("Playwright Chromium launch failed, trying install: %s", launch_exc)
+                try:
+                    subprocess.run(
+                        ["python3", "-m", "playwright", "install", "chromium"],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                except Exception as install_exc:
+                    raise RuntimeError(
+                        "MiniMax browser-only failed: Chromium not available and auto-install failed ({})"
+                        .format(install_exc)
+                    ) from launch_exc
+                context = p.chromium.launch_persistent_context(
+                    str(profile_dir),
+                    headless=headless,
+                )
+
+            page = context.pages[0] if context.pages else context.new_page()
+            page.on("response", _on_response)
+
+            _open_motion_coach_chat(page, timeout_ms=timeout_ms)
+            _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
+            # Ensure composer is accessible after auth redirects.
+            if not _locator_is_visible(page, ".tiptap-editor", timeout_ms=3000):
+                _open_motion_coach_chat(page, timeout_ms=timeout_ms)
+
+            # Baseline collection window.
+            page.wait_for_timeout(1400)
+            state["known_ids"] = set(state.get("baseline_ids", set()))
+            state["dom_baseline"] = set(_collect_dom_analysis_candidates(page))
+
+            _upload_and_send_via_browser(page, prepared.path, prompt, timeout_ms=timeout_ms)
+            state["sent"] = True
+            state["known_ids"] = set(state.get("baseline_ids", set()))
+
+            deadline = time.monotonic() + timeout_s_effective
+            sleep_ms = max(300, int(max(0.8, poll_interval) * 1000))
+            while time.monotonic() < deadline:
+                if state.get("best_text") and (
+                    state.get("done")
+                    or (
+                        bool(state.get("chat_status_known"))
+                        and int(state.get("chat_status", 0) or 0) != 1
+                    )
+                ):
+                    break
+                page.wait_for_timeout(sleep_ms)
+                dom_candidates = _collect_dom_analysis_candidates(page)
+                state["dom_candidates_seen"] = max(
+                    int(state.get("dom_candidates_seen", 0) or 0),
+                    len(dom_candidates),
+                )
+                dom_baseline = set(state.get("dom_baseline", set()))
+                dom_candidate = _select_new_dom_candidate(dom_candidates, dom_baseline)
+                if dom_candidate:
+                    state["dom_fallback_used"] = True
+                    if dom_candidate == state.get("best_text", ""):
+                        state["stable_rounds"] = int(state.get("stable_rounds", 0) or 0) + 1
+                    else:
+                        state["best_text"] = dom_candidate
+                        state["stable_rounds"] = 0
+                    if int(state.get("stable_rounds", 0) or 0) >= 2:
+                        state["done"] = True
+
+        finally:
+            if page is not None:
+                try:
+                    page.off("response", _on_response)
+                except Exception:
+                    pass
+            if context is not None:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+
+    best_text = str(state.get("best_text", "") or "").strip()
+    if not best_text:
+        raise TimeoutError("MiniMax browser-only response timeout (no assistant message)")
+
+    analysis = _parse_analysis_payload(best_text)
+    elapsed = time.monotonic() - start
+    chat_name = str(state.get("chat_name", "") or "").strip()
+    analysis.metadata.update(
+        {
+            "transport": "browser_ui_only",
+            "chat_name": chat_name,
+            "motion_coach_validated": bool(chat_name and _is_motion_coach_label(chat_name)),
+            "elapsed_s": round(elapsed, 2),
+            "timeout_s_effective": int(timeout_s_effective),
+            "chat_status": int(state.get("chat_status", 0) or 0),
+            "responses_seen": int(state.get("responses_seen", 0) or 0),
+            "dom_fallback_used": bool(state.get("dom_fallback_used")),
+            "dom_candidates_seen": int(state.get("dom_candidates_seen", 0) or 0),
+            "cache_hit": False,
+            "video_hash": video_hash,
+            "prompt_hash": prompt_hash,
+            "source_duration_s": round(float(prepared.source_duration_s), 2),
+            "prepared_duration_s": round(float(prepared.prepared_duration_s), 2),
+            "source_size_bytes": int(prepared.source_size_bytes),
+            "prepared_size_bytes": int(prepared.prepared_size_bytes),
+            "prepared_strategy": prepared.strategy,
+            "prepared_trimmed": bool(prepared.was_trimmed),
+            "prepared_transcoded": bool(prepared.was_transcoded),
+            "browser_profile_dir": str(profile_dir),
+        }
+    )
+    if not analysis.report_text:
+        analysis.report_text = best_text
+    return analysis
+
+
 def _run_minimax_direct_once(
     *,
     prepared: _PreparedVideo,
@@ -2154,7 +2695,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         "{}|{}|{}".format(
             prompt,
             int(getattr(settings, "minimax_model_option", 0) or 0),
-            "v3",
+            "v4_browser_only",
         )
     )
     cached = _cache_get(video_hash, prompt_hash)
@@ -2176,59 +2717,27 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
     )
     adaptive_timeout_s = int(120 + (base_duration_s * 3.0))
     timeout_s_effective = max(timeout_s, min(600, adaptive_timeout_s))
-    direct_exc: Exception | None = None
     analysis: MiniMaxAnalysis | None = None
 
     try:
-        try:
-            analysis = _run_minimax_direct_once(
-                prepared=prepared,
-                prompt=prompt,
-                timeout_s=timeout_s,
-                poll_interval=poll_interval,
-                timeout_s_effective=timeout_s_effective,
-                video_hash=video_hash,
-                prompt_hash=prompt_hash,
-            )
-            analysis.metadata["transport"] = "direct_api"
-        except Exception as exc:
-            direct_exc = exc
-            if not _browser_refresh_enabled():
-                raise
-
-            logger.warning("MiniMax direct transport failed, trying browser refresh fallback: %s", exc)
-            refresh_meta = _refresh_minimax_session_via_browser()
-            analysis = _run_minimax_direct_once(
-                prepared=prepared,
-                prompt=prompt,
-                timeout_s=timeout_s,
-                poll_interval=poll_interval,
-                timeout_s_effective=timeout_s_effective,
-                video_hash=video_hash,
-                prompt_hash=prompt_hash,
-            )
-            analysis.metadata.update(
-                {
-                    "transport": "direct_api_after_browser_refresh",
-                    "browser_refresh": refresh_meta,
-                    "direct_error_initial": str(exc)[:220],
-                }
-            )
+        policy_browser_only = _browser_only_enabled()
+        if not policy_browser_only:
+            logger.warning("MINIMAX_BROWSER_ONLY=false ignored by policy: forcing browser UI transport.")
+        analysis = _run_minimax_browser_only_once(
+            prepared=prepared,
+            prompt=prompt,
+            poll_interval=poll_interval,
+            timeout_s_effective=timeout_s_effective,
+            video_hash=video_hash,
+            prompt_hash=prompt_hash,
+        )
+        analysis.metadata["policy_forced_browser_only"] = bool(not policy_browser_only)
 
         if analysis is None:
-            if direct_exc is None:
-                raise RuntimeError("MiniMax analysis unavailable (unknown error)")
-            raise direct_exc
+            raise RuntimeError("MiniMax analysis unavailable (unknown error)")
 
         _cache_put(video_hash, prompt_hash, analysis)
         return analysis
-    except Exception as final_exc:
-        if direct_exc is not None and final_exc is not direct_exc:
-            raise RuntimeError(
-                "MiniMax direct failed: {} | browser fallback failed: {}"
-                .format(str(direct_exc), str(final_exc))
-            ) from final_exc
-        raise
     finally:
         if prepared.temporary:
             try:

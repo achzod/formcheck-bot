@@ -440,102 +440,159 @@ class MiniMaxRetryTests(unittest.TestCase):
 
 
 class MiniMaxBrowserFallbackStrategyTests(unittest.TestCase):
-    def test_run_uses_browser_refresh_after_direct_failure(self) -> None:
+    def test_run_forces_browser_transport_even_if_flag_disabled(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".mp4") as tmp:
             tmp.write(b"test-video")
             tmp.flush()
 
             old_enabled = minimax_settings.minimax_enable_cache
-            old_token = minimax_settings.minimax_token
-            old_user = minimax_settings.minimax_user_id
-            old_device = minimax_settings.minimax_device_id
-            old_browser = minimax_settings.minimax_browser_refresh_enabled
+            old_browser_only = minimax_settings.minimax_browser_only
             old_email = minimax_settings.minimax_browser_email
             old_password = minimax_settings.minimax_browser_password
             minimax_settings.minimax_enable_cache = False
-            minimax_settings.minimax_token = "tok"
-            minimax_settings.minimax_user_id = "uid"
-            minimax_settings.minimax_device_id = "did"
-            minimax_settings.minimax_browser_refresh_enabled = True
+            minimax_settings.minimax_browser_only = False
             minimax_settings.minimax_browser_email = "user@example.com"
             minimax_settings.minimax_browser_password = "secret"
 
-            calls = {"direct": 0, "refresh": 0, "cache_put": 0}
+            calls = {"browser": 0, "direct": 0, "cache_put": 0}
             original_prepare = mm._prepare_video_for_minimax
             original_direct = mm._run_minimax_direct_once
-            original_refresh = mm._refresh_minimax_session_via_browser
+            original_browser_only = mm._run_minimax_browser_only_once
             original_cache_put = mm._cache_put
             try:
                 mm._prepare_video_for_minimax = lambda path: mm._PreparedVideo(path=path)  # type: ignore[assignment]
+                mm._run_minimax_direct_once = lambda **kwargs: (  # type: ignore[assignment]
+                    calls.__setitem__("direct", calls["direct"] + 1)
+                    or (_ for _ in ()).throw(RuntimeError("direct transport should not be used"))
+                )
 
-                def _fake_direct(**kwargs):
-                    calls["direct"] += 1
-                    if calls["direct"] == 1:
-                        raise RuntimeError("boom direct")
+                def _fake_browser_only(**kwargs):
+                    calls["browser"] += 1
                     return MiniMaxAnalysis(
                         exercise_slug="machine_chest_press",
                         exercise_display="Presse Pectorale Machine",
                         score=80,
                         reps_total=10,
                         report_text="ok",
+                        metadata={"transport": "browser_ui_only"},
                     )
 
-                mm._run_minimax_direct_once = _fake_direct  # type: ignore[assignment]
-                mm._refresh_minimax_session_via_browser = lambda: (  # type: ignore[assignment]
-                    calls.__setitem__("refresh", calls["refresh"] + 1) or {"token_refreshed": True}
-                )
+                mm._run_minimax_browser_only_once = _fake_browser_only  # type: ignore[assignment]
                 mm._cache_put = lambda *_args, **_kwargs: calls.__setitem__("cache_put", calls["cache_put"] + 1)  # type: ignore[assignment]
 
                 out = run_minimax_motion_coach(tmp.name)
             finally:
                 mm._prepare_video_for_minimax = original_prepare  # type: ignore[assignment]
                 mm._run_minimax_direct_once = original_direct  # type: ignore[assignment]
-                mm._refresh_minimax_session_via_browser = original_refresh  # type: ignore[assignment]
+                mm._run_minimax_browser_only_once = original_browser_only  # type: ignore[assignment]
                 mm._cache_put = original_cache_put  # type: ignore[assignment]
                 minimax_settings.minimax_enable_cache = old_enabled
-                minimax_settings.minimax_token = old_token
-                minimax_settings.minimax_user_id = old_user
-                minimax_settings.minimax_device_id = old_device
-                minimax_settings.minimax_browser_refresh_enabled = old_browser
+                minimax_settings.minimax_browser_only = old_browser_only
                 minimax_settings.minimax_browser_email = old_email
                 minimax_settings.minimax_browser_password = old_password
 
-            self.assertEqual(calls["direct"], 2)
-            self.assertEqual(calls["refresh"], 1)
+            self.assertEqual(calls["browser"], 1)
+            self.assertEqual(calls["direct"], 0)
             self.assertEqual(calls["cache_put"], 1)
-            self.assertEqual(out.metadata.get("transport"), "direct_api_after_browser_refresh")
+            self.assertEqual(out.metadata.get("transport"), "browser_ui_only")
+            self.assertEqual(out.metadata.get("policy_forced_browser_only"), True)
 
-    def test_run_raises_when_direct_fails_and_browser_refresh_disabled(self) -> None:
+    def test_run_browser_only_mode_skips_direct_api_transport(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".mp4") as tmp:
             tmp.write(b"test-video")
             tmp.flush()
 
             old_enabled = minimax_settings.minimax_enable_cache
+            old_browser_only = minimax_settings.minimax_browser_only
+            old_email = minimax_settings.minimax_browser_email
+            old_password = minimax_settings.minimax_browser_password
             old_token = minimax_settings.minimax_token
             old_user = minimax_settings.minimax_user_id
             old_device = minimax_settings.minimax_device_id
-            old_browser = minimax_settings.minimax_browser_refresh_enabled
             minimax_settings.minimax_enable_cache = False
-            minimax_settings.minimax_token = "tok"
-            minimax_settings.minimax_user_id = "uid"
-            minimax_settings.minimax_device_id = "did"
-            minimax_settings.minimax_browser_refresh_enabled = False
+            minimax_settings.minimax_browser_only = True
+            minimax_settings.minimax_browser_email = "user@example.com"
+            minimax_settings.minimax_browser_password = "secret"
+            minimax_settings.minimax_token = ""
+            minimax_settings.minimax_user_id = ""
+            minimax_settings.minimax_device_id = ""
 
+            calls = {"browser": 0, "direct": 0, "cache_put": 0}
             original_prepare = mm._prepare_video_for_minimax
             original_direct = mm._run_minimax_direct_once
+            original_browser_only = mm._run_minimax_browser_only_once
+            original_cache_put = mm._cache_put
             try:
                 mm._prepare_video_for_minimax = lambda path: mm._PreparedVideo(path=path)  # type: ignore[assignment]
-                mm._run_minimax_direct_once = lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom direct"))  # type: ignore[assignment]
-                with self.assertRaises(RuntimeError):
-                    run_minimax_motion_coach(tmp.name)
+                mm._run_minimax_direct_once = lambda **kwargs: (  # type: ignore[assignment]
+                    calls.__setitem__("direct", calls["direct"] + 1)
+                    or (_ for _ in ()).throw(RuntimeError("direct transport should not be used"))
+                )
+
+                def _fake_browser_only(**kwargs):
+                    calls["browser"] += 1
+                    return MiniMaxAnalysis(
+                        exercise_slug="machine_chest_press",
+                        exercise_display="Presse Pectorale Machine",
+                        score=84,
+                        reps_total=9,
+                        report_text="ok",
+                        metadata={"transport": "browser_ui_only"},
+                    )
+
+                mm._run_minimax_browser_only_once = _fake_browser_only  # type: ignore[assignment]
+                mm._cache_put = lambda *_args, **_kwargs: calls.__setitem__("cache_put", calls["cache_put"] + 1)  # type: ignore[assignment]
+
+                out = run_minimax_motion_coach(tmp.name)
             finally:
                 mm._prepare_video_for_minimax = original_prepare  # type: ignore[assignment]
                 mm._run_minimax_direct_once = original_direct  # type: ignore[assignment]
+                mm._run_minimax_browser_only_once = original_browser_only  # type: ignore[assignment]
+                mm._cache_put = original_cache_put  # type: ignore[assignment]
                 minimax_settings.minimax_enable_cache = old_enabled
+                minimax_settings.minimax_browser_only = old_browser_only
+                minimax_settings.minimax_browser_email = old_email
+                minimax_settings.minimax_browser_password = old_password
                 minimax_settings.minimax_token = old_token
                 minimax_settings.minimax_user_id = old_user
                 minimax_settings.minimax_device_id = old_device
-                minimax_settings.minimax_browser_refresh_enabled = old_browser
+
+            self.assertEqual(calls["browser"], 1)
+            self.assertEqual(calls["direct"], 0)
+            self.assertEqual(calls["cache_put"], 1)
+            self.assertEqual(out.metadata.get("transport"), "browser_ui_only")
+
+    def test_run_browser_only_mode_requires_browser_credentials(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".mp4") as tmp:
+            tmp.write(b"test-video")
+            tmp.flush()
+
+            old_enabled = minimax_settings.minimax_enable_cache
+            old_browser_only = minimax_settings.minimax_browser_only
+            old_email = minimax_settings.minimax_browser_email
+            old_password = minimax_settings.minimax_browser_password
+            old_token = minimax_settings.minimax_token
+            old_user = minimax_settings.minimax_user_id
+            old_device = minimax_settings.minimax_device_id
+            minimax_settings.minimax_enable_cache = False
+            minimax_settings.minimax_browser_only = True
+            minimax_settings.minimax_browser_email = ""
+            minimax_settings.minimax_browser_password = ""
+            minimax_settings.minimax_token = ""
+            minimax_settings.minimax_user_id = ""
+            minimax_settings.minimax_device_id = ""
+
+            try:
+                with self.assertRaises(RuntimeError):
+                    run_minimax_motion_coach(tmp.name)
+            finally:
+                minimax_settings.minimax_enable_cache = old_enabled
+                minimax_settings.minimax_browser_only = old_browser_only
+                minimax_settings.minimax_browser_email = old_email
+                minimax_settings.minimax_browser_password = old_password
+                minimax_settings.minimax_token = old_token
+                minimax_settings.minimax_user_id = old_user
+                minimax_settings.minimax_device_id = old_device
 
 
 if __name__ == "__main__":
