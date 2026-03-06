@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     minimax_browser_language: str = "fr-FR"
     minimax_os_name: str = "Mac"
     minimax_browser_name: str = "chrome"
+    minimax_browser_channel: str = ""
     minimax_browser_platform: str = "MacIntel"
     minimax_device_memory: int = 8
     minimax_cpu_core_num: int = 8
@@ -66,6 +67,7 @@ class Settings(BaseSettings):
     minimax_remote_worker_enabled: bool = False
     minimax_remote_worker_token: str = ""
     minimax_remote_worker_poll_interval_s: int = 5
+    minimax_remote_job_stale_after_s: int = 600
     minimax_enable_cache: bool = True
     minimax_cache_ttl_hours: int = 168
     minimax_cache_path: str = "media/minimax_cache.sqlite"

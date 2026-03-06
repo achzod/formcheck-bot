@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Sequence
 
-from sqlalchemy import ForeignKey, String, Text, func, select, update
+from sqlalchemy import ForeignKey, String, Text, case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -308,11 +308,25 @@ async def create_minimax_remote_job(
 
 async def claim_next_minimax_remote_job(worker_id: str) -> MiniMaxRemoteJob | None:
     worker = (worker_id or "").strip()[:120] or "worker"
+    stale_after_s = max(60, int(getattr(settings, "minimax_remote_job_stale_after_s", 600) or 600))
+    stale_before = dt.datetime.utcnow() - dt.timedelta(seconds=stale_after_s)
     async with async_session() as session:
         result = await session.execute(
             select(MiniMaxRemoteJob)
-            .where(MiniMaxRemoteJob.status == "queued")
-            .order_by(MiniMaxRemoteJob.created_at.asc(), MiniMaxRemoteJob.id.asc())
+            .where(
+                or_(
+                    MiniMaxRemoteJob.status == "queued",
+                    (
+                        (MiniMaxRemoteJob.status == "processing")
+                        & (MiniMaxRemoteJob.updated_at < stale_before)
+                    ),
+                )
+            )
+            .order_by(
+                case((MiniMaxRemoteJob.status == "queued", 0), else_=1),
+                MiniMaxRemoteJob.created_at.asc(),
+                MiniMaxRemoteJob.id.asc(),
+            )
             .limit(1)
         )
         job = result.scalar_one_or_none()

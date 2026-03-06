@@ -224,6 +224,28 @@ PLAN_ACTION:
         self.assertIn("AMPLITUDE DE MOUVEMENT", out.report_text)
         self.assertIn("PLAN ACTION", out.report_text)
 
+
+class MiniMaxBrowserLaunchOptionsTests(unittest.TestCase):
+    def test_browser_launch_options_include_channel_when_configured(self) -> None:
+        original = getattr(minimax_settings, "minimax_browser_channel", "")
+        try:
+            minimax_settings.minimax_browser_channel = "chrome"
+            options = mm._browser_launch_options(headless=True)
+        finally:
+            minimax_settings.minimax_browser_channel = original
+
+        self.assertEqual(options.get("channel"), "chrome")
+
+    def test_browser_launch_options_omit_channel_when_empty(self) -> None:
+        original = getattr(minimax_settings, "minimax_browser_channel", "")
+        try:
+            minimax_settings.minimax_browser_channel = ""
+            options = mm._browser_launch_options(headless=True)
+        finally:
+            minimax_settings.minimax_browser_channel = original
+
+        self.assertNotIn("channel", options)
+
     def test_parse_labeled_output_embedded_in_thinking_process(self) -> None:
         text = (
             "Thinking Process The user wants me to analyze a workout video. "

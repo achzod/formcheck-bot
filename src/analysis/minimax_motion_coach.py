@@ -195,6 +195,7 @@ def _load_settings():
             minimax_browser_language = os.getenv("MINIMAX_BROWSER_LANGUAGE", "fr-FR")
             minimax_os_name = os.getenv("MINIMAX_OS_NAME", "Mac")
             minimax_browser_name = os.getenv("MINIMAX_BROWSER_NAME", "chrome")
+            minimax_browser_channel = os.getenv("MINIMAX_BROWSER_CHANNEL", "")
             minimax_browser_platform = os.getenv("MINIMAX_BROWSER_PLATFORM", "MacIntel")
             minimax_device_memory = int(os.getenv("MINIMAX_DEVICE_MEMORY", "8"))
             minimax_cpu_core_num = int(os.getenv("MINIMAX_CPU_CORE_NUM", "8"))
@@ -2074,7 +2075,7 @@ def _chat_page_url(chat_id: str) -> str:
 
 
 def _browser_launch_options(headless: bool) -> dict[str, Any]:
-    return {
+    options: dict[str, Any] = {
         "headless": headless,
         "user_agent": str(getattr(settings, "minimax_user_agent", "") or _DEFAULT_USER_AGENT),
         "locale": str(getattr(settings, "minimax_browser_locale", "") or _DEFAULT_BROWSER_LOCALE),
@@ -2097,6 +2098,10 @@ def _browser_launch_options(headless: bool) -> dict[str, Any]:
             "--disable-gpu",
         ],
     }
+    channel = str(getattr(settings, "minimax_browser_channel", "") or "").strip()
+    if channel:
+        options["channel"] = channel
+    return options
 
 
 def _install_browser_stealth(context: Any) -> None:

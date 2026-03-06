@@ -6,10 +6,14 @@ from types import SimpleNamespace
 from analysis.minimax_motion_coach import MiniMaxAnalysis, _analysis_to_payload
 
 try:
+    from app import database as db
     from app import handlers
+    from sqlalchemy.dialects import sqlite
     _HANDLERS_IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - local env may miss app deps
+    db = None
     handlers = None
+    sqlite = None
     _HANDLERS_IMPORT_ERROR = exc
 
 
@@ -122,6 +126,66 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
         self.assertEqual(sent[0][0], job.phone)
         self.assertEqual(cleaned, [job.video_path])
         self.assertNotIn(job.phone, handlers._active_analyses)
+
+
+@unittest.skipIf(db is None, "app deps unavailable: {}".format(_HANDLERS_IMPORT_ERROR))
+class RemoteMiniMaxJobClaimTests(unittest.TestCase):
+    def test_claim_query_reclaims_stale_processing_jobs(self) -> None:
+        job = SimpleNamespace(
+            id=11,
+            analysis_id=11,
+            status="processing",
+            worker_id="old-worker",
+            error="old crash",
+        )
+        captured = {}
+
+        class _FakeResult:
+            def scalar_one_or_none(self):
+                return job
+
+        class _FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def execute(self, stmt):
+                captured["sql"] = str(
+                    stmt.compile(
+                        dialect=sqlite.dialect(),
+                        compile_kwargs={"literal_binds": True},
+                    )
+                )
+                return _FakeResult()
+
+            async def commit(self):
+                captured["committed"] = True
+
+            async def refresh(self, current_job):
+                captured["refreshed"] = current_job.id
+
+        original_async_session = db.async_session
+        original_stale_after = db.settings.minimax_remote_job_stale_after_s
+        try:
+            db.async_session = lambda: _FakeSession()
+            db.settings.minimax_remote_job_stale_after_s = 600
+            claimed = asyncio.run(db.claim_next_minimax_remote_job("worker-new"))
+        finally:
+            db.async_session = original_async_session
+            db.settings.minimax_remote_job_stale_after_s = original_stale_after
+
+        self.assertIs(claimed, job)
+        self.assertEqual(job.status, "processing")
+        self.assertEqual(job.worker_id, "worker-new")
+        self.assertIsNone(job.error)
+        self.assertTrue(captured.get("committed"))
+        self.assertEqual(captured.get("refreshed"), 11)
+        sql = captured.get("sql", "")
+        self.assertIn("minimax_remote_jobs.status = 'queued'", sql)
+        self.assertIn("minimax_remote_jobs.status = 'processing'", sql)
+        self.assertIn("minimax_remote_jobs.updated_at <", sql)
 
 
 if __name__ == "__main__":
