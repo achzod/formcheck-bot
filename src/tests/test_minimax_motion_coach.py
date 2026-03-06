@@ -439,6 +439,156 @@ class MiniMaxRetryTests(unittest.TestCase):
         self.assertEqual(out.get("data", {}).get("ok"), True)
 
 
+class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
+    def test_upload_and_send_retries_after_login_modal_blocks_send(self) -> None:
+        calls = {"populate": 0, "send": 0, "auth": 0, "reopen": 0}
+        login_modal_states = iter([True, False])
+
+        original_populate = mm._populate_browser_message
+        original_send = mm._send_browser_message
+        original_login_modal_visible = mm._login_modal_visible
+        original_ensure_auth = mm._ensure_browser_authenticated
+        original_locator_visible = mm._locator_is_visible
+        original_open_motion_coach_chat = mm._open_motion_coach_chat
+        try:
+            mm._populate_browser_message = lambda *_args, **_kwargs: calls.__setitem__(  # type: ignore[assignment]
+                "populate", calls["populate"] + 1
+            )
+
+            def _fake_send(*_args, **_kwargs):
+                calls["send"] += 1
+                if calls["send"] == 1:
+                    raise RuntimeError("MiniMax browser flow blocked by login modal after send")
+                return None
+
+            mm._send_browser_message = _fake_send  # type: ignore[assignment]
+            mm._login_modal_visible = lambda *_args, **_kwargs: next(login_modal_states)  # type: ignore[assignment]
+            mm._ensure_browser_authenticated = lambda *_args, **_kwargs: calls.__setitem__(  # type: ignore[assignment]
+                "auth", calls["auth"] + 1
+            )
+            mm._locator_is_visible = lambda *_args, **_kwargs: True  # type: ignore[assignment]
+            mm._open_motion_coach_chat = lambda *_args, **_kwargs: calls.__setitem__(  # type: ignore[assignment]
+                "reopen", calls["reopen"] + 1
+            )
+
+            mm._upload_and_send_via_browser(
+                object(),
+                "video.mp4",
+                "Analyse cette video",
+                3000,
+                email="coaching@achzodcoaching.com",
+                password="secret",
+            )
+        finally:
+            mm._populate_browser_message = original_populate  # type: ignore[assignment]
+            mm._send_browser_message = original_send  # type: ignore[assignment]
+            mm._login_modal_visible = original_login_modal_visible  # type: ignore[assignment]
+            mm._ensure_browser_authenticated = original_ensure_auth  # type: ignore[assignment]
+            mm._locator_is_visible = original_locator_visible  # type: ignore[assignment]
+            mm._open_motion_coach_chat = original_open_motion_coach_chat  # type: ignore[assignment]
+
+        self.assertEqual(calls["populate"], 2)
+        self.assertEqual(calls["send"], 2)
+        self.assertEqual(calls["auth"], 1)
+        self.assertEqual(calls["reopen"], 0)
+
+    def test_google_login_waits_for_authenticated_minimax_page(self) -> None:
+        class _FakeLocator:
+            def __init__(self, page, selector: str):
+                self._page = page
+                self._selector = selector
+
+            @property
+            def first(self):
+                return self
+
+            def count(self) -> int:
+                if self._page.kind == "origin" and self._selector == "button:has-text('Continue with Google')":
+                    return 1
+                if self._page.kind == "google" and self._selector == "input[type='password']":
+                    return 1
+                return 0
+
+            def is_visible(self, timeout=None) -> bool:
+                return self.count() > 0
+
+            def click(self, timeout=None) -> None:
+                return None
+
+            def fill(self, value: str, timeout=None) -> None:
+                return None
+
+            def press(self, key: str) -> None:
+                return None
+
+        class _FakeContext:
+            def __init__(self, pages):
+                self.pages = pages
+
+        class _FakePage:
+            def __init__(self, kind: str, url: str):
+                self.kind = kind
+                self.url = url
+                self.context = None
+                self.brought_to_front = False
+
+            def locator(self, selector: str):
+                return _FakeLocator(self, selector)
+
+            def wait_for_timeout(self, _ms: int) -> None:
+                return None
+
+            def bring_to_front(self) -> None:
+                self.brought_to_front = True
+
+        origin = _FakePage("origin", "https://agent.minimax.io/expert/chat/362683345551702")
+        google = _FakePage("google", "https://accounts.google.com/signin/v2/challenge")
+        authed = _FakePage("authed", "https://agent.minimax.io/chat?id=123")
+        ctx = _FakeContext([origin, google, authed])
+        origin.context = ctx
+        google.context = ctx
+        authed.context = ctx
+
+        original_locator_visible = mm._locator_is_visible
+        original_click_first = mm._click_first_visible
+        try:
+            def _fake_locator_visible(page, selector: str, timeout_ms: int = 1200) -> bool:
+                if page is origin and selector == "button:has-text('Continue with Google')":
+                    return True
+                if page is origin and selector == ".tiptap-editor":
+                    return True
+                if page is origin and selector in (
+                    "button:has-text('Continue with Google')",
+                    "text=Welcome to MiniMax",
+                ):
+                    return True
+                if page is authed and selector == ".tiptap-editor":
+                    return True
+                return False
+
+            def _fake_click_first(page, selectors: tuple[str, ...], timeout_ms: int = 2500) -> bool:
+                if page is google and "button:has-text('Continue')" in selectors:
+                    google.url = "https://agent.minimax.io/oauth-complete"
+                    return True
+                return False
+
+            mm._locator_is_visible = _fake_locator_visible  # type: ignore[assignment]
+            mm._click_first_visible = _fake_click_first  # type: ignore[assignment]
+
+            mm._login_with_google_if_needed(
+                origin,
+                email="coaching@achzodcoaching.com",
+                password="secret",
+                timeout_ms=3000,
+            )
+        finally:
+            mm._locator_is_visible = original_locator_visible  # type: ignore[assignment]
+            mm._click_first_visible = original_click_first  # type: ignore[assignment]
+
+        self.assertFalse(origin.brought_to_front)
+        self.assertTrue(authed.brought_to_front)
+
+
 class MiniMaxBrowserFallbackStrategyTests(unittest.TestCase):
     def test_run_forces_browser_transport_even_if_flag_disabled(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".mp4") as tmp:

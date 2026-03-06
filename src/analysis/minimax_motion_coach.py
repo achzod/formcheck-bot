@@ -2064,10 +2064,18 @@ def _click_first_visible(page: Any, selectors: tuple[str, ...], timeout_ms: int 
     return False
 
 
+def _login_modal_visible(page: Any) -> bool:
+    return (
+        _locator_is_visible(page, "button:has-text('Continue with Google')", timeout_ms=600)
+        or _locator_is_visible(page, "text=Welcome to MiniMax", timeout_ms=600)
+    )
+
+
 def _login_with_google_if_needed(page: Any, email: str, password: str, timeout_ms: int) -> None:
     if not _locator_is_visible(page, "button:has-text('Continue with Google')", timeout_ms=900):
         return
 
+    origin_page = page
     google_btn = page.locator("button:has-text('Continue with Google')").first
     try:
         google_btn.click(timeout=timeout_ms)
@@ -2158,17 +2166,53 @@ def _login_with_google_if_needed(page: Any, email: str, password: str, timeout_m
         if not pass_filled:
             google_page.wait_for_timeout(250)
 
-    # Wait for redirect back to MiniMax.
+    # Consent screen can appear after account selection even when password was not required.
+    consent_deadline = time.monotonic() + 12
+    while time.monotonic() < consent_deadline:
+        clicked = _click_first_visible(
+            google_page,
+            (
+                "button:has-text('Continue')",
+                "button:has-text('Allow')",
+                "button:has-text('Autoriser')",
+                "button:has-text('Accepter')",
+            ),
+            timeout_ms=1200,
+        )
+        if clicked:
+            try:
+                google_page.wait_for_timeout(900)
+            except Exception:
+                pass
+            break
+        if "accounts.google.com" not in (google_page.url or ""):
+            break
+        google_page.wait_for_timeout(250)
+
+    # Wait until the original MiniMax page is actually authenticated.
     redirect_deadline = time.monotonic() + 45
     while time.monotonic() < redirect_deadline:
-        for p in page.context.pages:
-            if "agent.minimax.io" in (p.url or ""):
+        candidate_pages: list[Any] = []
+        try:
+            candidate_pages = list(origin_page.context.pages)
+        except Exception:
+            candidate_pages = [origin_page]
+        if origin_page not in candidate_pages:
+            candidate_pages.append(origin_page)
+        for candidate in candidate_pages:
+            try:
+                url = str(getattr(candidate, "url", "") or "")
+            except Exception:
+                url = ""
+            if "agent.minimax.io" not in url:
+                continue
+            if _locator_is_visible(candidate, ".tiptap-editor", timeout_ms=800) and not _login_modal_visible(candidate):
                 try:
-                    p.bring_to_front()
+                    candidate.bring_to_front()
                 except Exception:
                     pass
                 return
-        page.wait_for_timeout(300)
+        origin_page.wait_for_timeout(300)
 
     raise RuntimeError(
         "MiniMax browser login failed: Google auth did not return to agent.minimax.io (2FA or verification required)."
@@ -2237,7 +2281,7 @@ def _open_motion_coach_chat(page: Any, timeout_ms: int) -> None:
     page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
 
 
-def _upload_and_send_via_browser(page: Any, video_path: str, prompt: str, timeout_ms: int) -> None:
+def _populate_browser_message(page: Any, video_path: str, prompt: str, timeout_ms: int) -> None:
     page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
 
     # Populate prompt in the editor.
@@ -2268,12 +2312,51 @@ def _upload_and_send_via_browser(page: Any, video_path: str, prompt: str, timeou
     except Exception:
         page.wait_for_timeout(1300)
 
-    # Send message.
+    if _login_modal_visible(page):
+        raise RuntimeError("MiniMax browser flow blocked by login modal before send")
+
+
+def _send_browser_message(page: Any, timeout_ms: int) -> None:
     if not _click_first_visible(page, ("#input-send-icon", "div#input-send-icon"), timeout_ms=2200):
         try:
+            send_icon = page.locator("#input-send-icon").first
+            if send_icon.count() > 0 and send_icon.is_visible(timeout=1200):
+                send_icon.click(timeout=timeout_ms, force=True)
+                return
             page.keyboard.press("Enter")
         except Exception as exc:
             raise RuntimeError("MiniMax browser flow failed: send action not available") from exc
+
+
+def _upload_and_send_via_browser(
+    page: Any,
+    video_path: str,
+    prompt: str,
+    timeout_ms: int,
+    *,
+    email: str,
+    password: str,
+) -> None:
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            _populate_browser_message(page, video_path, prompt, timeout_ms)
+            _send_browser_message(page, timeout_ms)
+            if _login_modal_visible(page):
+                raise RuntimeError("MiniMax browser flow blocked by login modal after send")
+            return
+        except Exception as exc:
+            last_exc = exc
+            if attempt > 0:
+                break
+            if not _login_modal_visible(page) and "login modal" not in str(exc).lower():
+                break
+            _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
+            if not _locator_is_visible(page, ".tiptap-editor", timeout_ms=3000):
+                _open_motion_coach_chat(page, timeout_ms=timeout_ms)
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("MiniMax browser flow failed before send")
 
 
 def _compact_text(raw: str) -> str:
@@ -2486,7 +2569,14 @@ def _run_minimax_browser_only_once(
             state["known_ids"] = set(state.get("baseline_ids", set()))
             state["dom_baseline"] = set(_collect_dom_analysis_candidates(page))
 
-            _upload_and_send_via_browser(page, prepared.path, prompt, timeout_ms=timeout_ms)
+            _upload_and_send_via_browser(
+                page,
+                prepared.path,
+                prompt,
+                timeout_ms=timeout_ms,
+                email=email,
+                password=password,
+            )
             state["sent"] = True
             state["known_ids"] = set(state.get("baseline_ids", set()))
 
