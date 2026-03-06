@@ -35,6 +35,9 @@ _DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/145.0.0.0 Safari/537.36"
 )
+_DEFAULT_BROWSER_VIEWPORT = {"width": 1728, "height": 1117}
+_DEFAULT_BROWSER_LOCALE = "en-US"
+_DEFAULT_BROWSER_TIMEZONE_ID = "Asia/Dubai"
 _DEFAULT_ANALYSIS_PROMPT = (
     "Tu es un coach biomecanique expert.\n"
     "Analyse la video envoyee et reponds UNIQUEMENT en JSON valide (sans markdown, sans texte hors JSON).\n"
@@ -141,6 +144,8 @@ def _load_settings():
             minimax_browser_headless = _as_bool(os.getenv("MINIMAX_BROWSER_HEADLESS"), True)
             minimax_browser_timeout_s = int(os.getenv("MINIMAX_BROWSER_TIMEOUT_S", "120"))
             minimax_browser_profile_dir = os.getenv("MINIMAX_BROWSER_PROFILE_DIR", "media/minimax_browser_profile")
+            minimax_browser_locale = os.getenv("MINIMAX_BROWSER_LOCALE", _DEFAULT_BROWSER_LOCALE)
+            minimax_browser_timezone_id = os.getenv("MINIMAX_BROWSER_TIMEZONE_ID", _DEFAULT_BROWSER_TIMEZONE_ID)
             minimax_motion_coach_expert_url = os.getenv(
                 "MINIMAX_MOTION_COACH_EXPERT_URL",
                 "https://agent.minimax.io/expert/chat/362683345551702",
@@ -1773,6 +1778,88 @@ def _motion_coach_expert_url() -> str:
     return raw or "https://agent.minimax.io/expert/chat/362683345551702"
 
 
+def _browser_launch_options(headless: bool) -> dict[str, Any]:
+    return {
+        "headless": headless,
+        "user_agent": str(getattr(settings, "minimax_user_agent", "") or _DEFAULT_USER_AGENT),
+        "locale": str(getattr(settings, "minimax_browser_locale", "") or _DEFAULT_BROWSER_LOCALE),
+        "timezone_id": str(getattr(settings, "minimax_browser_timezone_id", "") or _DEFAULT_BROWSER_TIMEZONE_ID),
+        "viewport": dict(_DEFAULT_BROWSER_VIEWPORT),
+        "screen": dict(_DEFAULT_BROWSER_VIEWPORT),
+        "java_script_enabled": True,
+        "ignore_https_errors": False,
+        "accept_downloads": False,
+        "bypass_csp": False,
+        "is_mobile": False,
+        "has_touch": False,
+        "color_scheme": "light",
+        "ignore_default_args": ["--enable-automation"],
+        "args": [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-gpu",
+        ],
+    }
+
+
+def _install_browser_stealth(context: Any) -> None:
+    try:
+        context.add_init_script(
+            """
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            Object.defineProperty(navigator, 'platform', {get: () => 'MacIntel'});
+            window.chrome = window.chrome || { runtime: {} };
+            const originalQuery = window.navigator.permissions && window.navigator.permissions.query;
+            if (originalQuery) {
+              window.navigator.permissions.query = (parameters) => (
+                parameters && parameters.name === 'notifications'
+                  ? Promise.resolve({ state: Notification.permission })
+                  : originalQuery(parameters)
+              );
+            }
+            """
+        )
+    except Exception:
+        pass
+
+
+def _inject_browser_cookies(context: Any) -> None:
+    raw = str(getattr(settings, "minimax_cookie", "") or "").strip()
+    if not raw:
+        return
+    cookies: list[dict[str, Any]] = []
+    for chunk in raw.split(";"):
+        part = chunk.strip()
+        if not part or "=" not in part:
+            continue
+        name, value = part.split("=", 1)
+        name = name.strip()
+        value = value.strip()
+        if not name:
+            continue
+        cookies.append(
+            {
+                "name": name,
+                "value": value,
+                "domain": "agent.minimax.io",
+                "path": "/",
+                "secure": True,
+                "httpOnly": False,
+                "sameSite": "Lax",
+            }
+        )
+    if not cookies:
+        return
+    try:
+        context.add_cookies(cookies)
+    except Exception as exc:
+        logger.warning("MiniMax browser cookie injection failed: %s", exc)
+
+
 def _extract_query_identity_from_url(url: str, out: dict[str, str]) -> None:
     try:
         parsed = urlparse(url)
@@ -1916,7 +2003,12 @@ def _refresh_minimax_session_via_browser() -> dict[str, Any]:
 
     with sync_playwright() as p:
         try:
-            browser = p.chromium.launch(headless=headless)
+            launch_options = _browser_launch_options(headless=headless)
+            browser = p.chromium.launch(
+                headless=headless,
+                args=list(launch_options.get("args", []) or []),
+                ignore_default_args=list(launch_options.get("ignore_default_args", []) or []),
+            )
         except Exception as launch_exc:
             # Render/runtime safety net: install Chromium once if missing.
             logger.warning("Playwright Chromium launch failed, trying install: %s", launch_exc)
@@ -1933,15 +2025,45 @@ def _refresh_minimax_session_via_browser() -> dict[str, Any]:
                     "MiniMax browser refresh failed: Chromium not available and auto-install failed ({})"
                     .format(install_exc)
                 ) from launch_exc
-            browser = p.chromium.launch(headless=headless)
+            browser = p.chromium.launch(
+                headless=headless,
+                args=list(launch_options.get("args", []) or []),
+                ignore_default_args=list(launch_options.get("ignore_default_args", []) or []),
+            )
         try:
-            context = browser.new_context()
+            context = browser.new_context(
+                user_agent=launch_options["user_agent"],
+                locale=launch_options["locale"],
+                timezone_id=launch_options["timezone_id"],
+                viewport=launch_options["viewport"],
+                screen=launch_options["screen"],
+                java_script_enabled=launch_options["java_script_enabled"],
+                ignore_https_errors=launch_options["ignore_https_errors"],
+                is_mobile=launch_options["is_mobile"],
+                has_touch=launch_options["has_touch"],
+                color_scheme=launch_options["color_scheme"],
+            )
+            _install_browser_stealth(context)
+            _inject_browser_cookies(context)
+            try:
+                context.set_extra_http_headers(
+                    {
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Upgrade-Insecure-Requests": "1",
+                    }
+                )
+            except Exception:
+                pass
             page = context.new_page()
             page.on("request", lambda req: _extract_query_identity_from_url(req.url, captured))
 
             page.goto("https://agent.minimax.io/experts", wait_until="domcontentloaded", timeout=timeout_ms)
+            if not _wait_for_bot_challenge_to_clear(page, timeout_ms=min(timeout_ms, 25000)):
+                raise RuntimeError("MiniMax browser refresh blocked by anti-bot challenge")
             _minimax_login_if_needed(page, email, password, timeout_ms)
             page.goto("https://agent.minimax.io/experts", wait_until="domcontentloaded", timeout=timeout_ms)
+            if not _wait_for_bot_challenge_to_clear(page, timeout_ms=min(timeout_ms, 25000)):
+                raise RuntimeError("MiniMax browser refresh blocked by anti-bot challenge")
 
             # Force one authenticated chat API call from browser context to surface query identity.
             try:
@@ -2164,7 +2286,49 @@ def _motion_coach_page_state(page: Any) -> dict[str, Any]:
         state["title"] = str(page.title() or "")
     except Exception:
         state["title"] = ""
+    state["bot_challenge"] = _bot_challenge_active(page)
     return state
+
+
+def _bot_challenge_active(page: Any) -> bool:
+    try:
+        title = str(page.title() or "").strip().lower()
+    except Exception:
+        title = ""
+    if "just a moment" in title or "attention required" in title:
+        return True
+    try:
+        body = str(page.locator("body").inner_text(timeout=1200) or "").lower()
+    except Exception:
+        body = ""
+    markers = (
+        "just a moment",
+        "checking your browser",
+        "verify you are human",
+        "enable javascript and cookies to continue",
+        "cloudflare",
+    )
+    return any(marker in body for marker in markers)
+
+
+def _wait_for_bot_challenge_to_clear(page: Any, timeout_ms: int) -> bool:
+    if not _bot_challenge_active(page):
+        return True
+    deadline = time.monotonic() + max(timeout_ms, 0) / 1000.0
+    reloaded = False
+    while time.monotonic() < deadline:
+        if not _bot_challenge_active(page):
+            return True
+        _safe_page_wait(page, 1800)
+        remaining = deadline - time.monotonic()
+        if not reloaded and remaining > 1.5:
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=min(int(remaining * 1000), 12000))
+                reloaded = True
+            except Exception:
+                reloaded = True
+                continue
+    return not _bot_challenge_active(page)
 
 
 def _click_motion_coach_cta(page: Any, timeout_ms: int) -> bool:
@@ -2423,6 +2587,12 @@ def _open_motion_coach_chat(page: Any, timeout_ms: int, *, email: str = "", pass
                 page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
             except Exception:
                 pass
+            if not _wait_for_bot_challenge_to_clear(page, timeout_ms=min(timeout_ms, 25000)):
+                state = json.dumps(_motion_coach_page_state(page), ensure_ascii=True)
+                logger.warning("MiniMax Motion Coach direct page blocked by anti-bot challenge: %s", state)
+                if auth_cycle == 0 and attempt == 0:
+                    continue
+                raise RuntimeError("MiniMax browser flow blocked by anti-bot challenge")
 
             _wait_for_page_condition(
                 page,
@@ -2467,6 +2637,12 @@ def _open_motion_coach_chat(page: Any, timeout_ms: int, *, email: str = "", pass
             page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
         except Exception:
             pass
+        if not _wait_for_bot_challenge_to_clear(page, timeout_ms=min(timeout_ms, 25000)):
+            state = json.dumps(_motion_coach_page_state(page), ensure_ascii=True)
+            logger.warning("MiniMax Motion Coach experts page blocked by anti-bot challenge: %s", state)
+            if auth_cycle == 0:
+                continue
+            raise RuntimeError("MiniMax browser flow blocked by anti-bot challenge")
 
         _wait_for_page_condition(
             page,
@@ -2805,10 +2981,11 @@ def _run_minimax_browser_only_once(
         context = None
         page = None
         try:
+            launch_options = _browser_launch_options(headless=headless)
             try:
                 context = p.chromium.launch_persistent_context(
                     str(profile_dir),
-                    headless=headless,
+                    **launch_options,
                 )
             except Exception as launch_exc:
                 logger.warning("Playwright Chromium launch failed, trying install: %s", launch_exc)
@@ -2827,9 +3004,20 @@ def _run_minimax_browser_only_once(
                     ) from launch_exc
                 context = p.chromium.launch_persistent_context(
                     str(profile_dir),
-                    headless=headless,
+                    **launch_options,
                 )
 
+            _install_browser_stealth(context)
+            _inject_browser_cookies(context)
+            try:
+                context.set_extra_http_headers(
+                    {
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Upgrade-Insecure-Requests": "1",
+                    }
+                )
+            except Exception:
+                pass
             page = context.pages[0] if context.pages else context.new_page()
             page.on("response", _on_response)
 

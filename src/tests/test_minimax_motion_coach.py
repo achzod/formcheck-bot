@@ -673,6 +673,67 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
         self.assertTrue(out)
         self.assertTrue(page.role_locator.clicked)
 
+    def test_wait_for_bot_challenge_to_clear_reloads_and_succeeds(self) -> None:
+        class _FakeBodyLocator:
+            def __init__(self, page):
+                self.page = page
+
+            def inner_text(self, timeout=None):
+                return "Just a moment..." if self.page.challenge_active else "AI Motion Coach"
+
+        class _FakePage:
+            def __init__(self):
+                self.challenge_active = True
+                self.reloads = 0
+
+            def title(self):
+                return "Just a moment..." if self.challenge_active else "MiniMax Agent"
+
+            def locator(self, selector: str):
+                if selector == "body":
+                    return _FakeBodyLocator(self)
+                raise AssertionError("unexpected selector")
+
+            def reload(self, **_kwargs):
+                self.reloads += 1
+                self.challenge_active = False
+
+            def wait_for_timeout(self, _delay_ms):
+                return None
+
+        page = _FakePage()
+        self.assertTrue(mm._wait_for_bot_challenge_to_clear(page, timeout_ms=5000))
+        self.assertEqual(page.reloads, 1)
+
+    def test_wait_for_bot_challenge_to_clear_returns_false_when_challenge_persists(self) -> None:
+        class _FakeBodyLocator:
+            def inner_text(self, timeout=None):
+                return "Just a moment..."
+
+        class _FakePage:
+            def title(self):
+                return "Just a moment..."
+
+            def locator(self, selector: str):
+                if selector == "body":
+                    return _FakeBodyLocator()
+                raise AssertionError("unexpected selector")
+
+            def reload(self, **_kwargs):
+                return None
+
+            def wait_for_timeout(self, _delay_ms):
+                return None
+
+        page = _FakePage()
+        original_monotonic = mm.time.monotonic
+        ticks = iter([0.0, 0.5, 1.2, 2.1, 3.2, 4.3, 5.4])
+        try:
+            mm.time.monotonic = lambda: next(ticks)  # type: ignore[assignment]
+            self.assertFalse(mm._wait_for_bot_challenge_to_clear(page, timeout_ms=4000))
+        finally:
+            mm.time.monotonic = original_monotonic  # type: ignore[assignment]
+
     def test_open_motion_coach_chat_retries_direct_expert_page_before_experts_fallback(self) -> None:
         class _FakePage:
             def __init__(self):
