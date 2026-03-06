@@ -2064,6 +2064,64 @@ def _click_first_visible(page: Any, selectors: tuple[str, ...], timeout_ms: int 
     return False
 
 
+def _locator_exists(page: Any, selector: str) -> bool:
+    try:
+        return page.locator(selector).count() > 0
+    except Exception:
+        return False
+
+
+def _motion_coach_composer_ready(page: Any) -> bool:
+    return (
+        _locator_is_visible(page, ".tiptap-editor", timeout_ms=800)
+        or _locator_exists(page, ".tiptap-editor")
+        or _locator_exists(page, "input[type='file']")
+        or _locator_exists(page, "#input-send-icon")
+    )
+
+
+def _click_motion_coach_cta(page: Any, timeout_ms: int) -> bool:
+    if _click_first_visible(
+        page,
+        (
+            "button:has-text('Type to chat with AI Motion Coach')",
+            "button:has-text('Start Chat')",
+            "button:has-text('Chat with AI Motion Coach')",
+        ),
+        timeout_ms=timeout_ms,
+    ):
+        return True
+
+    role_patterns = (
+        re.compile(r"type to chat with ai motion coach", re.I),
+        re.compile(r"start chat", re.I),
+        re.compile(r"chat with ai motion coach", re.I),
+    )
+    for pattern in role_patterns:
+        try:
+            locator = page.get_by_role("button", name=pattern).first
+            if locator.count() > 0:
+                locator.click(timeout=timeout_ms)
+                return True
+        except Exception:
+            continue
+
+    text_patterns = (
+        "Type to chat with AI Motion Coach",
+        "Start Chat",
+        "Chat with AI Motion Coach",
+    )
+    for pattern in text_patterns:
+        try:
+            locator = page.get_by_text(pattern, exact=False).first
+            if locator.count() > 0:
+                locator.click(timeout=timeout_ms)
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _login_modal_visible(page: Any) -> bool:
     return (
         _locator_is_visible(page, "button:has-text('Continue with Google')", timeout_ms=600)
@@ -2230,24 +2288,17 @@ def _ensure_browser_authenticated(page: Any, email: str, password: str, timeout_
 
 def _open_motion_coach_chat(page: Any, timeout_ms: int) -> None:
     page.goto(_motion_coach_expert_url(), wait_until="domcontentloaded", timeout=timeout_ms)
-    if _locator_is_visible(page, ".tiptap-editor", timeout_ms=4500):
+    if _motion_coach_composer_ready(page):
         return
 
     # Direct expert pages can expose a landing CTA before rendering the composer.
-    if _click_first_visible(
-        page,
-        (
-            "button:has-text('Type to chat with AI Motion Coach')",
-            "button:has-text('Start Chat')",
-            "button:has-text('Chat with AI Motion Coach')",
-        ),
-        timeout_ms=3500,
-    ):
+    if _click_motion_coach_cta(page, timeout_ms=5000):
         try:
             page.wait_for_selector(".tiptap-editor", timeout=min(timeout_ms, 12000))
             return
         except Exception:
-            pass
+            if _motion_coach_composer_ready(page):
+                return
 
     # Fallback discovery flow via Experts search.
     page.goto("https://agent.minimax.io/experts", wait_until="domcontentloaded", timeout=timeout_ms)
@@ -2267,10 +2318,18 @@ def _open_motion_coach_chat(page: Any, timeout_ms: int) -> None:
             clicked = True
         except Exception:
             clicked = False
-    if clicked and _click_first_visible(page, ("button:has-text('Start Chat')",), timeout_ms=timeout_ms):
-        page.wait_for_url(re.compile(r"https://agent\.minimax\.io/(expert/chat|chat)"), timeout=timeout_ms)
-        page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
-        return
+    if clicked:
+        _click_motion_coach_cta(page, timeout_ms=timeout_ms)
+        try:
+            page.wait_for_url(re.compile(r"https://agent\.minimax\.io/(expert/chat|chat)"), timeout=timeout_ms)
+        except Exception:
+            pass
+        try:
+            page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
+            return
+        except Exception:
+            if _motion_coach_composer_ready(page):
+                return
 
     _click_first_visible(
         page,
@@ -2311,11 +2370,18 @@ def _open_motion_coach_chat(page: Any, timeout_ms: int) -> None:
     if not clicked:
         raise RuntimeError("MiniMax browser flow failed: AI Motion Coach card not found")
 
-    if not _click_first_visible(page, ("button:has-text('Start Chat')",), timeout_ms=timeout_ms):
+    if not _click_motion_coach_cta(page, timeout_ms=timeout_ms):
         raise RuntimeError("MiniMax browser flow failed: Start Chat button not found")
 
-    page.wait_for_url(re.compile(r"https://agent\.minimax\.io/(expert/chat|chat)"), timeout=timeout_ms)
-    page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
+    try:
+        page.wait_for_url(re.compile(r"https://agent\.minimax\.io/(expert/chat|chat)"), timeout=timeout_ms)
+    except Exception:
+        pass
+    try:
+        page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
+    except Exception:
+        if not _motion_coach_composer_ready(page):
+            raise
 
 
 def _populate_browser_message(page: Any, video_path: str, prompt: str, timeout_ms: int) -> None:

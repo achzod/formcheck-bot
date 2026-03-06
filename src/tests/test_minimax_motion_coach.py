@@ -604,23 +604,68 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
                 raise AssertionError("unexpected selector")
 
         page = _FakePage()
-        original_locator_visible = mm._locator_is_visible
-        original_click_first = mm._click_first_visible
+        original_composer_ready = mm._motion_coach_composer_ready
+        original_click_cta = mm._click_motion_coach_cta
         try:
-            mm._locator_is_visible = lambda *_args, **_kwargs: False  # type: ignore[assignment]
-
-            def _fake_click_first(_page, selectors: tuple[str, ...], timeout_ms: int = 2500) -> bool:
-                return "button:has-text('Type to chat with AI Motion Coach')" in selectors
-
-            mm._click_first_visible = _fake_click_first  # type: ignore[assignment]
+            mm._motion_coach_composer_ready = lambda *_args, **_kwargs: False  # type: ignore[assignment]
+            mm._click_motion_coach_cta = lambda *_args, **_kwargs: True  # type: ignore[assignment]
 
             mm._open_motion_coach_chat(page, timeout_ms=3000)
         finally:
-            mm._locator_is_visible = original_locator_visible  # type: ignore[assignment]
-            mm._click_first_visible = original_click_first  # type: ignore[assignment]
+            mm._motion_coach_composer_ready = original_composer_ready  # type: ignore[assignment]
+            mm._click_motion_coach_cta = original_click_cta  # type: ignore[assignment]
 
         self.assertEqual(page.goto_calls, [mm._motion_coach_expert_url()])
         self.assertTrue(page.waited_for_selector)
+
+    def test_click_motion_coach_cta_uses_accessible_button_role_fallback(self) -> None:
+        class _FakeLocator:
+            def __init__(self):
+                self.clicked = False
+
+            @property
+            def first(self):
+                return self
+
+            def count(self) -> int:
+                return 1
+
+            def click(self, timeout=None) -> None:
+                self.clicked = True
+
+        class _FakeMissingText:
+            @property
+            def first(self):
+                return self
+
+            def count(self) -> int:
+                return 0
+
+            def click(self, timeout=None) -> None:
+                raise AssertionError("should not click missing text locator")
+
+        class _FakePage:
+            def __init__(self):
+                self.role_locator = _FakeLocator()
+
+            def get_by_role(self, role: str, name=None):
+                if role == "button":
+                    return self.role_locator
+                raise AssertionError("unexpected role")
+
+            def get_by_text(self, text: str, exact=False):
+                return _FakeMissingText()
+
+        page = _FakePage()
+        original_click_first = mm._click_first_visible
+        try:
+            mm._click_first_visible = lambda *_args, **_kwargs: False  # type: ignore[assignment]
+            out = mm._click_motion_coach_cta(page, timeout_ms=3000)
+        finally:
+            mm._click_first_visible = original_click_first  # type: ignore[assignment]
+
+        self.assertTrue(out)
+        self.assertTrue(page.role_locator.clicked)
 
     def test_run_browser_only_authenticates_before_opening_motion_coach_chat(self) -> None:
         class _FakePage:
