@@ -2151,6 +2151,22 @@ def _wait_for_page_condition(page: Any, predicate: Any, timeout_ms: int, step_ms
         return False
 
 
+def _motion_coach_page_state(page: Any) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "url": str(getattr(page, "url", "") or ""),
+        "composer_ready": _motion_coach_composer_ready(page),
+        "cta_present": _motion_coach_cta_present(page),
+        "card_present": _motion_coach_card_present(page),
+        "search_present": _experts_search_box_present(page),
+        "login_modal": _login_modal_visible(page),
+    }
+    try:
+        state["title"] = str(page.title() or "")
+    except Exception:
+        state["title"] = ""
+    return state
+
+
 def _click_motion_coach_cta(page: Any, timeout_ms: int) -> bool:
     if _click_first_visible(
         page,
@@ -2394,12 +2410,59 @@ def _ensure_browser_authenticated(page: Any, email: str, password: str, timeout_
     _click_first_visible(page, ("button[aria-label='Close']", "img[alt='close']", "img[alt='Close']"), timeout_ms=1200)
 
 
-def _open_motion_coach_chat(page: Any, timeout_ms: int) -> None:
+def _open_motion_coach_chat(page: Any, timeout_ms: int, *, email: str = "", password: str = "") -> None:
     direct_wait_ms = min(timeout_ms, 15000)
     composer_wait_ms = min(timeout_ms, 12000)
+    can_reauth = bool(str(email or "").strip() and str(password or "").strip())
 
-    for attempt in range(2):
-        page.goto(_motion_coach_expert_url(), wait_until="domcontentloaded", timeout=timeout_ms)
+    for auth_cycle in range(2 if can_reauth else 1):
+        restart_after_auth = False
+        for attempt in range(2):
+            page.goto(_motion_coach_expert_url(), wait_until="domcontentloaded", timeout=timeout_ms)
+            try:
+                page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
+            except Exception:
+                pass
+
+            _wait_for_page_condition(
+                page,
+                lambda: _motion_coach_composer_ready(page) or _motion_coach_cta_present(page) or _login_modal_visible(page),
+                timeout_ms=direct_wait_ms,
+            )
+            if _login_modal_visible(page):
+                logger.warning(
+                    "MiniMax Motion Coach direct page requires authentication: %s",
+                    json.dumps(_motion_coach_page_state(page), ensure_ascii=True),
+                )
+                if can_reauth:
+                    _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
+                    restart_after_auth = True
+                    break
+            if _motion_coach_composer_ready(page):
+                return
+            if _click_motion_coach_cta(page, timeout_ms=min(timeout_ms, 5000)):
+                if _wait_for_page_condition(page, lambda: _motion_coach_composer_ready(page), timeout_ms=composer_wait_ms):
+                    return
+                try:
+                    page.wait_for_selector(".tiptap-editor", timeout=composer_wait_ms)
+                    return
+                except Exception:
+                    if _motion_coach_composer_ready(page):
+                        return
+            if attempt == 0:
+                logger.warning(
+                    "MiniMax Motion Coach direct expert page not ready, retrying once: %s",
+                    json.dumps(_motion_coach_page_state(page), ensure_ascii=True),
+                )
+
+        if restart_after_auth:
+            continue
+
+        logger.warning(
+            "MiniMax Motion Coach direct expert page unavailable, falling back to experts index: %s",
+            json.dumps(_motion_coach_page_state(page), ensure_ascii=True),
+        )
+        page.goto("https://agent.minimax.io/experts", wait_until="domcontentloaded", timeout=timeout_ms)
         try:
             page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
         except Exception:
@@ -2407,80 +2470,90 @@ def _open_motion_coach_chat(page: Any, timeout_ms: int) -> None:
 
         _wait_for_page_condition(
             page,
-            lambda: _motion_coach_composer_ready(page) or _motion_coach_cta_present(page) or _login_modal_visible(page),
-            timeout_ms=direct_wait_ms,
+            lambda: _motion_coach_card_present(page) or _experts_search_box_present(page) or _login_modal_visible(page),
+            timeout_ms=min(timeout_ms, 15000),
         )
-        if _motion_coach_composer_ready(page):
-            return
-        if _click_motion_coach_cta(page, timeout_ms=min(timeout_ms, 5000)):
-            if _wait_for_page_condition(page, lambda: _motion_coach_composer_ready(page), timeout_ms=composer_wait_ms):
-                return
-            try:
-                page.wait_for_selector(".tiptap-editor", timeout=composer_wait_ms)
-                return
-            except Exception:
-                if _motion_coach_composer_ready(page):
-                    return
-        if attempt == 0:
-            logger.warning("MiniMax Motion Coach direct expert page not ready, retrying once. url=%s", getattr(page, "url", ""))
 
-    logger.warning("MiniMax Motion Coach direct expert page unavailable, falling back to experts index. url=%s", getattr(page, "url", ""))
-    page.goto("https://agent.minimax.io/experts", wait_until="domcontentloaded", timeout=timeout_ms)
-    try:
-        page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
-    except Exception:
-        pass
+        if _login_modal_visible(page):
+            logger.warning(
+                "MiniMax Motion Coach experts index requires authentication: %s",
+                json.dumps(_motion_coach_page_state(page), ensure_ascii=True),
+            )
+            if can_reauth and auth_cycle == 0:
+                _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
+                continue
 
-    _wait_for_page_condition(
-        page,
-        lambda: _motion_coach_card_present(page) or _experts_search_box_present(page) or _login_modal_visible(page),
-        timeout_ms=min(timeout_ms, 15000),
-    )
+        clicked = _click_motion_coach_card(page, timeout_ms=min(timeout_ms, 5000))
+        if not clicked and _experts_search_box_present(page):
+            _click_first_visible(
+                page,
+                (
+                    "input[placeholder='Search experts'][readonly]",
+                    "div:has(input[placeholder='Search experts'])",
+                    "input[placeholder='Search experts']",
+                    "[aria-label='Search experts']",
+                ),
+                timeout_ms=3500,
+            )
+            search_box = _resolve_experts_search_box(page)
+            if search_box is not None:
+                search_box.fill("AI Motion Coach", timeout=timeout_ms)
+                try:
+                    search_box.press("Enter")
+                except Exception:
+                    pass
+                _wait_for_page_condition(page, lambda: _motion_coach_card_present(page), timeout_ms=min(timeout_ms, 8000))
+                clicked = _click_motion_coach_card(page, timeout_ms=min(timeout_ms, 5000))
 
-    clicked = _click_motion_coach_card(page, timeout_ms=min(timeout_ms, 5000))
-    if not clicked and _experts_search_box_present(page):
-        _click_first_visible(
+        if not clicked:
+            state = json.dumps(_motion_coach_page_state(page), ensure_ascii=True)
+            logger.warning("MiniMax Motion Coach entry unavailable after fallback: %s", state)
+            if can_reauth and auth_cycle == 0:
+                _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
+                continue
+            raise RuntimeError("MiniMax browser flow failed: AI Motion Coach entry unavailable")
+
+        _wait_for_page_condition(
             page,
-            (
-                "input[placeholder='Search experts'][readonly]",
-                "div:has(input[placeholder='Search experts'])",
-                "input[placeholder='Search experts']",
-                "[aria-label='Search experts']",
-            ),
-            timeout_ms=3500,
+            lambda: _motion_coach_composer_ready(page) or _motion_coach_cta_present(page) or _login_modal_visible(page),
+            timeout_ms=min(timeout_ms, 12000),
         )
-        search_box = _resolve_experts_search_box(page)
-        if search_box is not None:
-            search_box.fill("AI Motion Coach", timeout=timeout_ms)
-            try:
-                search_box.press("Enter")
-            except Exception:
-                pass
-            _wait_for_page_condition(page, lambda: _motion_coach_card_present(page), timeout_ms=min(timeout_ms, 8000))
-            clicked = _click_motion_coach_card(page, timeout_ms=min(timeout_ms, 5000))
+        if _login_modal_visible(page):
+            logger.warning(
+                "MiniMax Motion Coach chat CTA blocked by authentication: %s",
+                json.dumps(_motion_coach_page_state(page), ensure_ascii=True),
+            )
+            if can_reauth and auth_cycle == 0:
+                _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
+                continue
+        if not _motion_coach_composer_ready(page) and not _click_motion_coach_cta(page, timeout_ms=min(timeout_ms, 5000)):
+            state = json.dumps(_motion_coach_page_state(page), ensure_ascii=True)
+            logger.warning("MiniMax Motion Coach chat CTA unavailable: %s", state)
+            if can_reauth and auth_cycle == 0:
+                _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
+                continue
+            raise RuntimeError("MiniMax browser flow failed: AI Motion Coach chat CTA unavailable")
 
-    if not clicked:
-        raise RuntimeError("MiniMax browser flow failed: AI Motion Coach entry unavailable")
-
-    _wait_for_page_condition(
-        page,
-        lambda: _motion_coach_composer_ready(page) or _motion_coach_cta_present(page),
-        timeout_ms=min(timeout_ms, 12000),
-    )
-    if not _motion_coach_composer_ready(page) and not _click_motion_coach_cta(page, timeout_ms=min(timeout_ms, 5000)):
-        raise RuntimeError("MiniMax browser flow failed: AI Motion Coach chat CTA unavailable")
-
-    try:
-        page.wait_for_url(re.compile(r"https://agent\.minimax\.io/(expert/chat|chat)"), timeout=timeout_ms)
-    except Exception:
-        pass
-    if _wait_for_page_condition(page, lambda: _motion_coach_composer_ready(page), timeout_ms=composer_wait_ms):
-        return
-    try:
-        page.wait_for_selector(".tiptap-editor", timeout=composer_wait_ms)
-    except Exception:
-        if not _motion_coach_composer_ready(page):
+        try:
+            page.wait_for_url(re.compile(r"https://agent\.minimax\.io/(expert/chat|chat)"), timeout=timeout_ms)
+        except Exception:
+            pass
+        if _wait_for_page_condition(page, lambda: _motion_coach_composer_ready(page), timeout_ms=composer_wait_ms):
+            return
+        try:
+            page.wait_for_selector(".tiptap-editor", timeout=composer_wait_ms)
+            return
+        except Exception:
+            if _motion_coach_composer_ready(page):
+                return
+            state = json.dumps(_motion_coach_page_state(page), ensure_ascii=True)
+            logger.warning("MiniMax Motion Coach composer unavailable after CTA: %s", state)
+            if can_reauth and auth_cycle == 0:
+                _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
+                continue
             raise RuntimeError("MiniMax browser flow failed: AI Motion Coach composer unavailable")
+
+    raise RuntimeError("MiniMax browser flow failed: AI Motion Coach entry unavailable")
 
 
 def _populate_browser_message(page: Any, video_path: str, prompt: str, timeout_ms: int) -> None:
@@ -2555,7 +2628,7 @@ def _upload_and_send_via_browser(
                 break
             _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
             if not _locator_is_visible(page, ".tiptap-editor", timeout_ms=3000):
-                _open_motion_coach_chat(page, timeout_ms=timeout_ms)
+                _open_motion_coach_chat(page, timeout_ms=timeout_ms, email=email, password=password)
     if last_exc is not None:
         raise last_exc
     raise RuntimeError("MiniMax browser flow failed before send")
@@ -2762,7 +2835,7 @@ def _run_minimax_browser_only_once(
 
             page.goto(_motion_coach_expert_url(), wait_until="domcontentloaded", timeout=timeout_ms)
             _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
-            _open_motion_coach_chat(page, timeout_ms=timeout_ms)
+            _open_motion_coach_chat(page, timeout_ms=timeout_ms, email=email, password=password)
 
             # Baseline collection window.
             page.wait_for_timeout(1400)

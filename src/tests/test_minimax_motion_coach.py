@@ -786,6 +786,55 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
         )
         self.assertEqual(page.stage, "composer")
 
+    def test_open_motion_coach_chat_reauthenticates_when_direct_page_shows_login_modal(self) -> None:
+        class _FakePage:
+            def __init__(self):
+                self.goto_calls: list[str] = []
+                self.url = ""
+                self.auth_stage = 0
+
+            def goto(self, url: str, **_kwargs) -> None:
+                self.goto_calls.append(url)
+                self.url = url
+
+            def wait_for_load_state(self, *_args, **_kwargs) -> None:
+                return None
+
+        page = _FakePage()
+        original_composer_ready = mm._motion_coach_composer_ready
+        original_cta_present = mm._motion_coach_cta_present
+        original_login_modal_visible = mm._login_modal_visible
+        original_wait_for_page_condition = mm._wait_for_page_condition
+        original_ensure_auth = mm._ensure_browser_authenticated
+        auth_calls: list[str] = []
+        try:
+            mm._motion_coach_composer_ready = lambda current_page, **_kwargs: current_page.auth_stage == 1 and len(current_page.goto_calls) >= 2  # type: ignore[assignment]
+            mm._motion_coach_cta_present = lambda *_args, **_kwargs: False  # type: ignore[assignment]
+            mm._login_modal_visible = lambda current_page, **_kwargs: current_page.auth_stage == 0  # type: ignore[assignment]
+            mm._wait_for_page_condition = lambda _page, predicate, timeout_ms, step_ms=350: bool(predicate())  # type: ignore[assignment]
+
+            def _fake_ensure_auth(current_page, email="", password="", timeout_ms=0):
+                auth_calls.append(email)
+                current_page.auth_stage = 1
+
+            mm._ensure_browser_authenticated = _fake_ensure_auth  # type: ignore[assignment]
+
+            mm._open_motion_coach_chat(
+                page,
+                timeout_ms=3000,
+                email="coaching@achzodcoaching.com",
+                password="secret",
+            )
+        finally:
+            mm._motion_coach_composer_ready = original_composer_ready  # type: ignore[assignment]
+            mm._motion_coach_cta_present = original_cta_present  # type: ignore[assignment]
+            mm._login_modal_visible = original_login_modal_visible  # type: ignore[assignment]
+            mm._wait_for_page_condition = original_wait_for_page_condition  # type: ignore[assignment]
+            mm._ensure_browser_authenticated = original_ensure_auth  # type: ignore[assignment]
+
+        self.assertEqual(auth_calls, ["coaching@achzodcoaching.com"])
+        self.assertEqual(page.goto_calls, [mm._motion_coach_expert_url(), mm._motion_coach_expert_url()])
+
     def test_run_browser_only_authenticates_before_opening_motion_coach_chat(self) -> None:
         class _FakePage:
             def __init__(self):
