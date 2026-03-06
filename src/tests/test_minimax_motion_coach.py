@@ -605,15 +605,21 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
 
         page = _FakePage()
         original_composer_ready = mm._motion_coach_composer_ready
+        original_cta_present = mm._motion_coach_cta_present
         original_click_cta = mm._click_motion_coach_cta
+        original_wait_for_page_condition = mm._wait_for_page_condition
         try:
             mm._motion_coach_composer_ready = lambda *_args, **_kwargs: False  # type: ignore[assignment]
+            mm._motion_coach_cta_present = lambda *_args, **_kwargs: True  # type: ignore[assignment]
             mm._click_motion_coach_cta = lambda *_args, **_kwargs: True  # type: ignore[assignment]
+            mm._wait_for_page_condition = lambda _page, predicate, timeout_ms, step_ms=350: bool(predicate())  # type: ignore[assignment]
 
             mm._open_motion_coach_chat(page, timeout_ms=3000)
         finally:
             mm._motion_coach_composer_ready = original_composer_ready  # type: ignore[assignment]
+            mm._motion_coach_cta_present = original_cta_present  # type: ignore[assignment]
             mm._click_motion_coach_cta = original_click_cta  # type: ignore[assignment]
+            mm._wait_for_page_condition = original_wait_for_page_condition  # type: ignore[assignment]
 
         self.assertEqual(page.goto_calls, [mm._motion_coach_expert_url()])
         self.assertTrue(page.waited_for_selector)
@@ -666,6 +672,119 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
 
         self.assertTrue(out)
         self.assertTrue(page.role_locator.clicked)
+
+    def test_open_motion_coach_chat_retries_direct_expert_page_before_experts_fallback(self) -> None:
+        class _FakePage:
+            def __init__(self):
+                self.goto_calls: list[str] = []
+                self.url = ""
+                self.waited_for_selector = False
+
+            def goto(self, url: str, **_kwargs) -> None:
+                self.goto_calls.append(url)
+                self.url = url
+
+            def wait_for_load_state(self, *_args, **_kwargs) -> None:
+                return None
+
+            def wait_for_selector(self, selector: str, timeout=None) -> None:
+                if selector == ".tiptap-editor":
+                    self.waited_for_selector = True
+                    return None
+                raise AssertionError("unexpected selector")
+
+        page = _FakePage()
+        original_composer_ready = mm._motion_coach_composer_ready
+        original_cta_present = mm._motion_coach_cta_present
+        original_click_cta = mm._click_motion_coach_cta
+        original_wait_for_page_condition = mm._wait_for_page_condition
+        try:
+            mm._motion_coach_composer_ready = lambda *_args, **_kwargs: False  # type: ignore[assignment]
+            mm._motion_coach_cta_present = lambda current_page, **_kwargs: len(current_page.goto_calls) >= 2  # type: ignore[assignment]
+            mm._click_motion_coach_cta = lambda current_page, timeout_ms=0: len(current_page.goto_calls) >= 2  # type: ignore[assignment]
+            mm._wait_for_page_condition = lambda _page, predicate, timeout_ms, step_ms=350: bool(predicate())  # type: ignore[assignment]
+
+            mm._open_motion_coach_chat(page, timeout_ms=3000)
+        finally:
+            mm._motion_coach_composer_ready = original_composer_ready  # type: ignore[assignment]
+            mm._motion_coach_cta_present = original_cta_present  # type: ignore[assignment]
+            mm._click_motion_coach_cta = original_click_cta  # type: ignore[assignment]
+            mm._wait_for_page_condition = original_wait_for_page_condition  # type: ignore[assignment]
+
+        self.assertEqual(page.goto_calls, [mm._motion_coach_expert_url(), mm._motion_coach_expert_url()])
+        self.assertTrue(page.waited_for_selector)
+
+    def test_open_motion_coach_chat_uses_experts_card_when_search_box_missing(self) -> None:
+        class _FakePage:
+            def __init__(self):
+                self.goto_calls: list[str] = []
+                self.url = ""
+                self.stage = "init"
+
+            def goto(self, url: str, **_kwargs) -> None:
+                self.goto_calls.append(url)
+                self.url = url
+                if url.endswith("/experts"):
+                    self.stage = "experts"
+                else:
+                    self.stage = "direct"
+
+            def wait_for_load_state(self, *_args, **_kwargs) -> None:
+                return None
+
+            def wait_for_url(self, *_args, **_kwargs) -> None:
+                return None
+
+            def wait_for_selector(self, selector: str, timeout=None) -> None:
+                if selector == ".tiptap-editor" and self.stage == "composer":
+                    return None
+                raise RuntimeError("composer missing")
+
+        page = _FakePage()
+        original_composer_ready = mm._motion_coach_composer_ready
+        original_cta_present = mm._motion_coach_cta_present
+        original_click_cta = mm._click_motion_coach_cta
+        original_wait_for_page_condition = mm._wait_for_page_condition
+        original_card_present = mm._motion_coach_card_present
+        original_search_present = mm._experts_search_box_present
+        original_click_card = mm._click_motion_coach_card
+        try:
+            mm._motion_coach_composer_ready = lambda current_page, **_kwargs: current_page.stage == "composer"  # type: ignore[assignment]
+            mm._motion_coach_cta_present = lambda current_page, **_kwargs: current_page.stage == "card_opened"  # type: ignore[assignment]
+
+            def _fake_click_cta(current_page, timeout_ms=0):
+                if current_page.stage == "card_opened":
+                    current_page.stage = "composer"
+                    return True
+                return False
+
+            def _fake_click_card(current_page, timeout_ms=0):
+                if current_page.stage == "experts":
+                    current_page.stage = "card_opened"
+                    return True
+                return False
+
+            mm._click_motion_coach_cta = _fake_click_cta  # type: ignore[assignment]
+            mm._wait_for_page_condition = lambda _page, predicate, timeout_ms, step_ms=350: bool(predicate())  # type: ignore[assignment]
+            mm._motion_coach_card_present = lambda current_page, **_kwargs: current_page.stage == "experts"  # type: ignore[assignment]
+            mm._experts_search_box_present = lambda *_args, **_kwargs: False  # type: ignore[assignment]
+            mm._click_motion_coach_card = _fake_click_card  # type: ignore[assignment]
+
+            mm._open_motion_coach_chat(page, timeout_ms=3000)
+        finally:
+            mm._motion_coach_composer_ready = original_composer_ready  # type: ignore[assignment]
+            mm._motion_coach_cta_present = original_cta_present  # type: ignore[assignment]
+            mm._click_motion_coach_cta = original_click_cta  # type: ignore[assignment]
+            mm._wait_for_page_condition = original_wait_for_page_condition  # type: ignore[assignment]
+            mm._motion_coach_card_present = original_card_present  # type: ignore[assignment]
+            mm._experts_search_box_present = original_search_present  # type: ignore[assignment]
+            mm._click_motion_coach_card = original_click_card  # type: ignore[assignment]
+
+        self.assertEqual(
+            page.goto_calls,
+            [mm._motion_coach_expert_url(), mm._motion_coach_expert_url(), "https://agent.minimax.io/experts"],
+        )
+        self.assertEqual(page.stage, "composer")
 
     def test_run_browser_only_authenticates_before_opening_motion_coach_chat(self) -> None:
         class _FakePage:

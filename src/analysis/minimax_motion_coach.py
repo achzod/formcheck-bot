@@ -2071,6 +2071,27 @@ def _locator_exists(page: Any, selector: str) -> bool:
         return False
 
 
+def _safe_page_wait(page: Any, delay_ms: int) -> None:
+    try:
+        page.wait_for_timeout(delay_ms)
+    except Exception:
+        time.sleep(max(delay_ms, 0) / 1000.0)
+
+
+def _role_locator_exists(page: Any, role: str, name: Any = None) -> bool:
+    try:
+        return page.get_by_role(role, name=name).count() > 0
+    except Exception:
+        return False
+
+
+def _text_locator_exists(page: Any, text: str, exact: bool = False) -> bool:
+    try:
+        return page.get_by_text(text, exact=exact).count() > 0
+    except Exception:
+        return False
+
+
 def _motion_coach_composer_ready(page: Any) -> bool:
     return (
         _locator_is_visible(page, ".tiptap-editor", timeout_ms=800)
@@ -2078,6 +2099,56 @@ def _motion_coach_composer_ready(page: Any) -> bool:
         or _locator_exists(page, "input[type='file']")
         or _locator_exists(page, "#input-send-icon")
     )
+
+
+def _motion_coach_cta_present(page: Any) -> bool:
+    selectors = (
+        "button:has-text('Type to chat with AI Motion Coach')",
+        "button:has-text('Start Chat')",
+        "button:has-text('Chat with AI Motion Coach')",
+    )
+    if any(_locator_is_visible(page, selector, timeout_ms=800) or _locator_exists(page, selector) for selector in selectors):
+        return True
+    return any(
+        (
+            _role_locator_exists(page, "button", name=pattern)
+            or _text_locator_exists(page, text, exact=False)
+        )
+        for pattern, text in (
+            (re.compile(r"type to chat with ai motion coach", re.I), "Type to chat with AI Motion Coach"),
+            (re.compile(r"start chat", re.I), "Start Chat"),
+            (re.compile(r"chat with ai motion coach", re.I), "Chat with AI Motion Coach"),
+        )
+    )
+
+
+def _motion_coach_card_present(page: Any) -> bool:
+    return _locator_exists(page, "img[alt='AI Motion Coach']") or _text_locator_exists(
+        page, "AI Motion Coach", exact=False
+    )
+
+
+def _experts_search_box_present(page: Any) -> bool:
+    return (
+        _locator_exists(page, "input[placeholder='Search experts']")
+        or _locator_exists(page, "[aria-label='Search experts']")
+        or _role_locator_exists(page, "textbox", name=re.compile(r"search experts", re.I))
+    )
+
+
+def _wait_for_page_condition(page: Any, predicate: Any, timeout_ms: int, step_ms: int = 350) -> bool:
+    deadline = time.monotonic() + max(timeout_ms, 0) / 1000.0
+    while time.monotonic() < deadline:
+        try:
+            if predicate():
+                return True
+        except Exception:
+            pass
+        _safe_page_wait(page, step_ms)
+    try:
+        return bool(predicate())
+    except Exception:
+        return False
 
 
 def _click_motion_coach_cta(page: Any, timeout_ms: int) -> bool:
@@ -2120,6 +2191,43 @@ def _click_motion_coach_cta(page: Any, timeout_ms: int) -> bool:
         except Exception:
             continue
     return False
+
+
+def _click_motion_coach_card(page: Any, timeout_ms: int) -> bool:
+    try:
+        card = page.locator("img[alt='AI Motion Coach']").first
+        if card.count() > 0:
+            card.click(timeout=timeout_ms)
+            return True
+    except Exception:
+        pass
+    try:
+        page.get_by_text("AI Motion Coach", exact=False).first.click(timeout=timeout_ms)
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_experts_search_box(page: Any) -> Any | None:
+    selectors = (
+        "input[placeholder='Search experts']:not([readonly])",
+        "input[placeholder='Search experts']",
+        "[aria-label='Search experts']",
+    )
+    for selector in selectors:
+        try:
+            locator = page.locator(selector).first
+            if locator.count() > 0:
+                return locator
+        except Exception:
+            continue
+    try:
+        locator = page.get_by_role("textbox", name=re.compile(r"search experts", re.I)).first
+        if locator.count() > 0:
+            return locator
+    except Exception:
+        pass
+    return None
 
 
 def _login_modal_visible(page: Any) -> bool:
@@ -2287,101 +2395,92 @@ def _ensure_browser_authenticated(page: Any, email: str, password: str, timeout_
 
 
 def _open_motion_coach_chat(page: Any, timeout_ms: int) -> None:
-    page.goto(_motion_coach_expert_url(), wait_until="domcontentloaded", timeout=timeout_ms)
-    if _motion_coach_composer_ready(page):
-        return
+    direct_wait_ms = min(timeout_ms, 15000)
+    composer_wait_ms = min(timeout_ms, 12000)
 
-    # Direct expert pages can expose a landing CTA before rendering the composer.
-    if _click_motion_coach_cta(page, timeout_ms=5000):
+    for attempt in range(2):
+        page.goto(_motion_coach_expert_url(), wait_until="domcontentloaded", timeout=timeout_ms)
         try:
-            page.wait_for_selector(".tiptap-editor", timeout=min(timeout_ms, 12000))
-            return
-        except Exception:
-            if _motion_coach_composer_ready(page):
-                return
-
-    # Fallback discovery flow via Experts search.
-    page.goto("https://agent.minimax.io/experts", wait_until="domcontentloaded", timeout=timeout_ms)
-
-    # Some MiniMax variants render the card directly without requiring search.
-    clicked = False
-    try:
-        card = page.locator("img[alt='AI Motion Coach']").first
-        if card.count() > 0:
-            card.click(timeout=timeout_ms)
-            clicked = True
-    except Exception:
-        clicked = False
-    if not clicked:
-        try:
-            page.get_by_text("AI Motion Coach", exact=False).first.click(timeout=timeout_ms)
-            clicked = True
-        except Exception:
-            clicked = False
-    if clicked:
-        _click_motion_coach_cta(page, timeout_ms=timeout_ms)
-        try:
-            page.wait_for_url(re.compile(r"https://agent\.minimax\.io/(expert/chat|chat)"), timeout=timeout_ms)
+            page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
         except Exception:
             pass
-        try:
-            page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
+
+        _wait_for_page_condition(
+            page,
+            lambda: _motion_coach_composer_ready(page) or _motion_coach_cta_present(page) or _login_modal_visible(page),
+            timeout_ms=direct_wait_ms,
+        )
+        if _motion_coach_composer_ready(page):
             return
-        except Exception:
-            if _motion_coach_composer_ready(page):
+        if _click_motion_coach_cta(page, timeout_ms=min(timeout_ms, 5000)):
+            if _wait_for_page_condition(page, lambda: _motion_coach_composer_ready(page), timeout_ms=composer_wait_ms):
                 return
+            try:
+                page.wait_for_selector(".tiptap-editor", timeout=composer_wait_ms)
+                return
+            except Exception:
+                if _motion_coach_composer_ready(page):
+                    return
+        if attempt == 0:
+            logger.warning("MiniMax Motion Coach direct expert page not ready, retrying once. url=%s", getattr(page, "url", ""))
 
-    _click_first_visible(
-        page,
-        (
-            "input[placeholder='Search experts'][readonly]",
-            "div:has(input[placeholder='Search experts'])",
-            "input[placeholder='Search experts']",
-        ),
-        timeout_ms=3500,
-    )
-
-    search_box = page.locator("input[placeholder='Search experts']:not([readonly])").first
-    if search_box.count() <= 0:
-        search_box = page.locator("input[placeholder='Search experts']").last
-    if search_box.count() <= 0:
-        raise RuntimeError("MiniMax browser flow failed: search box not found")
-
-    search_box.fill("AI Motion Coach", timeout=timeout_ms)
+    logger.warning("MiniMax Motion Coach direct expert page unavailable, falling back to experts index. url=%s", getattr(page, "url", ""))
+    page.goto("https://agent.minimax.io/experts", wait_until="domcontentloaded", timeout=timeout_ms)
     try:
-        search_box.press("Enter")
+        page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
     except Exception:
         pass
 
-    clicked = False
-    try:
-        card = page.locator("img[alt='AI Motion Coach']").first
-        if card.count() > 0:
-            card.click(timeout=timeout_ms)
-            clicked = True
-    except Exception:
-        clicked = False
-    if not clicked:
-        try:
-            page.get_by_text("AI Motion Coach", exact=False).first.click(timeout=timeout_ms)
-            clicked = True
-        except Exception:
-            clicked = False
-    if not clicked:
-        raise RuntimeError("MiniMax browser flow failed: AI Motion Coach card not found")
+    _wait_for_page_condition(
+        page,
+        lambda: _motion_coach_card_present(page) or _experts_search_box_present(page) or _login_modal_visible(page),
+        timeout_ms=min(timeout_ms, 15000),
+    )
 
-    if not _click_motion_coach_cta(page, timeout_ms=timeout_ms):
-        raise RuntimeError("MiniMax browser flow failed: Start Chat button not found")
+    clicked = _click_motion_coach_card(page, timeout_ms=min(timeout_ms, 5000))
+    if not clicked and _experts_search_box_present(page):
+        _click_first_visible(
+            page,
+            (
+                "input[placeholder='Search experts'][readonly]",
+                "div:has(input[placeholder='Search experts'])",
+                "input[placeholder='Search experts']",
+                "[aria-label='Search experts']",
+            ),
+            timeout_ms=3500,
+        )
+        search_box = _resolve_experts_search_box(page)
+        if search_box is not None:
+            search_box.fill("AI Motion Coach", timeout=timeout_ms)
+            try:
+                search_box.press("Enter")
+            except Exception:
+                pass
+            _wait_for_page_condition(page, lambda: _motion_coach_card_present(page), timeout_ms=min(timeout_ms, 8000))
+            clicked = _click_motion_coach_card(page, timeout_ms=min(timeout_ms, 5000))
+
+    if not clicked:
+        raise RuntimeError("MiniMax browser flow failed: AI Motion Coach entry unavailable")
+
+    _wait_for_page_condition(
+        page,
+        lambda: _motion_coach_composer_ready(page) or _motion_coach_cta_present(page),
+        timeout_ms=min(timeout_ms, 12000),
+    )
+    if not _motion_coach_composer_ready(page) and not _click_motion_coach_cta(page, timeout_ms=min(timeout_ms, 5000)):
+        raise RuntimeError("MiniMax browser flow failed: AI Motion Coach chat CTA unavailable")
 
     try:
         page.wait_for_url(re.compile(r"https://agent\.minimax\.io/(expert/chat|chat)"), timeout=timeout_ms)
     except Exception:
         pass
+    if _wait_for_page_condition(page, lambda: _motion_coach_composer_ready(page), timeout_ms=composer_wait_ms):
+        return
     try:
-        page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
+        page.wait_for_selector(".tiptap-editor", timeout=composer_wait_ms)
     except Exception:
         if not _motion_coach_composer_ready(page):
-            raise
+            raise RuntimeError("MiniMax browser flow failed: AI Motion Coach composer unavailable")
 
 
 def _populate_browser_message(page: Any, video_path: str, prompt: str, timeout_ms: int) -> None:
