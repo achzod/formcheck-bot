@@ -38,10 +38,44 @@ _DEFAULT_USER_AGENT = (
 _DEFAULT_BROWSER_VIEWPORT = {"width": 1728, "height": 1117}
 _DEFAULT_BROWSER_LOCALE = "en-US"
 _DEFAULT_BROWSER_TIMEZONE_ID = "Asia/Dubai"
+_LABEL_NORMALIZATION_TABLE = str.maketrans(
+    {
+        "é": "e",
+        "è": "e",
+        "ê": "e",
+        "ë": "e",
+        "à": "a",
+        "â": "a",
+        "ä": "a",
+        "î": "i",
+        "ï": "i",
+        "ô": "o",
+        "ö": "o",
+        "ù": "u",
+        "û": "u",
+        "ü": "u",
+        "ç": "c",
+        "&": "e",
+    }
+)
 _DEFAULT_ANALYSIS_PROMPT = (
-    "Analyse cette video de musculation et reponds UNIQUEMENT en francais, une fois l'analyse terminee.\n"
+    "Analyse cette video de musculation comme un coach expert en biomecanique de la musculation et reponds "
+    "UNIQUEMENT en francais, une fois l'analyse terminee.\n"
     "Pas de preambule, pas d'explication de workflow, pas de thinking process.\n"
-    "Tu t'adresses directement au client.\n"
+    "Tu t'adresses directement au client, tu le tutoies, tu es critique, didactique, detaille, minutieux et precis.\n"
+    "Tu dois rester strict: n'arrondis jamais a la hausse et dis clairement quand la technique se degrade.\n"
+    "Le score global DOIT etre egal a la somme exacte des 4 sous-scores ci-dessous, sans incoherence.\n"
+    "Bareme obligatoire:\n"
+    "- Securite /40 = alignement articulaire, stabilite, compensations, risque.\n"
+    "- Efficacite technique /30 = trajectoire, amplitude utile, placement, ciblage musculaire.\n"
+    "- Controle et tempo /20 = maitrise excentrique, pauses, vitesse, regularite rep par rep.\n"
+    "- Symetrie /10 = equilibre gauche/droite, deviation laterale, asymetrie de trajectoire.\n"
+    "Un score >85/100 signifie une execution tres propre avec seulement de faibles defauts.\n"
+    "Regles de notation:\n"
+    "- 90 a 100 = serie tres propre, pas de compensation majeure, tres peu de perte technique avec la fatigue.\n"
+    "- 75 a 89 = bonne execution mais au moins 1 ou 2 defauts nets a corriger.\n"
+    "- 60 a 74 = execution correcte mais plusieurs defauts visibles, baisse technique ou controle insuffisant.\n"
+    "- <60 = execution insuffisante, compensation claire, amplitude insuffisante ou risque technique notable.\n"
     "Format de sortie obligatoire:\n"
     "EXERCISE: snake_case_exact\n"
     "DISPLAY_NAME_FR: nom exact en francais\n"
@@ -58,29 +92,36 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "CORRECTIONS_PRIORITAIRES:\n"
     "1. titre | pourquoi | impact | cue\n"
     "RESUME:\n"
-    "2 a 4 phrases\n"
+    "3 a 6 phrases critiques et pedagogiques en tutoiement\n"
     "AMPLITUDE_DE_MOUVEMENT:\n"
-    "2 a 4 phrases\n"
+    "3 a 6 phrases avec amplitude utile, restrictions, verrouillage, reduction d'amplitude si presente\n"
     "ANALYSE_DU_TEMPO_ET_DES_PHASES:\n"
-    "2 a 4 phrases\n"
+    "3 a 6 phrases avec excentrique, isometrique, concentrique, sticking point, pauses et regularite\n"
+    "ANALYSE_REP_PAR_REP:\n"
+    "1. Rep 1 | 00:00 - 00:00 | commentaire bref, critique, concret\n"
+    "2. Rep 2 | 00:00 - 00:00 | commentaire bref, critique, concret\n"
+    "Fais exactement une ligne numerotee par rep detectee, de 1 a REPS_TOTAL, sans en sauter.\n"
+    "Pour CHAQUE rep detectee, mentionne au minimum la plage temporelle, la vitesse relative, la proprete technique, "
+    "la fatigue, les pauses notables entre reps, et toute degradation de trajectoire, d'amplitude ou d'alignement.\n"
+    "Si une pause entre deux reps depasse environ 1.5 seconde, signale-la explicitement.\n"
     "INTENSITE_DE_SERIE:\n"
-    "2 a 4 phrases avec densite et repos inter-reps\n"
+    "3 a 6 phrases avec densite, repos inter-reps, ralentissement de fin de serie et perception d'effort\n"
     "COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE:\n"
-    "2 a 4 phrases\n"
+    "3 a 6 phrases avec compensations observees, causes probables, zones qui prennent le relais et risque potentiel\n"
     "DECOMPOSITION_DU_SCORE:\n"
     "- Securite: x/40\n"
     "- Efficacite technique: x/30\n"
     "- Controle et tempo: x/20\n"
     "- Symetrie: x/10\n"
     "POINT_BIOMECANIQUE:\n"
-    "1 a 3 phrases\n"
+    "2 a 4 phrases tres concretes, biomecaniques et utiles pour progresser\n"
     "RECOMMANDATION_POUR_LA_PROCHAINE_VIDEO:\n"
-    "1 a 3 phrases\n"
+    "1 a 3 phrases sur l'angle camera, le cadrage et ce qui doit etre visible pour affiner l'analyse\n"
     "PLAN_ACTION:\n"
     "- action 1\n"
     "- action 2\n"
     "- action 3\n"
-    "Si une donnee n'est pas mesurable, ecris NON MESURABLE."
+    "Si une donnee n'est pas mesurable, ecris NON MESURABLE. N'utilise NON MESURABLE que si l'information est vraiment invisible."
 )
 
 _INTENSITY_LABELS = (
@@ -106,6 +147,7 @@ _FINAL_OUTPUT_MARKERS = (
     "resume:",
     "amplitude_de_mouvement:",
     "analyse_du_tempo_et_des_phases:",
+    "analyse_rep_par_rep:",
     "intensite_de_serie:",
     "compensations_et_biomecanique_avancee:",
     "decomposition_du_score:",
@@ -158,6 +200,7 @@ _LABELED_HEADINGS = (
     "RESUME",
     "AMPLITUDE_DE_MOUVEMENT",
     "ANALYSE_DU_TEMPO_ET_DES_PHASES",
+    "ANALYSE_REP_PAR_REP",
     "INTENSITE_DE_SERIE",
     "COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE",
     "DECOMPOSITION_DU_SCORE",
@@ -588,15 +631,26 @@ def _parse_score_breakdown_block(text: str, total_score: int) -> dict[str, int]:
     if not text:
         return {}
     raw: dict[str, int] = {}
+    normalized_text = _normalize_label_text(text)
     for key in ("Securite", "Efficacite technique", "Controle et tempo", "Symetrie"):
+        norm_key = _normalize_label_text(key)
         match = re.search(
-            r"{}\s*:\s*(\d{{1,3}})\s*/\s*(\d{{1,3}})".format(re.escape(key)),
-            text,
+            r"{}\s*:\s*(\d{{1,3}})\s*/\s*(\d{{1,3}})".format(re.escape(norm_key)),
+            normalized_text,
             flags=re.IGNORECASE,
         )
         if match:
             raw[key] = max(0, int(match.group(1)))
     return _normalize_score_breakdown(raw or None, total_score=total_score)
+
+
+def _score_breakdown_total(breakdown: dict[str, int]) -> int:
+    return max(0, min(100, sum(max(0, int(value or 0)) for value in breakdown.values())))
+
+
+def _normalize_label_text(text: Any) -> str:
+    normalized = str(text or "").strip().lower().translate(_LABEL_NORMALIZATION_TABLE)
+    return re.sub(r"[\s_-]+", " ", normalized)
 
 
 def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
@@ -611,6 +665,7 @@ def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
         "RESUME",
         "AMPLITUDE_DE_MOUVEMENT",
         "ANALYSE_DU_TEMPO_ET_DES_PHASES",
+        "ANALYSE_REP_PAR_REP",
         "INTENSITE_DE_SERIE",
         "COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE",
         "DECOMPOSITION_DU_SCORE",
@@ -653,11 +708,12 @@ def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
     resume_block = _extract_labeled_section(normalized_text, "RESUME", section_order[3:])
     rom_block = _extract_labeled_section(normalized_text, "AMPLITUDE_DE_MOUVEMENT", section_order[4:])
     tempo_block = _extract_labeled_section(normalized_text, "ANALYSE_DU_TEMPO_ET_DES_PHASES", section_order[5:])
-    intensite_block = _extract_labeled_section(normalized_text, "INTENSITE_DE_SERIE", section_order[6:])
-    compensations_block = _extract_labeled_section(normalized_text, "COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE", section_order[7:])
-    breakdown_block = _extract_labeled_section(normalized_text, "DECOMPOSITION_DU_SCORE", section_order[8:])
-    biomecanique_block = _extract_labeled_section(normalized_text, "POINT_BIOMECANIQUE", section_order[9:])
-    next_video_block = _extract_labeled_section(normalized_text, "RECOMMANDATION_POUR_LA_PROCHAINE_VIDEO", section_order[10:])
+    rep_by_rep_block = _extract_labeled_section(normalized_text, "ANALYSE_REP_PAR_REP", section_order[6:])
+    intensite_block = _extract_labeled_section(normalized_text, "INTENSITE_DE_SERIE", section_order[7:])
+    compensations_block = _extract_labeled_section(normalized_text, "COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE", section_order[8:])
+    breakdown_block = _extract_labeled_section(normalized_text, "DECOMPOSITION_DU_SCORE", section_order[9:])
+    biomecanique_block = _extract_labeled_section(normalized_text, "POINT_BIOMECANIQUE", section_order[10:])
+    next_video_block = _extract_labeled_section(normalized_text, "RECOMMANDATION_POUR_LA_PROCHAINE_VIDEO", section_order[11:])
     plan_block = _extract_labeled_section(normalized_text, "PLAN_ACTION", ())
 
     analysis.positives = _extract_bullets(positives_block)[:6]
@@ -668,6 +724,7 @@ def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
             "resume": resume_block,
             "rom": rom_block,
             "tempo": tempo_block,
+            "rep_par_rep": rep_by_rep_block,
             "intensite": intensite_block,
             "compensations": compensations_block,
             "biomecanique": biomecanique_block,
@@ -676,6 +733,11 @@ def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
         if value
     }
     analysis.score_breakdown = _parse_score_breakdown_block(breakdown_block, analysis.score)
+    normalized_breakdown = _normalize_label_text(breakdown_block)
+    if breakdown_block and all(label in normalized_breakdown for label in ("securite", "efficacite", "controle", "symetrie")):
+        derived_total = _score_breakdown_total(analysis.score_breakdown)
+        if derived_total > 0:
+            analysis.score = derived_total
     analysis.plan_action = _extract_bullets(plan_block)[:6]
     analysis.report_text = _build_structured_report_text(analysis)
     return analysis
@@ -722,6 +784,7 @@ def _extract_sections(payload: dict[str, Any]) -> dict[str, str]:
         "resume": ("resume", "summary", "diagnostic"),
         "rom": ("rom", "amplitude", "amplitude_rom", "range_of_motion"),
         "tempo": ("tempo", "phases", "tempo_phases", "motor_control"),
+        "rep_par_rep": ("rep_par_rep", "analyse_rep_par_rep", "rep_by_rep", "repetition_analysis"),
         "intensite": ("intensite", "intensity", "densite", "intensity_analysis"),
         "compensations": ("compensations", "compensation", "risks", "risk_analysis"),
         "biomecanique": ("biomecanique", "biomechanics", "biomechanical_point"),
@@ -781,11 +844,7 @@ def _normalize_score_breakdown(
         value: int | None = None
         for key, raw_val in raw_breakdown.items():
             norm_key = (
-                str(key)
-                .strip()
-                .lower()
-                .replace("é", "e")
-                .replace("è", "e")
+                _normalize_label_text(key)
                 .replace("&", "et")
             )
             if any(all(token in norm_key for token in group) for group in token_groups):
@@ -874,6 +933,12 @@ def _build_structured_report_text(analysis: MiniMaxAnalysis) -> str:
     lines.append("")
     lines.append("ANALYSE DU TEMPO ET DES PHASES")
     lines.append(_section_or_missing("tempo"))
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("ANALYSE REP PAR REP")
+    lines.append(_section_or_missing("rep_par_rep"))
 
     lines.append("")
     lines.append("---")
@@ -1339,6 +1404,10 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
             score_breakdown if isinstance(score_breakdown, dict) else None,
             total_score=analysis.score,
         )
+        if isinstance(score_breakdown, dict) and len(score_breakdown) >= 4:
+            derived_total = _score_breakdown_total(analysis.score_breakdown)
+            if derived_total > 0:
+                analysis.score = derived_total
 
         positives = payload.get("positives", [])
         if isinstance(positives, list):

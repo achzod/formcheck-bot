@@ -86,7 +86,7 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
             exercise="machine_chest_press",
             exercise_display="Presse Pectorale Machine",
             score=79,
-            report_text="RESUME\nExecution correcte.\n",
+            report_text="RESUME\nExecution correcte.\nANALYSE REP PAR REP\n1. Rep 1 | 00:09 - 00:13 | Execution fluide.\n",
             model_used="minimax_motion_coach",
         )
         html, _, _ = generate_html_report(
@@ -97,6 +97,8 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
             client_name="Client",
         )
         self.assertIn("Execution correcte.", html)
+        self.assertIn("ANALYSE REP PAR REP", html)
+        self.assertIn("Rep 1 | 00:09 - 00:13 | Execution fluide.", html)
         self.assertNotIn("PLAN D&#x27;ACTION", html)
 
 

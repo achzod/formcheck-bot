@@ -109,6 +109,7 @@ class MiniMaxParsingTests(unittest.TestCase):
     "resume": "Execution globalement solide avec marge sur le controle de descente.",
     "rom": "Amplitude correcte sur la majorite des reps.",
     "tempo": "Concentrique puissante mais excentrique trop rapide.",
+    "rep_par_rep": "1. Rep 1 | 00:09 - 00:13 | Execution fluide et controlee.\\n2. Rep 2 | 00:14 - 00:18 | Vitesse constante, bonne technique.",
     "intensite": "Serie dense avec repos courts.",
     "compensations": "Legere perte d'alignement en fin de serie.",
     "next_video": "Filme de profil, camera fixe a hauteur d'epaule."
@@ -120,8 +121,78 @@ class MiniMaxParsingTests(unittest.TestCase):
         self.assertEqual(out.score, 81)
         self.assertEqual(out.reps_total, 7)
         self.assertIn("RESUME", out.report_text)
+        self.assertIn("ANALYSE REP PAR REP", out.report_text)
         self.assertIn("DECOMPOSITION DU SCORE", out.report_text)
         self.assertIn("RECOMMANDATION POUR LA PROCHAINE VIDEO", out.report_text)
+
+    def test_score_is_derived_from_complete_breakdown_when_total_conflicts(self) -> None:
+        text = """
+{
+  "exercise": {"name": "machine_chest_press", "display_name_fr": "Presse pectorale machine", "confidence": 0.91},
+  "score": 92,
+  "reps": {"total": 7, "complete": 7, "partial": 0},
+  "intensity": {"score": 79, "label": "elevee", "avg_inter_rep_rest_s": 1.25},
+  "score_breakdown": {
+    "Securite": 31,
+    "Efficacite technique": 24,
+    "Controle et tempo": 17,
+    "Symetrie": 8
+  }
+}
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.score_breakdown.get("Securite"), 31)
+        self.assertEqual(out.score_breakdown.get("Efficacite technique"), 24)
+        self.assertEqual(out.score_breakdown.get("Controle et tempo"), 17)
+        self.assertEqual(out.score_breakdown.get("Symetrie"), 8)
+        self.assertEqual(out.score, 80)
+
+    def test_parse_labeled_breakdown_accepts_accented_french_labels(self) -> None:
+        text = """
+EXERCISE: machine_chest_press
+DISPLAY_NAME_FR: Presse pectorale machine
+CONFIDENCE: 0.91
+SCORE: 99/100
+REPS_TOTAL: 7
+REPS_COMPLETE: 7
+REPS_PARTIAL: 0
+INTENSITY_SCORE: 79/100
+INTENSITY_LABEL: elevee
+AVG_INTER_REP_REST_S: 1.25
+POINTS_POSITIFS:
+- Bonne stabilite
+CORRECTIONS_PRIORITAIRES:
+1. Tempo | Descente un peu rapide | Perte de tension | Freine la descente
+RESUME:
+Serie propre.
+AMPLITUDE_DE_MOUVEMENT:
+Amplitude correcte.
+ANALYSE_DU_TEMPO_ET_DES_PHASES:
+Tempo un peu irregulier en fin de serie.
+ANALYSE_REP_PAR_REP:
+1. Rep 1 | 00:09 - 00:13 | Fluide.
+INTENSITE_DE_SERIE:
+Serie dense.
+COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE:
+Legere asymetrie.
+DECOMPOSITION_DU_SCORE:
+- Sécurité: 31/40
+- Efficacité technique: 24/30
+- Contrôle et tempo: 17/20
+- Symétrie: 8/10
+POINT_BIOMECANIQUE:
+Reste gainé.
+RECOMMANDATION_POUR_LA_PROCHAINE_VIDEO:
+Filme un peu plus large.
+PLAN_ACTION:
+- Controle mieux l'excentrique
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.score_breakdown.get("Securite"), 31)
+        self.assertEqual(out.score_breakdown.get("Efficacite technique"), 24)
+        self.assertEqual(out.score_breakdown.get("Controle et tempo"), 17)
+        self.assertEqual(out.score_breakdown.get("Symetrie"), 8)
+        self.assertEqual(out.score, 80)
 
     def test_parse_regex_fallback_response(self) -> None:
         text = (
@@ -195,6 +266,9 @@ AMPLITUDE_DE_MOUVEMENT:
 Amplitude complete sans verrouillage agressif.
 ANALYSE_DU_TEMPO_ET_DES_PHASES:
 Concentrique explosive mais excentrique a ralentir legerement.
+ANALYSE_REP_PAR_REP:
+1. Rep 1 | 00:09 - 00:13 | Execution fluide et controlee.
+2. Rep 2 | 00:14 - 00:18 | Legere baisse de vitesse.
 INTENSITE_DE_SERIE:
 Intensite elevee avec peu de repos inter-reps.
 COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE:

@@ -115,6 +115,8 @@ _SECTION_TITLES = [
     "CORRECTIONS PRIORITAIRES",
     "ANALYSE DU TEMPO ET DES PHASES",
     "ANALYSE DU TEMPO ET DES REPETITIONS",
+    "ANALYSE REP PAR REP",
+    "ANALYSE REPETITION PAR REPETITION",
     "INTENSITE DE SERIE",
     "COMPENSATIONS ET BIOMECANIQUE AVANCEE",
     "PROFIL MORPHOLOGIQUE",
@@ -139,6 +141,7 @@ _SECTION_ICONS: dict[str, str] = {
     "PROFIL MORPHOLOGIQUE": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
     "RECOMMANDATION": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>',
     "INTENSITE DE SERIE": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 2 13 9 20 9"/><path d="M13 2L5 12h6v10l8-10h-6z"/></svg>',
+    "REP PAR REP": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>',
     "PLAN D'ACTION": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.4 0 2.73.32 3.9.89"/></svg>',
 }
 
