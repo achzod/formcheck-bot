@@ -2233,8 +2233,45 @@ def _open_motion_coach_chat(page: Any, timeout_ms: int) -> None:
     if _locator_is_visible(page, ".tiptap-editor", timeout_ms=4500):
         return
 
+    # Direct expert pages can expose a landing CTA before rendering the composer.
+    if _click_first_visible(
+        page,
+        (
+            "button:has-text('Type to chat with AI Motion Coach')",
+            "button:has-text('Start Chat')",
+            "button:has-text('Chat with AI Motion Coach')",
+        ),
+        timeout_ms=3500,
+    ):
+        try:
+            page.wait_for_selector(".tiptap-editor", timeout=min(timeout_ms, 12000))
+            return
+        except Exception:
+            pass
+
     # Fallback discovery flow via Experts search.
     page.goto("https://agent.minimax.io/experts", wait_until="domcontentloaded", timeout=timeout_ms)
+
+    # Some MiniMax variants render the card directly without requiring search.
+    clicked = False
+    try:
+        card = page.locator("img[alt='AI Motion Coach']").first
+        if card.count() > 0:
+            card.click(timeout=timeout_ms)
+            clicked = True
+    except Exception:
+        clicked = False
+    if not clicked:
+        try:
+            page.get_by_text("AI Motion Coach", exact=False).first.click(timeout=timeout_ms)
+            clicked = True
+        except Exception:
+            clicked = False
+    if clicked and _click_first_visible(page, ("button:has-text('Start Chat')",), timeout_ms=timeout_ms):
+        page.wait_for_url(re.compile(r"https://agent\.minimax\.io/(expert/chat|chat)"), timeout=timeout_ms)
+        page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
+        return
+
     _click_first_visible(
         page,
         (
@@ -2558,11 +2595,9 @@ def _run_minimax_browser_only_once(
             page = context.pages[0] if context.pages else context.new_page()
             page.on("response", _on_response)
 
-            _open_motion_coach_chat(page, timeout_ms=timeout_ms)
+            page.goto(_motion_coach_expert_url(), wait_until="domcontentloaded", timeout=timeout_ms)
             _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
-            # Ensure composer is accessible after auth redirects.
-            if not _locator_is_visible(page, ".tiptap-editor", timeout_ms=3000):
-                _open_motion_coach_chat(page, timeout_ms=timeout_ms)
+            _open_motion_coach_chat(page, timeout_ms=timeout_ms)
 
             # Baseline collection window.
             page.wait_for_timeout(1400)

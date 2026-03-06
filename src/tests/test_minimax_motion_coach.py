@@ -588,6 +588,130 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
         self.assertFalse(origin.brought_to_front)
         self.assertTrue(authed.brought_to_front)
 
+    def test_open_motion_coach_chat_uses_direct_expert_cta_before_experts_search(self) -> None:
+        class _FakePage:
+            def __init__(self):
+                self.goto_calls: list[str] = []
+                self.waited_for_selector = False
+
+            def goto(self, url: str, **_kwargs) -> None:
+                self.goto_calls.append(url)
+
+            def wait_for_selector(self, selector: str, timeout=None) -> None:
+                if selector == ".tiptap-editor":
+                    self.waited_for_selector = True
+                    return None
+                raise AssertionError("unexpected selector")
+
+        page = _FakePage()
+        original_locator_visible = mm._locator_is_visible
+        original_click_first = mm._click_first_visible
+        try:
+            mm._locator_is_visible = lambda *_args, **_kwargs: False  # type: ignore[assignment]
+
+            def _fake_click_first(_page, selectors: tuple[str, ...], timeout_ms: int = 2500) -> bool:
+                return "button:has-text('Type to chat with AI Motion Coach')" in selectors
+
+            mm._click_first_visible = _fake_click_first  # type: ignore[assignment]
+
+            mm._open_motion_coach_chat(page, timeout_ms=3000)
+        finally:
+            mm._locator_is_visible = original_locator_visible  # type: ignore[assignment]
+            mm._click_first_visible = original_click_first  # type: ignore[assignment]
+
+        self.assertEqual(page.goto_calls, [mm._motion_coach_expert_url()])
+        self.assertTrue(page.waited_for_selector)
+
+    def test_run_browser_only_authenticates_before_opening_motion_coach_chat(self) -> None:
+        class _FakePage:
+            def __init__(self):
+                self.handlers = {}
+                self.goto_calls: list[str] = []
+
+            def on(self, event: str, handler) -> None:
+                self.handlers[event] = handler
+
+            def off(self, event: str, handler) -> None:
+                if self.handlers.get(event) is handler:
+                    self.handlers.pop(event, None)
+
+            def goto(self, url: str, **_kwargs) -> None:
+                self.goto_calls.append(url)
+
+        class _FakeContext:
+            def __init__(self, page):
+                self.pages = [page]
+
+            def close(self) -> None:
+                return None
+
+        class _FakeChromium:
+            def __init__(self, context):
+                self._context = context
+
+            def launch_persistent_context(self, *_args, **_kwargs):
+                return self._context
+
+        class _FakePlaywright:
+            def __init__(self, context):
+                self.chromium = _FakeChromium(context)
+
+        class _FakeManager:
+            def __init__(self, context):
+                self._playwright = _FakePlaywright(context)
+
+            def __enter__(self):
+                return self._playwright
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        fake_page = _FakePage()
+        fake_context = _FakeContext(fake_page)
+        fake_module = types.ModuleType("playwright.sync_api")
+        fake_module.sync_playwright = lambda: _FakeManager(fake_context)  # type: ignore[attr-defined]
+
+        old_module = sys.modules.get("playwright.sync_api")
+        old_email = minimax_settings.minimax_browser_email
+        old_password = minimax_settings.minimax_browser_password
+        order: list[str] = []
+        original_ensure_auth = mm._ensure_browser_authenticated
+        original_open_motion = mm._open_motion_coach_chat
+        try:
+            sys.modules["playwright.sync_api"] = fake_module
+            minimax_settings.minimax_browser_email = "coaching@achzodcoaching.com"
+            minimax_settings.minimax_browser_password = "secret"
+
+            mm._ensure_browser_authenticated = lambda *_args, **_kwargs: order.append("auth")  # type: ignore[assignment]
+
+            def _fake_open(*_args, **_kwargs):
+                order.append("open")
+                raise RuntimeError("stop after order check")
+
+            mm._open_motion_coach_chat = _fake_open  # type: ignore[assignment]
+
+            with self.assertRaisesRegex(RuntimeError, "stop after order check"):
+                mm._run_minimax_browser_only_once(
+                    prepared=mm._PreparedVideo(path="video.mp4"),
+                    prompt="Analyse cette video",
+                    poll_interval=2.0,
+                    timeout_s_effective=10,
+                    video_hash="vh",
+                    prompt_hash="ph",
+                )
+        finally:
+            if old_module is not None:
+                sys.modules["playwright.sync_api"] = old_module
+            else:
+                sys.modules.pop("playwright.sync_api", None)
+            minimax_settings.minimax_browser_email = old_email
+            minimax_settings.minimax_browser_password = old_password
+            mm._ensure_browser_authenticated = original_ensure_auth  # type: ignore[assignment]
+            mm._open_motion_coach_chat = original_open_motion  # type: ignore[assignment]
+
+        self.assertEqual(order, ["auth", "open"])
+        self.assertEqual(fake_page.goto_calls, [mm._motion_coach_expert_url()])
+
 
 class MiniMaxBrowserFallbackStrategyTests(unittest.TestCase):
     def test_run_forces_browser_transport_even_if_flag_disabled(self) -> None:
