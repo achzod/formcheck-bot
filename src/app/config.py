@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     minimax_browser_timeout_s: int = 120
     minimax_browser_profile_dir: str = "media/minimax_browser_profile"
     minimax_motion_coach_expert_url: str = "https://agent.minimax.io/expert/chat/362683345551702"
+    minimax_remote_worker_enabled: bool = False
+    minimax_remote_worker_token: str = ""
+    minimax_remote_worker_poll_interval_s: int = 5
     minimax_enable_cache: bool = True
     minimax_cache_ttl_hours: int = 168
     minimax_cache_path: str = "media/minimax_cache.sqlite"

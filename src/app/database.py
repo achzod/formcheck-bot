@@ -51,6 +51,25 @@ class Analysis(Base):
     user: Mapped[User] = relationship(back_populates="analyses")
 
 
+class MiniMaxRemoteJob(Base):
+    __tablename__ = "minimax_remote_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    analysis_id: Mapped[int] = mapped_column(index=True, unique=True)
+    user_id: Mapped[int] = mapped_column(index=True)
+    phone: Mapped[str] = mapped_column(String(20), index=True)
+    video_path: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    worker_id: Mapped[str | None] = mapped_column(String(120), default=None)
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    result_payload: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class MorphoProfileDB(Base):
     """Profil morphologique d'un client (issu de l'analyse de 3 photos statiques)."""
     __tablename__ = "morpho_profiles"
@@ -264,6 +283,77 @@ async def update_analysis(
             await session.commit()
             await session.refresh(analysis)
         return analysis
+
+
+async def create_minimax_remote_job(
+    *,
+    analysis_id: int,
+    user_id: int,
+    phone: str,
+    video_path: str,
+) -> MiniMaxRemoteJob:
+    async with async_session() as session:
+        job = MiniMaxRemoteJob(
+            analysis_id=analysis_id,
+            user_id=user_id,
+            phone=phone,
+            video_path=video_path,
+            status="queued",
+        )
+        session.add(job)
+        await session.commit()
+        await session.refresh(job)
+        return job
+
+
+async def claim_next_minimax_remote_job(worker_id: str) -> MiniMaxRemoteJob | None:
+    worker = (worker_id or "").strip()[:120] or "worker"
+    async with async_session() as session:
+        result = await session.execute(
+            select(MiniMaxRemoteJob)
+            .where(MiniMaxRemoteJob.status == "queued")
+            .order_by(MiniMaxRemoteJob.created_at.asc(), MiniMaxRemoteJob.id.asc())
+            .limit(1)
+        )
+        job = result.scalar_one_or_none()
+        if not job:
+            return None
+        job.status = "processing"
+        job.worker_id = worker
+        job.error = None
+        await session.commit()
+        await session.refresh(job)
+        return job
+
+
+async def get_minimax_remote_job(job_id: int) -> MiniMaxRemoteJob | None:
+    async with async_session() as session:
+        return await session.get(MiniMaxRemoteJob, job_id)
+
+
+async def complete_minimax_remote_job(job_id: int, result_payload: str) -> MiniMaxRemoteJob | None:
+    async with async_session() as session:
+        job = await session.get(MiniMaxRemoteJob, job_id)
+        if not job:
+            return None
+        job.status = "completed"
+        job.result_payload = result_payload
+        job.error = None
+        await session.commit()
+        await session.refresh(job)
+        return job
+
+
+async def fail_minimax_remote_job(job_id: int, error: str) -> MiniMaxRemoteJob | None:
+    async with async_session() as session:
+        job = await session.get(MiniMaxRemoteJob, job_id)
+        if not job:
+            return None
+        job.status = "failed"
+        job.error = (error or "").strip()[:4000]
+        await session.commit()
+        await session.refresh(job)
+        return job
 
 
 async def create_payment(

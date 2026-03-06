@@ -80,6 +80,8 @@ try:
     from app.database import init_db
     from app.debug_log import log_error, get_errors
     from app.handlers import (
+        complete_remote_minimax_job,
+        fail_remote_minimax_job,
         enqueue_uploaded_video,
         handle_incoming_message,
         handle_payment_success,
@@ -276,10 +278,89 @@ try:
                 "require_motion_coach_chat": bool(settings.minimax_require_motion_coach_chat),
                 "browser_refresh_enabled": bool(settings.minimax_browser_refresh_enabled),
                 "browser_only": bool(settings.minimax_browser_only),
+                "remote_worker_enabled": bool(settings.minimax_remote_worker_enabled),
                 "timeout_s": int(settings.minimax_timeout_s or 0),
                 "poll_interval_s": float(settings.minimax_poll_interval_s or 0.0),
             },
         }
+
+    def _internal_worker_token() -> str:
+        return str(
+            settings.minimax_remote_worker_token
+            or settings.render_api_key
+            or ""
+        ).strip()
+
+    def _require_internal_worker_token(request: Request) -> None:
+        expected = _internal_worker_token()
+        if not settings.minimax_remote_worker_enabled or not expected:
+            raise HTTPException(status_code=503, detail="Remote worker disabled")
+        provided = (
+            request.headers.get("X-Formcheck-Internal-Token", "")
+            or request.query_params.get("token", "")
+        ).strip()
+        if provided != expected:
+            raise HTTPException(status_code=403, detail="Invalid internal token")
+
+    @app.post("/internal/minimax/jobs/claim")
+    async def claim_minimax_remote_job(request: Request) -> dict:
+        _require_internal_worker_token(request)
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        worker_id = str((payload or {}).get("worker_id", "") or "").strip() or "worker"
+        job = await db.claim_next_minimax_remote_job(worker_id)
+        if not job:
+            return {"job": None}
+        return {
+            "job": {
+                "id": int(job.id),
+                "analysis_id": int(job.analysis_id),
+                "phone": str(job.phone),
+                "video_url": "{}/internal/minimax/jobs/{}/video".format(
+                    settings.base_url.rstrip("/"),
+                    job.id,
+                ),
+            }
+        }
+
+    @app.get("/internal/minimax/jobs/{job_id}/video")
+    async def minimax_remote_job_video(job_id: int, request: Request) -> FileResponse:
+        _require_internal_worker_token(request)
+        job = await db.get_minimax_remote_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        path = Path(job.video_path)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="Video not found")
+        return FileResponse(
+            path=str(path),
+            media_type="video/mp4",
+            filename=path.name,
+        )
+
+    @app.post("/internal/minimax/jobs/{job_id}/complete")
+    async def complete_minimax_job(job_id: int, request: Request) -> dict:
+        _require_internal_worker_token(request)
+        payload = await request.json()
+        analysis_payload = str((payload or {}).get("analysis_payload", "") or "").strip()
+        if not analysis_payload:
+            raise HTTPException(status_code=400, detail="Missing analysis_payload")
+        ok = await complete_remote_minimax_job(job_id, analysis_payload)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return {"status": "ok"}
+
+    @app.post("/internal/minimax/jobs/{job_id}/fail")
+    async def fail_minimax_job(job_id: int, request: Request) -> dict:
+        _require_internal_worker_token(request)
+        payload = await request.json()
+        error = str((payload or {}).get("error", "") or "").strip() or "Remote worker failed"
+        ok = await fail_remote_minimax_job(job_id, error)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return {"status": "ok"}
 
     @app.get("/debug/errors")
     async def debug_errors(token: str = "") -> dict:
@@ -301,6 +382,7 @@ try:
                 "minimax_require_motion_coach_chat": bool(settings.minimax_require_motion_coach_chat),
                 "minimax_browser_refresh_enabled": bool(settings.minimax_browser_refresh_enabled),
                 "minimax_browser_only": bool(settings.minimax_browser_only),
+                "minimax_remote_worker_enabled": bool(settings.minimax_remote_worker_enabled),
                 "minimax_timeout_s": int(settings.minimax_timeout_s or 0),
             },
         }

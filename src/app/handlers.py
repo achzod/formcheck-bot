@@ -22,7 +22,16 @@ from app.media_handler import (
 )
 from app.stripe_handler import create_all_checkout_urls
 from analysis.html_report import generate_html_report
-from analysis.pipeline import PipelineConfig, PipelineResult, run_pipeline_async
+from analysis.minimax_motion_coach import (
+    MiniMaxAnalysis,
+    _analysis_from_payload,
+)
+from analysis.pipeline import (
+    PipelineConfig,
+    PipelineResult,
+    _apply_minimax_analysis_to_result,
+    run_pipeline_async,
+)
 from app.report_server import get_report_url, save_report
 
 logger = logging.getLogger(__name__)
@@ -549,6 +558,181 @@ async def enqueue_uploaded_video(phone: str, video_path: str) -> tuple[bool, str
             _active_analyses.pop(phone, None)
 
 
+async def _deliver_pipeline_success(
+    *,
+    phone: str,
+    user_id: int,
+    analysis_id: int,
+    video_path: str,
+    result: PipelineResult,
+    include_annotated_frames: bool,
+    strict_minimax_source: bool,
+    fallback_local_enabled: bool,
+    preview_frame_path: str | None = None,
+) -> None:
+    await db.update_analysis(
+        analysis_id,
+        exercise=result.report.exercise_display,
+        score=result.report.score,
+        report=result.report.report_text,
+    )
+
+    if not app_settings.test_mode and not app_settings.test_mode_free:
+        await db.decrement_credit(user_id)
+
+    user_updated = await db.get_user_by_phone(phone)
+
+    html_content, report_id, report_token = generate_html_report(
+        report=result.report,
+        annotated_frames=(result.annotated_frames if include_annotated_frames else {}),
+        analysis_id=str(analysis_id),
+        pipeline_result=result,
+        client_name=(user_updated.name if user_updated else None),
+    )
+    save_report(report_id, report_token, html_content)
+    report_url = get_report_url(app_settings.base_url, report_id, report_token)
+
+    score = result.report.score
+    exercise = result.report.exercise_display
+    reps = result.reps.total_reps if result.reps else 0
+    intensity_line = ""
+    if result.reps and result.reps.total_reps >= 2 and result.reps.intensity_score > 0:
+        intensity_line = (
+            "\nIntensite: {score}/100 ({label}) — repos moyen {rest:.2f}s"
+        ).format(
+            score=result.reps.intensity_score,
+            label=result.reps.intensity_label,
+            rest=result.reps.avg_inter_rep_rest_s,
+        )
+    elif result.reps and result.reps.total_reps >= 2:
+        intensity_line = "\nIntensite: estimation limitee sur cette video."
+
+    credits_line = ""
+    if user_updated and not user_updated.is_unlimited:
+        if user_updated.credits > 0:
+            credits_line = "\n_{} analyse(s) restante(s)_".format(user_updated.credits)
+        else:
+            credits_line = "\n_Derniere analyse ! Tape *forfaits* pour recharger._"
+
+    short_msg = (
+        "*{exercise}* — *{score}/100*"
+        "{reps_line}"
+        "{intensity_line}\n\n"
+        "Rapport HTML:\n"
+        "{report_url}"
+        "{credits_line}"
+    ).format(
+        exercise=exercise,
+        score=score,
+        reps_line=" — {} reps".format(reps) if reps > 0 else "",
+        intensity_line=intensity_line,
+        report_url=report_url,
+        credits_line=credits_line,
+    )
+    try:
+        await wa.send_text(phone, short_msg)
+    except Exception:
+        logger.exception(
+            "Primary WhatsApp report message failed (analysis_id=%s). Retrying minimal link message.",
+            analysis_id,
+        )
+        minimal_msg = (
+            "*{exercise}* — *{score}/100*\n\n"
+            "Rapport HTML:\n{report_url}"
+        ).format(
+            exercise=exercise,
+            score=score,
+            report_url=report_url,
+        )
+        await wa.send_text(phone, minimal_msg)
+
+    analysis_model = str(result.report.model_used or "").strip() if result.report else ""
+    detection_source = ""
+    if result.detection and result.detection.top_candidates:
+        detection_source = str(
+            result.detection.top_candidates[0].get("source", "")
+        ).strip()
+    if not detection_source and result.detection:
+        detection_source = "local_pipeline"
+    if not analysis_model:
+        analysis_model = "unknown"
+    if not detection_source:
+        detection_source = "unknown"
+
+    logger.info(
+        "Analysis source resolved (analysis_id=%s model=%s detection_source=%s strict=%s fallback=%s)",
+        analysis_id,
+        analysis_model,
+        detection_source,
+        strict_minimax_source,
+        fallback_local_enabled,
+    )
+    try:
+        from app.debug_log import log_error as _log_dbg
+
+        _log_dbg(
+            "analysis_source",
+            analysis_model,
+            {
+                "analysis_id": analysis_id,
+                "detection_source": detection_source,
+                "strict_minimax_source": strict_minimax_source,
+                "fallback_local_enabled": fallback_local_enabled,
+            },
+        )
+    except Exception:
+        pass
+
+    cleanup_video(video_path)
+    if preview_frame_path:
+        try:
+            Path(preview_frame_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+async def complete_remote_minimax_job(job_id: int, analysis_payload: str) -> bool:
+    job = await db.get_minimax_remote_job(job_id)
+    if not job:
+        return False
+    analysis = _analysis_from_payload(analysis_payload)
+    if analysis is None:
+        raise ValueError("invalid MiniMax analysis payload")
+
+    result = PipelineResult(
+        video_path=job.video_path,
+        output_dir=str(Path(job.video_path).parent / "formcheck_output"),
+    )
+    result = _apply_minimax_analysis_to_result(result, analysis)
+    result.success = result.report is not None
+    if not result.success or result.report is None:
+        raise RuntimeError("remote MiniMax payload did not produce a valid report")
+
+    await _deliver_pipeline_success(
+        phone=job.phone,
+        user_id=job.user_id,
+        analysis_id=job.analysis_id,
+        video_path=job.video_path,
+        result=result,
+        include_annotated_frames=bool(app_settings.report_include_annotated_frames),
+        strict_minimax_source=True,
+        fallback_local_enabled=False,
+    )
+    await db.complete_minimax_remote_job(job_id, analysis_payload)
+    _active_analyses.pop(job.phone, None)
+    return True
+
+
+async def fail_remote_minimax_job(job_id: int, error: str) -> bool:
+    job = await db.fail_minimax_remote_job(job_id, error)
+    if not job:
+        return False
+    await wa.send_text(job.phone, msg.ERROR_MINIMAX_UNAVAILABLE)
+    cleanup_video(job.video_path)
+    _active_analyses.pop(job.phone, None)
+    return True
+
+
 async def _run_analysis(
     phone: str,
     user_id: int,
@@ -556,6 +740,7 @@ async def _run_analysis(
     video_path: str,
 ) -> None:
     """Run the full CV pipeline async and send results via WhatsApp."""
+    keep_lock_after_return = False
     try:
         # Extraire une frame preview AVANT le pipeline (pour fallback GPT-4o garanti)
         preview_frame_path = None
@@ -623,6 +808,33 @@ async def _run_analysis(
         fallback_local_enabled = bool(
             app_settings.minimax_enabled and app_settings.minimax_fallback_to_local
         )
+        remote_worker_enabled = bool(
+            app_settings.minimax_enabled
+            and app_settings.minimax_remote_worker_enabled
+            and strict_minimax_source
+            and not fallback_local_enabled
+        )
+
+        if remote_worker_enabled:
+            await db.create_minimax_remote_job(
+                analysis_id=analysis_id,
+                user_id=user_id,
+                phone=phone,
+                video_path=video_path,
+            )
+            keep_lock_after_return = True
+            if preview_frame_path:
+                try:
+                    Path(preview_frame_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            logger.info(
+                "MiniMax remote worker job queued (analysis_id=%s phone=%s)",
+                analysis_id,
+                phone,
+            )
+            return
+
         config = PipelineConfig(
             save_annotated_frames=include_annotated_frames,
             save_json=True,
@@ -771,138 +983,25 @@ async def _run_analysis(
             _active_analyses.pop(phone, None)
             return
 
-        # Update DB
-        await db.update_analysis(
-            analysis_id,
-            exercise=result.report.exercise_display,
-            score=result.report.score,
-            report=result.report.report_text,
-        )
-
-        # Decrement credit AFTER successful analysis (skip in test/free mode)
-        if not app_settings.test_mode and not app_settings.test_mode_free:
-            await db.decrement_credit(user_id)
-
-        user_updated = await db.get_user_by_phone(phone)
-
-        # Generate HTML report
-        from app.config import settings
-        html_content, report_id, report_token = generate_html_report(
-            report=result.report,
-            annotated_frames=(result.annotated_frames if include_annotated_frames else {}),
-            analysis_id=str(analysis_id),
-            pipeline_result=result,
-            client_name=(user_updated.name if user_updated else None),
-        )
-        save_report(report_id, report_token, html_content)
-        report_url = get_report_url(settings.base_url, report_id, report_token)
-
-        # Send clean WhatsApp message with link — ONE message only, no spam
-        score = result.report.score
-        exercise = result.report.exercise_display
-        reps = result.reps.total_reps if result.reps else 0
-        intensity_line = ""
-        if result.reps and result.reps.total_reps >= 2 and result.reps.intensity_score > 0:
-            intensity_line = (
-                "\nIntensite: {score}/100 ({label}) — repos moyen {rest:.2f}s"
-            ).format(
-                score=result.reps.intensity_score,
-                label=result.reps.intensity_label,
-                rest=result.reps.avg_inter_rep_rest_s,
-            )
-        elif result.reps and result.reps.total_reps >= 2:
-            intensity_line = "\nIntensite: estimation limitee sur cette video."
-
-        # Credits info inline (no separate message)
-        credits_line = ""
-        if user_updated and not user_updated.is_unlimited:
-            if user_updated.credits > 0:
-                credits_line = "\n_{} analyse(s) restante(s)_".format(user_updated.credits)
-            else:
-                credits_line = "\n_Derniere analyse ! Tape *forfaits* pour recharger._"
-
-        short_msg = (
-            "*{exercise}* — *{score}/100*"
-            "{reps_line}"
-            "{intensity_line}\n\n"
-            "Rapport HTML:\n"
-            "{report_url}"
-            "{credits_line}"
-        ).format(
-            exercise=exercise,
-            score=score,
-            reps_line=" — {} reps".format(reps) if reps > 0 else "",
-            intensity_line=intensity_line,
-            report_url=report_url,
-            credits_line=credits_line,
-        )
-        try:
-            await wa.send_text(phone, short_msg)
-        except Exception:
-            logger.exception(
-                "Primary WhatsApp report message failed (analysis_id=%s). Retrying minimal link message.",
-                analysis_id,
-            )
-            minimal_msg = (
-                "*{exercise}* — *{score}/100*\n\n"
-                "Rapport HTML:\n{report_url}"
-            ).format(
-                exercise=exercise,
-                score=score,
-                report_url=report_url,
-            )
-            await wa.send_text(phone, minimal_msg)
-
-        # Annotated frames intentionally disabled by default to avoid noisy/incorrect keypoint overlays.
         if include_annotated_frames:
             conf_score = result.confidence.overall_score if result.confidence else 0
-            logger.info("Confidence score: %d — annotated frame %s",
-                        conf_score, "SENT" if conf_score >= 75 else "HIDDEN")
-
-        analysis_model = str(result.report.model_used or "").strip() if result.report else ""
-        detection_source = ""
-        if result.detection and result.detection.top_candidates:
-            detection_source = str(
-                result.detection.top_candidates[0].get("source", "")
-            ).strip()
-        if not detection_source and result.detection:
-            detection_source = "local_pipeline"
-        if not analysis_model:
-            analysis_model = "unknown"
-        if not detection_source:
-            detection_source = "unknown"
-
-        logger.info(
-            "Analysis source resolved (analysis_id=%s model=%s detection_source=%s strict=%s fallback=%s)",
-            analysis_id,
-            analysis_model,
-            detection_source,
-            strict_minimax_source,
-            fallback_local_enabled,
-        )
-        try:
-            from app.debug_log import log_error as _log_dbg
-
-            _log_dbg(
-                "analysis_source",
-                analysis_model,
-                {
-                    "analysis_id": analysis_id,
-                    "detection_source": detection_source,
-                    "strict_minimax_source": strict_minimax_source,
-                    "fallback_local_enabled": fallback_local_enabled,
-                },
+            logger.info(
+                "Confidence score: %d — annotated frame %s",
+                conf_score,
+                "SENT" if conf_score >= 75 else "HIDDEN",
             )
-        except Exception:
-            pass
 
-        # Cleanup temp video + preview frame
-        cleanup_video(video_path)
-        if preview_frame_path:
-            try:
-                Path(preview_frame_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+        await _deliver_pipeline_success(
+            phone=phone,
+            user_id=user_id,
+            analysis_id=analysis_id,
+            video_path=video_path,
+            result=result,
+            include_annotated_frames=include_annotated_frames,
+            strict_minimax_source=strict_minimax_source,
+            fallback_local_enabled=fallback_local_enabled,
+            preview_frame_path=preview_frame_path,
+        )
 
     except Exception as exc:
         logger.exception("Analysis failed for analysis_id=%s", analysis_id)
@@ -917,7 +1016,8 @@ async def _run_analysis(
         await wa.send_text(phone, msg.ERROR_GENERIC)
     finally:
         # Always release the rate limit lock
-        _active_analyses.pop(phone, None)
+        if not keep_lock_after_return:
+            _active_analyses.pop(phone, None)
 
 
 async def _start_morpho_flow(user: db.User) -> None:
