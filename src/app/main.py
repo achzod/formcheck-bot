@@ -41,21 +41,437 @@ async def home() -> HTMLResponse:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>FormCheck Bot</title>
+  <title>FORMCHECK by ACHZOD</title>
+  <meta name="description" content="Analyse biomecanique de mouvements de musculation sur WhatsApp. Envoie ta video, recois un rapport clair, utile et actionnable.">
   <style>
-    body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; background:#f8fafc; color:#0f172a; margin:0; }
-    .box { max-width:720px; margin:48px auto; background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:24px; }
-    h1 { margin:0 0 12px; font-size:26px; }
-    p { line-height:1.5; color:#334155; }
-    code { background:#f1f5f9; padding:2px 6px; border-radius:6px; }
+    @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;700&display=swap');
+    :root {
+      --bg: #f6f1e8;
+      --paper: rgba(255,255,255,0.78);
+      --ink: #111111;
+      --muted: #514b45;
+      --line: rgba(17,17,17,0.12);
+      --brand: #bf5a36;
+      --brand-dark: #7a3018;
+      --accent: #d8b35d;
+      --shadow: 0 24px 80px rgba(70, 38, 18, 0.12);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(216,179,93,0.34), transparent 28%),
+        radial-gradient(circle at 85% 15%, rgba(191,90,54,0.20), transparent 24%),
+        linear-gradient(180deg, #efe3d0 0%, var(--bg) 38%, #f3eee4 100%);
+      font-family: "Space Grotesk", sans-serif;
+    }
+    a { color: inherit; text-decoration: none; }
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .brand-mark {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--brand), var(--accent));
+      box-shadow: 0 0 0 6px rgba(191,90,54,0.10);
+    }
+    .toplink {
+      padding: 12px 16px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.56);
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+      gap: 24px;
+      align-items: stretch;
+    }
+    .hero-main,
+    .hero-side,
+    .panel,
+    .quote {
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: var(--paper);
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
+    }
+    .hero-main {
+      padding: 28px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero-main::after {
+      content: "";
+      position: absolute;
+      inset: auto -40px -60px auto;
+      width: 220px;
+      height: 220px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(216,179,93,0.45), rgba(216,179,93,0));
+      pointer-events: none;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(17,17,17,0.05);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 18px 0 14px;
+      font-family: "Fraunces", serif;
+      font-size: clamp(42px, 7vw, 82px);
+      line-height: 0.96;
+      letter-spacing: -0.05em;
+      max-width: 10ch;
+    }
+    .lead {
+      max-width: 62ch;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.65;
+      margin-bottom: 22px;
+    }
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 48px;
+      padding: 0 18px;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 700;
+      border: 1px solid transparent;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+      color: #fff7f0;
+    }
+    .btn-secondary {
+      background: rgba(255,255,255,0.62);
+      border-color: var(--line);
+      color: var(--ink);
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .stat {
+      padding: 16px;
+      border-radius: 20px;
+      background: rgba(17,17,17,0.04);
+      border: 1px solid rgba(17,17,17,0.05);
+    }
+    .stat b {
+      display: block;
+      font-size: 22px;
+      margin-bottom: 6px;
+    }
+    .stat span {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .hero-side {
+      padding: 24px;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+      background:
+        linear-gradient(160deg, rgba(17,17,17,0.96), rgba(56,34,22,0.92));
+      color: #f8f1e8;
+    }
+    .side-kicker {
+      color: rgba(248,241,232,0.72);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-weight: 700;
+    }
+    .side-score {
+      font-family: "Fraunces", serif;
+      font-size: clamp(44px, 7vw, 76px);
+      line-height: 1;
+      letter-spacing: -0.05em;
+      margin: 0;
+    }
+    .side-copy {
+      color: rgba(248,241,232,0.76);
+      line-height: 1.65;
+      margin: 0;
+    }
+    .mini-card {
+      padding: 16px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+    .mini-card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 15px;
+    }
+    .section-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      margin-top: 18px;
+    }
+    .panel {
+      padding: 22px;
+    }
+    .panel h2,
+    .quote h2 {
+      margin: 0 0 10px;
+      font-family: "Fraunces", serif;
+      font-size: 28px;
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+    }
+    .panel p,
+    .quote p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+      font-size: 15px;
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .step {
+      padding: 18px;
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.58);
+    }
+    .step-index {
+      display: inline-flex;
+      width: 32px;
+      height: 32px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      margin-bottom: 12px;
+      background: rgba(191,90,54,0.12);
+      color: var(--brand-dark);
+      font-weight: 700;
+    }
+    .step h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+    }
+    .step p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 14px;
+    }
+    .quote {
+      margin-top: 18px;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 18px;
+      align-items: center;
+    }
+    .quote-box {
+      padding: 18px;
+      border-radius: 22px;
+      background: rgba(191,90,54,0.08);
+      border: 1px solid rgba(191,90,54,0.14);
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+    .footer-note {
+      margin-top: 18px;
+      padding: 18px 20px;
+      border-radius: 20px;
+      background: rgba(17,17,17,0.05);
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    @media (max-width: 980px) {
+      .hero,
+      .quote,
+      .section-grid,
+      .steps {
+        grid-template-columns: 1fr;
+      }
+      h1 { max-width: none; }
+      .stats { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
-  <main class="box">
-    <h1>FORMCHECK by ACHZOD</h1>
-    <p>Service en ligne. L'analyse se fait sur WhatsApp, pas via ce site.</p>
-    <p>Commandes utiles: <code>menu</code>, <code>guide</code>, <code>clips</code>.</p>
-    <p>Etat API: <a href="/health">/health</a></p>
+  <main class="shell">
+    <div class="topbar">
+      <div class="brand">
+        <span class="brand-mark"></span>
+        <span>FORMCHECK by ACHZOD</span>
+      </div>
+      <a class="toplink" href="/health">Etat API</a>
+    </div>
+
+    <section class="hero">
+      <article class="hero-main">
+        <div class="eyebrow">Analyse biomecanique sur WhatsApp</div>
+        <h1>Ton execution, pas juste un avis.</h1>
+        <p class="lead">
+          Envoie ta video de musculation sur WhatsApp. Le bot detecte l'exercice,
+          relit la serie, estime les reps, le tempo, l'intensite et te renvoie
+          un rapport HTML clair, orienté terrain, directement exploitable.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#process">Voir le process</a>
+          <a class="btn btn-secondary" href="#rapport">Ce que contient le rapport</a>
+        </div>
+        <div class="stats">
+          <div class="stat">
+            <b>100% WhatsApp</b>
+            <span>Aucun upload externe requis dans le flow normal.</span>
+          </div>
+          <div class="stat">
+            <b>Rapport HTML</b>
+            <span>Sections lisibles, score, points forts, corrections prioritaires.</span>
+          </div>
+          <div class="stat">
+            <b>Coach-first</b>
+            <span>Le retour est pense pour corriger un mouvement, pas pour faire joli.</span>
+          </div>
+        </div>
+      </article>
+
+      <aside class="hero-side">
+        <div class="side-kicker">Sortie cible</div>
+        <p class="side-score">Score, reps, tempo, intensite.</p>
+        <p class="side-copy">
+          Le service est concu pour transformer une video brute en feedback utile:
+          execution, rythme de serie, repos inter-reps, axes de correction et message clair au client.
+        </p>
+        <div class="mini-card">
+          <strong>Commandes rapides</strong>
+          <span><code>menu</code>, <code>guide</code>, <code>clips</code></span>
+        </div>
+        <div class="mini-card">
+          <strong>Usage ideal</strong>
+          <span>Camera stable, mouvement entier visible, angle coherent sur toute la serie.</span>
+        </div>
+        <div class="mini-card">
+          <strong>Livrable</strong>
+          <span>Resume direct + lien de rapport + media d'analyse selon le cas.</span>
+        </div>
+      </aside>
+    </section>
+
+    <section class="section-grid" id="rapport">
+      <article class="panel">
+        <h2>Ce que le bot lit</h2>
+        <p>
+          Exercice probable, nombre de reps, reps completes ou partielles, rythme
+          de la serie, densite d'effort, variations de controle et points de rupture visibles.
+        </p>
+      </article>
+      <article class="panel">
+        <h2>Ce que le rapport renvoie</h2>
+        <p>
+          Score global, points positifs, corrections prioritaires, lecture du tempo,
+          amplitude, intensite de serie et recommandations de capture pour la prochaine video.
+        </p>
+      </article>
+      <article class="panel">
+        <h2>Ce que tu gardes</h2>
+        <p>
+          Un rendu propre pour le client final, exploitable en coaching, sans noyer
+          l'information sous des overlays inutiles ou des formulations vagues.
+        </p>
+      </article>
+    </section>
+
+    <section class="steps" id="process">
+      <article class="step">
+        <div class="step-index">1</div>
+        <h3>Tu filmes</h3>
+        <p>Serie complete, cadre stable, mouvement entier visible, angle utile.</p>
+      </article>
+      <article class="step">
+        <div class="step-index">2</div>
+        <h3>Tu envoies sur WhatsApp</h3>
+        <p>Le bot prend la video, la met en file, puis lance l'analyse automatiquement.</p>
+      </article>
+      <article class="step">
+        <div class="step-index">3</div>
+        <h3>Le bot analyse</h3>
+        <p>Detection du mouvement, structure de serie, tempo, intensite et synthese biomecanique.</p>
+      </article>
+      <article class="step">
+        <div class="step-index">4</div>
+        <h3>Le client recoit le retour</h3>
+        <p>Message court sur WhatsApp + lien de rapport HTML detaille et presentable.</p>
+      </article>
+    </section>
+
+    <section class="quote">
+      <div>
+        <h2>Le bon usage</h2>
+        <p>
+          Cette page n'est pas l'interface d'analyse. Le produit vit sur WhatsApp.
+          Le site sert de vitrine produit et de point de verification technique.
+        </p>
+      </div>
+      <div class="quote-box">
+        <strong>Conseil capture</strong><br>
+        Garde la camera fixe, evite les coupes, montre tout le corps et l'amplitude
+        complete de la machine ou de la charge. Une meilleure prise donne un meilleur rapport.
+      </div>
+    </section>
+
+    <div class="footer-note">
+      FORMCHECK by ACHZOD. Analyse de mouvements de musculation sur WhatsApp.
+      Etat technique disponible sur <a href="/health"><strong>/health</strong></a>.
+    </div>
   </main>
 </body>
 </html>"""
