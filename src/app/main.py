@@ -76,6 +76,7 @@ async def health() -> dict:
 try:
     import logging
     import stripe
+    from app import database as db
     from app.config import settings
     from app.database import init_db
     from app.debug_log import log_error, get_errors
