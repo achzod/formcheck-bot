@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     minimax_browser_headless: bool = True
     minimax_browser_timeout_s: int = 120
     minimax_browser_profile_dir: str = "media/minimax_browser_profile"
+    minimax_browser_local_storage_json: str = ""
+    minimax_browser_session_storage_json: str = ""
     minimax_motion_coach_expert_url: str = "https://agent.minimax.io/expert/chat/362683345551702"
     minimax_remote_worker_enabled: bool = False
     minimax_remote_worker_token: str = ""

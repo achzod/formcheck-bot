@@ -171,8 +171,125 @@ class MiniMaxParsingTests(unittest.TestCase):
         self.assertEqual(out.score_breakdown, {})
         self.assertIn("MiniMax n'a pas fourni de decomposition detaillee du score.", out.report_text)
 
+    def test_parse_labeled_minimax_output(self) -> None:
+        text = """
+EXERCISE: incline_smith_machine_chest_press
+DISPLAY_NAME_FR: Developpe incline a la Smith machine
+CONFIDENCE: 0.94
+SCORE: 94/100
+REPS_TOTAL: 10
+REPS_COMPLETE: 10
+REPS_PARTIAL: 0
+INTENSITY_SCORE: 78/100
+INTENSITY_LABEL: elevee
+AVG_INTER_REP_REST_S: 0.85
+POINTS_POSITIFS:
+- Trajectoire stable et reguliere
+- Bonne symetrie sur toute la serie
+CORRECTIONS_PRIORITAIRES:
+1. Tempo excentrique | Descente un peu rapide sur les deux dernieres reps | Perte de tension pecs | Garde 2 secondes de descente
+RESUME:
+Serie globalement propre et bien controlee.
+AMPLITUDE_DE_MOUVEMENT:
+Amplitude complete sans verrouillage agressif.
+ANALYSE_DU_TEMPO_ET_DES_PHASES:
+Concentrique explosive mais excentrique a ralentir legerement.
+INTENSITE_DE_SERIE:
+Intensite elevee avec peu de repos inter-reps.
+COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE:
+Leger raccourcissement de l'amplitude en fin de serie.
+DECOMPOSITION_DU_SCORE:
+- Securite: 37/40
+- Efficacite technique: 28/30
+- Controle et tempo: 19/20
+- Symetrie: 10/10
+POINT_BIOMECANIQUE:
+Le maintien scapulaire reste solide pendant la poussee.
+RECOMMANDATION_POUR_LA_PROCHAINE_VIDEO:
+Filme de trois quarts avant a hauteur de poitrine.
+PLAN_ACTION:
+- Ralentis l'excentrique a 2 secondes
+- Garde la cage haute
+- Filme avec la machine entiere visible
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.exercise_slug, "incline_smith_machine_chest_press")
+        self.assertEqual(out.exercise_display, "Developpe incline a la Smith machine")
+        self.assertEqual(out.score, 94)
+        self.assertEqual(out.reps_total, 10)
+        self.assertEqual(out.intensity_score, 78)
+        self.assertEqual(out.intensity_label, "elevee")
+        self.assertAlmostEqual(out.avg_inter_rep_rest_s, 0.85, places=2)
+        self.assertEqual(out.score_breakdown.get("Securite"), 37)
+        self.assertIn("AMPLITUDE DE MOUVEMENT", out.report_text)
+        self.assertIn("PLAN ACTION", out.report_text)
+
+    def test_parse_labeled_output_embedded_in_thinking_process(self) -> None:
+        text = (
+            "Thinking Process The user wants me to analyze a workout video. "
+            "Let me compile the analysis report in the exact format requested: "
+            "_ EXERCISE: smith_machine_incline_bench_press "
+            "DISPLAY_NAME_FR: Developpe couche incline a la machine Smith "
+            "CONFIDENCE: 0.85 SCORE: 78/100 REPS_TOTAL: 10 REPS_COMPLETE: 10 REPS_PARTIAL: 0 "
+            "INTENSITY_SCORE: 75/100 INTENSITY_LABEL: elevee AVG_INTER_REP_REST_S: 0.97_ "
+            "POINTS_POSITIFS:_ Positionnement excellent des epaules "
+            "CORRECTIONS_PRIORITAIRES:_ 1. Tempo excentrique | Descente un peu rapide | Perte de tension | Controle 2 secondes "
+            "RESUME:_ Serie propre et reguliere "
+            "AMPLITUDE_DE_MOUVEMENT:_ Amplitude complete "
+            "ANALYSE_DU_TEMPO_ET_DES_PHASES:_ Tempo globalement controle "
+            "INTENSITE_DE_SERIE:_ Intensite elevee avec peu de repos "
+            "COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE:_ Legere baisse de vitesse en fin de serie "
+            "DECOMPOSITION_DU_SCORE:_ - Securite: 32/40 - Efficacite technique: 24/30 - Controle et tempo: 15/20 - Symetrie: 7/10 "
+            "POINT_BIOMECANIQUE:_ Bon ancrage scapulaire "
+            "RECOMMANDATION_POUR_LA_PROCHAINE_VIDEO:_ Filme de trois quarts avant "
+            "PLAN_ACTION:_ - Ralentis la descente - Garde la cage haute - Filme plus large"
+        )
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.exercise_slug, "smith_machine_incline_bench_press")
+        self.assertEqual(out.score, 78)
+        self.assertEqual(out.reps_total, 10)
+        self.assertEqual(out.intensity_score, 75)
+        self.assertEqual(out.intensity_label, "elevee")
+        self.assertAlmostEqual(out.avg_inter_rep_rest_s, 0.97, places=2)
+        self.assertIn("resume", out.sections)
+        self.assertEqual(out.score_breakdown.get("Symetrie"), 7)
+
 
 class MiniMaxMessageExtractionTests(unittest.TestCase):
+    def test_analysis_candidate_filter_rejects_generic_welcome(self) -> None:
+        self.assertFalse(
+            mm._is_analysis_candidate_text(
+                "Bonjour ! Je suis ravi de vous accompagner en tant que coach biomecanique expert."
+            )
+        )
+        self.assertTrue(
+            mm._is_analysis_candidate_text(
+                '{"exercise":{"name":"lat_pulldown"},"score":78,"reps":{"total":8},"intensity":{"score":76}}'
+            )
+        )
+
+    def test_analysis_candidate_filter_rejects_thinking_process(self) -> None:
+        self.assertFalse(
+            mm._is_analysis_candidate_text(
+                "Thinking Process 3.47s Je vais analyser cette vidéo pour un rapport biomécanique complet. "
+                "Je commence par extraire les images clés de la vidéo."
+            )
+        )
+        self.assertFalse(
+            mm._is_analysis_candidate_text(
+                "Completed Skill expert-skills:frame-extraction Thinking Process The user wants me to extract "
+                "frames from a video file and then run motion analysis."
+            )
+        )
+
+    def test_analysis_candidate_filter_accepts_labeled_final_output(self) -> None:
+        self.assertTrue(
+            mm._is_analysis_candidate_text(
+                "EXERCISE: machine_chest_press\nDISPLAY_NAME_FR: Presse pectorale machine\n"
+                "SCORE: 88/100\nREPS_TOTAL: 9\nPLAN_ACTION:\n- Controle la descente"
+            )
+        )
+
     def test_extract_agent_message_ignores_known_ids(self) -> None:
         payload = {
             "data": {
@@ -442,7 +559,7 @@ class MiniMaxRetryTests(unittest.TestCase):
 class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
     def test_upload_and_send_retries_after_login_modal_blocks_send(self) -> None:
         calls = {"populate": 0, "send": 0, "auth": 0, "reopen": 0}
-        login_modal_states = iter([True, False])
+        login_modal_states = iter([False, True, False, False])
 
         original_populate = mm._populate_browser_message
         original_send = mm._send_browser_message
@@ -491,6 +608,51 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
         self.assertEqual(calls["send"], 2)
         self.assertEqual(calls["auth"], 1)
         self.assertEqual(calls["reopen"], 0)
+
+    def test_upload_and_send_retries_after_send_button_stays_disabled(self) -> None:
+        calls = {"populate": 0, "send": 0, "auth": 0}
+
+        original_populate = mm._populate_browser_message
+        original_send = mm._send_browser_message
+        original_login_modal_visible = mm._login_modal_visible
+        original_ensure_auth = mm._ensure_browser_authenticated
+        original_locator_visible = mm._locator_is_visible
+        try:
+            mm._populate_browser_message = lambda *_args, **_kwargs: calls.__setitem__(  # type: ignore[assignment]
+                "populate", calls["populate"] + 1
+            )
+
+            def _fake_send(*_args, **_kwargs):
+                calls["send"] += 1
+                if calls["send"] == 1:
+                    raise RuntimeError("MiniMax browser flow failed: send button stayed disabled")
+                return None
+
+            mm._send_browser_message = _fake_send  # type: ignore[assignment]
+            mm._login_modal_visible = lambda *_args, **_kwargs: False  # type: ignore[assignment]
+            mm._ensure_browser_authenticated = lambda *_args, **_kwargs: calls.__setitem__(  # type: ignore[assignment]
+                "auth", calls["auth"] + 1
+            )
+            mm._locator_is_visible = lambda *_args, **_kwargs: True  # type: ignore[assignment]
+
+            mm._upload_and_send_via_browser(
+                object(),
+                "video.mp4",
+                "Analyse cette video",
+                3000,
+                email="coaching@achzodcoaching.com",
+                password="secret",
+            )
+        finally:
+            mm._populate_browser_message = original_populate  # type: ignore[assignment]
+            mm._send_browser_message = original_send  # type: ignore[assignment]
+            mm._login_modal_visible = original_login_modal_visible  # type: ignore[assignment]
+            mm._ensure_browser_authenticated = original_ensure_auth  # type: ignore[assignment]
+            mm._locator_is_visible = original_locator_visible  # type: ignore[assignment]
+
+        self.assertEqual(calls["populate"], 2)
+        self.assertEqual(calls["send"], 2)
+        self.assertEqual(calls["auth"], 1)
 
     def test_google_login_waits_for_authenticated_minimax_page(self) -> None:
         class _FakeLocator:
@@ -672,6 +834,216 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
 
         self.assertTrue(out)
         self.assertTrue(page.role_locator.clicked)
+
+    def test_focus_browser_editor_uses_dom_fallback_when_click_is_blocked(self) -> None:
+        class _FakeEditor:
+            def __init__(self):
+                self.evaluate_called = False
+                self.force_click_attempted = False
+
+            def click(self, timeout=None, force=False) -> None:
+                if force:
+                    self.force_click_attempted = True
+                    return None
+                raise RuntimeError("pointer events intercepted by overlay")
+
+            def evaluate(self, script: str, arg=None) -> None:
+                self.evaluate_called = True
+                return None
+
+        editor = _FakeEditor()
+        mm._focus_browser_editor(editor, timeout_ms=4000)
+        self.assertTrue(editor.evaluate_called)
+        self.assertFalse(editor.force_click_attempted)
+
+    def test_click_first_visible_uses_force_click_fallback_when_overlay_blocks_normal_click(self) -> None:
+        class _FakeLocator:
+            def __init__(self):
+                self.force_clicked = False
+
+            @property
+            def first(self):
+                return self
+
+            def count(self) -> int:
+                return 1
+
+            def is_visible(self, timeout=None) -> bool:
+                return True
+
+            def click(self, timeout=None, force=False) -> None:
+                if force:
+                    self.force_clicked = True
+                    return None
+                raise RuntimeError("pointer events intercepted by overlay")
+
+            def evaluate(self, script: str, arg=None) -> None:
+                raise AssertionError("force click should have succeeded before DOM click")
+
+        class _FakePage:
+            def __init__(self):
+                self.loc = _FakeLocator()
+
+            def locator(self, selector: str):
+                if selector == "button.test":
+                    return self.loc
+                raise AssertionError("unexpected selector")
+
+        page = _FakePage()
+        self.assertTrue(mm._click_first_visible(page, ("button.test",), timeout_ms=3000))
+        self.assertTrue(page.loc.force_clicked)
+
+    def test_remove_maxclaw_promo_overlay_returns_true_when_dom_cleanup_succeeds(self) -> None:
+        class _FakePage:
+            def evaluate(self, script: str):
+                self.script = script
+                return True
+
+        page = _FakePage()
+        self.assertTrue(mm._remove_maxclaw_promo_overlay(page))
+        self.assertIn("MaxClaw is here", page.script)
+
+    def test_inject_browser_storage_adds_init_script_for_agent_minimax_origin(self) -> None:
+        class _FakeContext:
+            def __init__(self):
+                self.script = ""
+
+            def add_init_script(self, script: str) -> None:
+                self.script = script
+
+        context = _FakeContext()
+        old_local = minimax_settings.minimax_browser_local_storage_json
+        old_session = minimax_settings.minimax_browser_session_storage_json
+        try:
+            minimax_settings.minimax_browser_local_storage_json = '{"_token":"abc","USER_HARD_WARE_INFO":"42"}'
+            minimax_settings.minimax_browser_session_storage_json = '{"tab_device_id":"77"}'
+            mm._inject_browser_storage(context)
+        finally:
+            minimax_settings.minimax_browser_local_storage_json = old_local
+            minimax_settings.minimax_browser_session_storage_json = old_session
+
+        self.assertIn("agent.minimax.io", context.script)
+        self.assertIn('"_token": "abc"', context.script)
+        self.assertIn('"tab_device_id": "77"', context.script)
+
+    def test_inject_browser_storage_ignores_invalid_json(self) -> None:
+        class _FakeContext:
+            def __init__(self):
+                self.calls = 0
+
+            def add_init_script(self, script: str) -> None:
+                self.calls += 1
+
+        context = _FakeContext()
+        old_local = minimax_settings.minimax_browser_local_storage_json
+        old_session = minimax_settings.minimax_browser_session_storage_json
+        try:
+            minimax_settings.minimax_browser_local_storage_json = "{invalid"
+            minimax_settings.minimax_browser_session_storage_json = ""
+            mm._inject_browser_storage(context)
+        finally:
+            minimax_settings.minimax_browser_local_storage_json = old_local
+            minimax_settings.minimax_browser_session_storage_json = old_session
+
+        self.assertEqual(context.calls, 0)
+
+    def test_populate_browser_message_uses_dom_text_fallback_when_keyboard_type_fails(self) -> None:
+        class _FakeEditor:
+            def __init__(self):
+                self.prompt_set_via_dom = None
+
+            @property
+            def first(self):
+                return self
+
+            def click(self, timeout=None, force=False) -> None:
+                return None
+
+            def evaluate(self, script: str, arg=None) -> None:
+                if arg is not None:
+                    self.prompt_set_via_dom = arg
+                return None
+
+        class _FakeUploadInput:
+            def __init__(self):
+                self.uploaded_path = None
+
+            @property
+            def last(self):
+                return self
+
+            def count(self) -> int:
+                return 1
+
+            def set_input_files(self, path: str, timeout=None) -> None:
+                self.uploaded_path = path
+
+        class _FakeTextLocator:
+            @property
+            def first(self):
+                return self
+
+            def wait_for(self, timeout=None) -> None:
+                return None
+
+        class _FakeKeyboard:
+            def __init__(self):
+                self.presses: list[str] = []
+
+            def press(self, key: str) -> None:
+                self.presses.append(key)
+
+            def type(self, value: str) -> None:
+                raise RuntimeError("keyboard typing unavailable")
+
+        class _FakePage:
+            def __init__(self):
+                self.editor = _FakeEditor()
+                self.upload_input = _FakeUploadInput()
+                self.keyboard = _FakeKeyboard()
+
+            def wait_for_selector(self, selector: str, timeout=None) -> None:
+                if selector != ".tiptap-editor":
+                    raise AssertionError("unexpected selector")
+
+            def locator(self, selector: str):
+                if selector == ".tiptap-editor":
+                    return self.editor
+                if selector == "input[type='file']":
+                    return self.upload_input
+                if selector.startswith("text="):
+                    return _FakeTextLocator()
+                raise AssertionError("unexpected selector {}".format(selector))
+
+            def wait_for_timeout(self, _ms: int) -> None:
+                return None
+
+        page = _FakePage()
+        original_login_modal = mm._login_modal_visible
+        try:
+            mm._login_modal_visible = lambda *_args, **_kwargs: False  # type: ignore[assignment]
+            mm._populate_browser_message(
+                page,
+                "/tmp/example.mp4",
+                "Analyse ce mouvement",
+                timeout_ms=4000,
+            )
+        finally:
+            mm._login_modal_visible = original_login_modal  # type: ignore[assignment]
+
+        self.assertEqual(page.editor.prompt_set_via_dom, "Analyse ce mouvement")
+        self.assertEqual(page.upload_input.uploaded_path, "/tmp/example.mp4")
+
+    def test_send_button_enabled_detects_inactive_and_active_states(self) -> None:
+        class _FakePage:
+            def __init__(self, active: bool):
+                self.active = active
+
+            def evaluate(self, script: str):
+                return self.active
+
+        self.assertFalse(mm._send_button_enabled(_FakePage(False)))
+        self.assertTrue(mm._send_button_enabled(_FakePage(True)))
 
     def test_wait_for_bot_challenge_to_clear_reloads_and_succeeds(self) -> None:
         class _FakeBodyLocator:

@@ -39,41 +39,48 @@ _DEFAULT_BROWSER_VIEWPORT = {"width": 1728, "height": 1117}
 _DEFAULT_BROWSER_LOCALE = "en-US"
 _DEFAULT_BROWSER_TIMEZONE_ID = "Asia/Dubai"
 _DEFAULT_ANALYSIS_PROMPT = (
-    "Tu es un coach biomecanique expert.\n"
-    "Analyse la video envoyee et reponds UNIQUEMENT en JSON valide (sans markdown, sans texte hors JSON).\n"
-    "Tu t'adresses DIRECTEMENT au client, en francais, ton coach pro, concret et actionnable.\n"
-    "Objectif: detecter l'exercice EXACT, compter les reps exactes, evaluer intensite/repos, et fournir un rapport sectionne complet.\n"
-    "Ne devine pas: si un point est incertain, ecris-le explicitement dans la section concernee.\n"
-    "Schema JSON strict:\n"
-    "{\n"
-    '  "exercise": {"name": "snake_case_exercise_exact", "display_name_fr": "string", "confidence": 0.0},\n'
-    '  "score": 0,\n'
-    '  "reps": {"total": 0, "complete": 0, "partial": 0},\n'
-    '  "intensity": {"score": 0, "label": "tres elevee|elevee|moderee|faible|tres faible", "avg_inter_rep_rest_s": 0.0},\n'
-    '  "score_breakdown": {"Securite": 0, "Efficacite technique": 0, "Controle et tempo": 0, "Symetrie": 0},\n'
-    '  "positives": ["string"],\n'
-    '  "corrections": [{"title": "string", "why": "string", "impact": "string", "cue": "string"}],\n'
-    '  "corrective_exercises": [{"name": "string", "dosage": "sets x reps", "target": "string", "execution": "string", "timing": "string"}],\n'
-    '  "sections": {\n'
-    '    "resume": "3-5 phrases directes au client",\n'
-    '    "rom": "analyse amplitude / articulation",\n'
-    '    "tempo": "analyse controle moteur + phases",\n'
-    '    "intensite": "analyse densite serie + repos inter-reps",\n'
-    '    "compensations": "compensations detectees + risque",\n'
-    '    "biomecanique": "insight biomecanique avance et utile",\n'
-    '    "plan_action": ["action 1", "action 2", "action 3"],\n'
-    '    "next_video": "recommandation angle camera pour la prochaine video"\n'
-    "  },\n"
-    '  "report_markdown": "rapport long sectionne AVEC ces titres EXACTS: ANALYSE BIOMECANIQUE, RESUME, POINTS POSITIFS, AMPLITUDE DE MOUVEMENT, CORRECTIONS PRIORITAIRES, ANALYSE DU TEMPO ET DES PHASES, INTENSITE DE SERIE (DENSITE), COMPENSATIONS ET BIOMECANIQUE AVANCEE, DECOMPOSITION DU SCORE, POINT BIOMECANIQUE, RECOMMANDATION POUR LA PROCHAINE VIDEO, PLAN ACTION"\n'
-    "}\n"
-    "Contraintes:\n"
-    "- score global sur 100\n"
-    "- score_breakdown plafonds stricts: Securite<=40, Efficacite technique<=30, Controle et tempo<=20, Symetrie<=10\n"
-    "- reps strictement comptees sur la video (pas d'estimation)\n"
-    "- intensite inclut repos moyen inter-reps\n"
-    "- exercise.name doit correspondre EXACTEMENT a l'exercice vu (ex: machine_chest_press, leg_press, lat_pulldown, etc.)\n"
-    "Optimisation tokens: sois precis mais concis. Chaque section textuelle: 2 a 4 phrases maximum.\n"
-    "Ne renvoie aucune phrase hors JSON."
+    "Analyse cette video de musculation et reponds UNIQUEMENT en francais, une fois l'analyse terminee.\n"
+    "Pas de preambule, pas d'explication de workflow, pas de thinking process.\n"
+    "Tu t'adresses directement au client.\n"
+    "Format de sortie obligatoire:\n"
+    "EXERCISE: snake_case_exact\n"
+    "DISPLAY_NAME_FR: nom exact en francais\n"
+    "CONFIDENCE: 0.00\n"
+    "SCORE: 0/100\n"
+    "REPS_TOTAL: 0\n"
+    "REPS_COMPLETE: 0\n"
+    "REPS_PARTIAL: 0\n"
+    "INTENSITY_SCORE: 0/100\n"
+    "INTENSITY_LABEL: tres elevee|elevee|moderee|faible|tres faible\n"
+    "AVG_INTER_REP_REST_S: 0.00\n"
+    "POINTS_POSITIFS:\n"
+    "- item\n"
+    "CORRECTIONS_PRIORITAIRES:\n"
+    "1. titre | pourquoi | impact | cue\n"
+    "RESUME:\n"
+    "2 a 4 phrases\n"
+    "AMPLITUDE_DE_MOUVEMENT:\n"
+    "2 a 4 phrases\n"
+    "ANALYSE_DU_TEMPO_ET_DES_PHASES:\n"
+    "2 a 4 phrases\n"
+    "INTENSITE_DE_SERIE:\n"
+    "2 a 4 phrases avec densite et repos inter-reps\n"
+    "COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE:\n"
+    "2 a 4 phrases\n"
+    "DECOMPOSITION_DU_SCORE:\n"
+    "- Securite: x/40\n"
+    "- Efficacite technique: x/30\n"
+    "- Controle et tempo: x/20\n"
+    "- Symetrie: x/10\n"
+    "POINT_BIOMECANIQUE:\n"
+    "1 a 3 phrases\n"
+    "RECOMMANDATION_POUR_LA_PROCHAINE_VIDEO:\n"
+    "1 a 3 phrases\n"
+    "PLAN_ACTION:\n"
+    "- action 1\n"
+    "- action 2\n"
+    "- action 3\n"
+    "Si une donnee n'est pas mesurable, ecris NON MESURABLE."
 )
 
 _INTENSITY_LABELS = (
@@ -82,6 +89,81 @@ _INTENSITY_LABELS = (
     ("moderee", 55),
     ("faible", 40),
     ("tres faible", 0),
+)
+_FINAL_OUTPUT_MARKERS = (
+    "exercise:",
+    "display_name_fr:",
+    "confidence:",
+    "score:",
+    "reps_total:",
+    "reps_complete:",
+    "reps_partial:",
+    "intensity_score:",
+    "intensity_label:",
+    "avg_inter_rep_rest_s:",
+    "points_positifs:",
+    "corrections_prioritaires:",
+    "resume:",
+    "amplitude_de_mouvement:",
+    "analyse_du_tempo_et_des_phases:",
+    "intensite_de_serie:",
+    "compensations_et_biomecanique_avancee:",
+    "decomposition_du_score:",
+    "point_biomecanique:",
+    "recommandation_pour_la_prochaine_video:",
+    "plan_action:",
+)
+_PROCESS_MARKERS = (
+    "thinking process",
+    "current process",
+    "completed skill",
+    "ongoing command line execution",
+    "completed command line execution",
+    "completed glob",
+    "ongoing glob",
+    "invoke frame-extraction skill",
+    "invoke motion-analysis skill",
+    "invoke stickman-generation skill",
+    "let me first",
+    "the user wants me to",
+    "i need to first",
+    "script path doesn't exist",
+    "search for the correct path",
+    "extract keyframes",
+)
+_LABELED_HEADINGS = (
+    "EXERCISE",
+    "DISPLAY_NAME_FR",
+    "DISPLAY_NAME",
+    "DISPLAY NAME",
+    "CONFIDENCE",
+    "CONFIANCE",
+    "SCORE",
+    "TOTAL",
+    "REPS_TOTAL",
+    "TOTAL_REPS",
+    "REPS_COMPLETE",
+    "COMPLETE_REPS",
+    "REPS_PARTIAL",
+    "PARTIAL_REPS",
+    "INTENSITY_SCORE",
+    "INTENSITE_SCORE",
+    "INTENSITY_LABEL",
+    "INTENSITE_LABEL",
+    "AVG_INTER_REP_REST_S",
+    "REPOS_MOYEN_S",
+    "AVG_REST_S",
+    "POINTS_POSITIFS",
+    "CORRECTIONS_PRIORITAIRES",
+    "RESUME",
+    "AMPLITUDE_DE_MOUVEMENT",
+    "ANALYSE_DU_TEMPO_ET_DES_PHASES",
+    "INTENSITE_DE_SERIE",
+    "COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE",
+    "DECOMPOSITION_DU_SCORE",
+    "POINT_BIOMECANIQUE",
+    "RECOMMANDATION_POUR_LA_PROCHAINE_VIDEO",
+    "PLAN_ACTION",
 )
 _RETRYABLE_HTTP_STATUSES = {403, 408, 409, 425, 429, 500, 502, 503, 504}
 
@@ -144,6 +226,8 @@ def _load_settings():
             minimax_browser_headless = _as_bool(os.getenv("MINIMAX_BROWSER_HEADLESS"), True)
             minimax_browser_timeout_s = int(os.getenv("MINIMAX_BROWSER_TIMEOUT_S", "120"))
             minimax_browser_profile_dir = os.getenv("MINIMAX_BROWSER_PROFILE_DIR", "media/minimax_browser_profile")
+            minimax_browser_local_storage_json = os.getenv("MINIMAX_BROWSER_LOCAL_STORAGE_JSON", "")
+            minimax_browser_session_storage_json = os.getenv("MINIMAX_BROWSER_SESSION_STORAGE_JSON", "")
             minimax_browser_locale = os.getenv("MINIMAX_BROWSER_LOCALE", _DEFAULT_BROWSER_LOCALE)
             minimax_browser_timezone_id = os.getenv("MINIMAX_BROWSER_TIMEZONE_ID", _DEFAULT_BROWSER_TIMEZONE_ID)
             minimax_motion_coach_expert_url = os.getenv(
@@ -391,6 +475,209 @@ def _extract_exercise_from_text(text: str) -> str:
     if "—" in first:
         first = first.split("—", 1)[0].strip()
     return first or "Exercice non identifie"
+
+
+def _looks_like_process_text(text: str) -> bool:
+    low = _compact_text(text).lower()
+    if not low:
+        return False
+    return any(marker in low for marker in _PROCESS_MARKERS)
+
+
+def _has_final_output_markers(text: str) -> bool:
+    low = _compact_text(_normalize_labeled_minimax_text(text)).lower()
+    if not low:
+        return False
+    marker_hits = sum(1 for marker in _FINAL_OUTPUT_MARKERS if marker in low)
+    if marker_hits >= 2:
+        return True
+    if re.search(r"\bscore\s*:\s*\d{1,3}\s*/\s*100\b", low) and re.search(r"\breps?_total\s*:\s*\d+\b", low):
+        return True
+    if re.search(r"\bexercise\s*:\s*[a-z0-9_ -]{3,}\b", low) and re.search(r"\bplan_action\s*:\b", low):
+        return True
+    return False
+
+
+def _normalize_labeled_minimax_text(text: str) -> str:
+    normalized = str(text or "").replace("\r", "\n")
+    normalized = re.sub(r":\s*_+\s*", ":\n", normalized)
+    normalized = re.sub(r"(?<=\s)_+\s*(?=[A-Z][A-Z_ ]+\s*:)", "\n", normalized)
+    normalized = re.sub(r"(?<=[0-9A-Za-z])_+\s+(?=[A-Z][A-Z_ ]+\s*:)", "\n", normalized)
+    for heading in sorted(_LABELED_HEADINGS, key=len, reverse=True):
+        normalized = re.sub(
+            r"(?i)(?<![\w])\s*{}\s*:".format(re.escape(heading)),
+            "\n{}:".format(heading),
+            normalized,
+        )
+    normalized = re.sub(r"\n{2,}", "\n", normalized)
+    return normalized.strip()
+
+
+def _extract_labeled_scalar(text: str, labels: tuple[str, ...]) -> str:
+    pattern = r"(?:^|\n)\s*(?:{})\s*:\s*(.+)".format("|".join(re.escape(label) for label in labels))
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    if not match:
+        return ""
+    return str(match.group(1) or "").strip()
+
+
+def _extract_labeled_section(text: str, heading: str, next_headings: tuple[str, ...]) -> str:
+    if not text:
+        return ""
+    if next_headings:
+        end_pattern = r"(?:\n\s*(?:{})\s*:)|\Z".format("|".join(re.escape(item) for item in next_headings))
+    else:
+        end_pattern = r"\Z"
+    pattern = r"(?:^|\n)\s*{}\s*:\s*(.*?)\s*(?={})".format(
+        re.escape(heading),
+        end_pattern,
+    )
+    match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return ""
+    return str(match.group(1) or "").strip()
+
+
+def _extract_bullets(text: str) -> list[str]:
+    if not text:
+        return []
+    items: list[str] = []
+    normalized = str(text or "").replace("\r", "\n")
+    normalized = re.sub(r"\s+-\s+", "\n- ", normalized)
+    normalized = re.sub(r"\s+•\s+", "\n- ", normalized)
+    for raw_line in normalized.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        line = re.sub(r"^(?:[-•*]|\d+[.)])\s*", "", line).strip()
+        if line:
+            if len(line) > 220 and ". " in line:
+                sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", line) if part.strip()]
+                if len(sentence_parts) > 1:
+                    items.extend(sentence_parts)
+                    continue
+            items.append(line)
+    return items
+
+
+def _parse_corrections_block(text: str) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    normalized = re.sub(r"\s+(?=\d+[.)]\s+)", "\n", str(text or "").strip())
+    for item in _extract_bullets(normalized):
+        parts = [part.strip() for part in item.split("|")]
+        if not parts:
+            continue
+        title = parts[0] if len(parts) >= 1 else "Correction"
+        why = parts[1] if len(parts) >= 2 else ""
+        impact = parts[2] if len(parts) >= 3 else ""
+        cue = parts[3] if len(parts) >= 4 else ""
+        if title or why or impact or cue:
+            out.append(
+                {
+                    "title": title or "Correction",
+                    "issue": why,
+                    "impact": impact,
+                    "fix": cue,
+                }
+            )
+    return out
+
+
+def _parse_score_breakdown_block(text: str, total_score: int) -> dict[str, int]:
+    if not text:
+        return {}
+    raw: dict[str, int] = {}
+    for key in ("Securite", "Efficacite technique", "Controle et tempo", "Symetrie"):
+        match = re.search(
+            r"{}\s*:\s*(\d{{1,3}})\s*/\s*(\d{{1,3}})".format(re.escape(key)),
+            text,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            raw[key] = max(0, int(match.group(1)))
+    return _normalize_score_breakdown(raw or None, total_score=total_score)
+
+
+def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
+    normalized_text = _normalize_labeled_minimax_text(text)
+    if not _has_final_output_markers(normalized_text):
+        return None
+
+    analysis = MiniMaxAnalysis(raw_response=(text or "").strip())
+    section_order = (
+        "POINTS_POSITIFS",
+        "CORRECTIONS_PRIORITAIRES",
+        "RESUME",
+        "AMPLITUDE_DE_MOUVEMENT",
+        "ANALYSE_DU_TEMPO_ET_DES_PHASES",
+        "INTENSITE_DE_SERIE",
+        "COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE",
+        "DECOMPOSITION_DU_SCORE",
+        "POINT_BIOMECANIQUE",
+        "RECOMMANDATION_POUR_LA_PROCHAINE_VIDEO",
+        "PLAN_ACTION",
+    )
+
+    exercise_name = _extract_labeled_scalar(normalized_text, ("EXERCISE", "EXERCICE"))
+    display_name = _extract_labeled_scalar(normalized_text, ("DISPLAY_NAME_FR", "DISPLAY NAME", "DISPLAY_NAME"))
+    confidence_text = _extract_labeled_scalar(normalized_text, ("CONFIDENCE", "CONFIANCE"))
+    score_text = _extract_labeled_scalar(normalized_text, ("SCORE", "TOTAL"))
+    reps_total_text = _extract_labeled_scalar(normalized_text, ("REPS_TOTAL", "TOTAL_REPS"))
+    reps_complete_text = _extract_labeled_scalar(normalized_text, ("REPS_COMPLETE", "COMPLETE_REPS"))
+    reps_partial_text = _extract_labeled_scalar(normalized_text, ("REPS_PARTIAL", "PARTIAL_REPS"))
+    intensity_score_text = _extract_labeled_scalar(normalized_text, ("INTENSITY_SCORE", "INTENSITE_SCORE"))
+    intensity_label_text = _extract_labeled_scalar(normalized_text, ("INTENSITY_LABEL", "INTENSITE_LABEL", "LABEL"))
+    avg_rest_text = _extract_labeled_scalar(normalized_text, ("AVG_INTER_REP_REST_S", "REPOS_MOYEN_S", "AVG_REST_S"))
+
+    analysis.exercise_slug = _slugify(exercise_name or display_name)
+    analysis.exercise_display = display_name or exercise_name.replace("_", " ").title() or analysis.exercise_display
+    analysis.exercise_confidence = max(0.0, min(1.0, _coerce_float(confidence_text.replace(",", "."), 0.0)))
+    analysis.score = _extract_score_from_text(score_text) or _extract_score_from_text(text)
+    analysis.reps_total = max(0, int(_coerce_float(reps_total_text, 0.0)))
+    analysis.reps_complete = max(0, int(_coerce_float(reps_complete_text, 0.0)))
+    analysis.reps_partial = max(0, int(_coerce_float(reps_partial_text, 0.0)))
+    analysis.intensity_score = _extract_score_from_text(intensity_score_text) or _clamp_int(_coerce_float(intensity_score_text, 0.0))
+    analysis.intensity_label = (
+        str(intensity_label_text or "").strip().lower() or _intensity_label_from_score(analysis.intensity_score)
+    )
+    analysis.avg_inter_rep_rest_s = max(0.0, _coerce_float(avg_rest_text.replace(",", "."), 0.0))
+
+    if analysis.reps_complete <= 0 and analysis.reps_total > 0:
+        analysis.reps_complete = analysis.reps_total
+    if analysis.reps_total <= 0 and analysis.reps_complete > 0:
+        analysis.reps_total = analysis.reps_complete
+
+    positives_block = _extract_labeled_section(normalized_text, "POINTS_POSITIFS", section_order[1:])
+    corrections_block = _extract_labeled_section(normalized_text, "CORRECTIONS_PRIORITAIRES", section_order[2:])
+    resume_block = _extract_labeled_section(normalized_text, "RESUME", section_order[3:])
+    rom_block = _extract_labeled_section(normalized_text, "AMPLITUDE_DE_MOUVEMENT", section_order[4:])
+    tempo_block = _extract_labeled_section(normalized_text, "ANALYSE_DU_TEMPO_ET_DES_PHASES", section_order[5:])
+    intensite_block = _extract_labeled_section(normalized_text, "INTENSITE_DE_SERIE", section_order[6:])
+    compensations_block = _extract_labeled_section(normalized_text, "COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE", section_order[7:])
+    breakdown_block = _extract_labeled_section(normalized_text, "DECOMPOSITION_DU_SCORE", section_order[8:])
+    biomecanique_block = _extract_labeled_section(normalized_text, "POINT_BIOMECANIQUE", section_order[9:])
+    next_video_block = _extract_labeled_section(normalized_text, "RECOMMANDATION_POUR_LA_PROCHAINE_VIDEO", section_order[10:])
+    plan_block = _extract_labeled_section(normalized_text, "PLAN_ACTION", ())
+
+    analysis.positives = _extract_bullets(positives_block)[:6]
+    analysis.corrections = _parse_corrections_block(corrections_block)[:6]
+    analysis.sections = {
+        key: value
+        for key, value in {
+            "resume": resume_block,
+            "rom": rom_block,
+            "tempo": tempo_block,
+            "intensite": intensite_block,
+            "compensations": compensations_block,
+            "biomecanique": biomecanique_block,
+            "next_video": next_video_block,
+        }.items()
+        if value
+    }
+    analysis.score_breakdown = _parse_score_breakdown_block(breakdown_block, analysis.score)
+    analysis.plan_action = _extract_bullets(plan_block)[:6]
+    analysis.report_text = _build_structured_report_text(analysis)
+    return analysis
 
 
 def _coerce_text(value: Any) -> str:
@@ -1148,6 +1435,10 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
             analysis.report_text = _build_structured_report_text(analysis)
         return analysis
 
+    labeled = _parse_labeled_analysis_payload(raw_text)
+    if labeled is not None:
+        return labeled
+
     # Regex fallback for non-JSON answers.
     analysis.exercise_display = _extract_exercise_from_text(raw_text)
     analysis.exercise_slug = _slugify(analysis.exercise_display)
@@ -1778,6 +2069,10 @@ def _motion_coach_expert_url() -> str:
     return raw or "https://agent.minimax.io/expert/chat/362683345551702"
 
 
+def _chat_page_url(chat_id: str) -> str:
+    return "https://agent.minimax.io/chat?id={}".format(str(chat_id).strip())
+
+
 def _browser_launch_options(headless: bool) -> dict[str, Any]:
     return {
         "headless": headless,
@@ -1858,6 +2153,69 @@ def _inject_browser_cookies(context: Any) -> None:
         context.add_cookies(cookies)
     except Exception as exc:
         logger.warning("MiniMax browser cookie injection failed: %s", exc)
+
+
+def _normalized_storage_dump(raw: Any, *, label: str) -> dict[str, str]:
+    if isinstance(raw, dict):
+        payload = raw
+    else:
+        text = str(raw or "").strip()
+        if not text:
+            return {}
+        try:
+            payload = json.loads(text)
+        except Exception as exc:
+            logger.warning("MiniMax browser %s injection ignored: invalid JSON (%s)", label, exc)
+            return {}
+    if not isinstance(payload, dict):
+        logger.warning("MiniMax browser %s injection ignored: expected JSON object", label)
+        return {}
+    normalized: dict[str, str] = {}
+    for key, value in payload.items():
+        if key is None or value is None:
+            continue
+        normalized[str(key)] = str(value)
+    return normalized
+
+
+def _inject_browser_storage(context: Any) -> None:
+    local_storage = _normalized_storage_dump(
+        getattr(settings, "minimax_browser_local_storage_json", ""),
+        label="localStorage",
+    )
+    session_storage = _normalized_storage_dump(
+        getattr(settings, "minimax_browser_session_storage_json", ""),
+        label="sessionStorage",
+    )
+    if not local_storage and not session_storage:
+        return
+
+    storage_script = """
+        (() => {
+          const localEntries = __LOCAL_ENTRIES__;
+          const sessionEntries = __SESSION_ENTRIES__;
+          if (window.location.hostname !== 'agent.minimax.io') {
+            return;
+          }
+          try {
+            for (const [key, value] of Object.entries(localEntries)) {
+              window.localStorage.setItem(String(key), String(value));
+            }
+          } catch (_) {}
+          try {
+            for (const [key, value] of Object.entries(sessionEntries)) {
+              window.sessionStorage.setItem(String(key), String(value));
+            }
+          } catch (_) {}
+        })();
+    """.replace("__LOCAL_ENTRIES__", json.dumps(local_storage)).replace(
+        "__SESSION_ENTRIES__", json.dumps(session_storage)
+    )
+
+    try:
+        context.add_init_script(storage_script)
+    except Exception as exc:
+        logger.warning("MiniMax browser storage injection failed: %s", exc)
 
 
 def _extract_query_identity_from_url(url: str, out: dict[str, str]) -> None:
@@ -2045,6 +2403,7 @@ def _refresh_minimax_session_via_browser() -> dict[str, Any]:
             )
             _install_browser_stealth(context)
             _inject_browser_cookies(context)
+            _inject_browser_storage(context)
             try:
                 context.set_extra_http_headers(
                     {
@@ -2179,11 +2538,28 @@ def _click_first_visible(page: Any, selectors: tuple[str, ...], timeout_ms: int 
         try:
             locator = page.locator(selector).first
             if locator.count() > 0 and locator.is_visible(timeout=timeout_ms):
-                locator.click(timeout=timeout_ms)
-                return True
+                if _click_locator_robust(locator, timeout_ms=timeout_ms, description=selector):
+                    return True
         except Exception:
             continue
     return False
+
+
+def _click_locator_robust(locator: Any, *, timeout_ms: int, description: str) -> bool:
+    try:
+        locator.click(timeout=timeout_ms)
+        return True
+    except Exception as click_exc:
+        logger.warning("MiniMax locator click blocked for %s, retrying with force click: %s", description, click_exc)
+        try:
+            locator.click(timeout=min(timeout_ms, 2500), force=True)
+            return True
+        except Exception:
+            try:
+                locator.evaluate("(el) => el && el.click && el.click()")
+                return True
+            except Exception:
+                return False
 
 
 def _locator_exists(page: Any, selector: str) -> bool:
@@ -2212,6 +2588,88 @@ def _text_locator_exists(page: Any, text: str, exact: bool = False) -> bool:
         return page.get_by_text(text, exact=exact).count() > 0
     except Exception:
         return False
+
+
+def _blanket_overlay_visible(page: Any) -> bool:
+    selectors = (
+        "[class*='bg-utility_blanket']",
+        "div.fixed.inset-0",
+        "[role='dialog']",
+    )
+    return any(_locator_is_visible(page, selector, timeout_ms=500) for selector in selectors)
+
+
+def _dismiss_browser_blanket_overlay(page: Any, timeout_ms: int) -> bool:
+    try:
+        logger.warning("MiniMax blanket overlay detected: %s", _overlay_debug_summary(page))
+    except Exception:
+        pass
+    if _remove_maxclaw_promo_overlay(page):
+        _safe_page_wait(page, 200)
+    close_selectors = (
+        "button[aria-label='Close']",
+        "button:has-text('Close')",
+        "button:has-text('Not now')",
+        "button:has-text('Maybe later')",
+        "button:has-text('Skip')",
+        "button:has-text('Got it')",
+        "button:has-text('Cancel')",
+        "img[alt='close']",
+        "img[alt='Close']",
+    )
+    if _click_first_visible(page, close_selectors, timeout_ms=min(timeout_ms, 1800)):
+        _wait_for_page_condition(page, lambda: not _blanket_overlay_visible(page), timeout_ms=min(timeout_ms, 2500))
+    else:
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            pass
+        _safe_page_wait(page, 250)
+    return not _blanket_overlay_visible(page)
+
+
+def _remove_maxclaw_promo_overlay(page: Any) -> bool:
+    try:
+        return bool(
+            page.evaluate(
+                """() => {
+                    let removed = false;
+                    const nodes = Array.from(document.querySelectorAll('[class*="bg-utility_blanket"], div.fixed.inset-0, [role="dialog"]'));
+                    for (const node of nodes) {
+                        const text = String(node.textContent || '');
+                        if (!text.includes('MaxClaw is here') && !text.includes('Get MaxClaw')) continue;
+                        node.remove();
+                        removed = true;
+                    }
+                    return removed;
+                }"""
+            )
+        )
+    except Exception:
+        return False
+
+
+def _overlay_debug_summary(page: Any) -> str:
+    try:
+        payload = page.evaluate(
+            """() => {
+                const overlays = Array.from(document.querySelectorAll('[class*="bg-utility_blanket"], [role="dialog"], div.fixed.inset-0'))
+                    .slice(0, 4)
+                    .map((el) => ({
+                        cls: typeof el.className === 'string' ? el.className : '',
+                        text: (el.textContent || '').trim().slice(0, 600),
+                        buttons: Array.from(el.querySelectorAll('button')).slice(0, 12).map((b) => ({
+                            text: (b.textContent || '').trim().slice(0, 120),
+                            aria: b.getAttribute('aria-label') || '',
+                            title: b.getAttribute('title') || '',
+                        })),
+                    }));
+                return JSON.stringify(overlays);
+            }"""
+        )
+        return str(payload or "")[:2000]
+    except Exception as exc:
+        return "overlay-summary-unavailable: {}".format(exc)
 
 
 def _motion_coach_composer_ready(page: Any) -> bool:
@@ -2423,10 +2881,12 @@ def _login_with_google_if_needed(page: Any, email: str, password: str, timeout_m
 
     origin_page = page
     google_btn = page.locator("button:has-text('Continue with Google')").first
-    try:
-        google_btn.click(timeout=timeout_ms)
-    except Exception as exc:
-        raise RuntimeError("MiniMax browser login failed: cannot start Google auth flow") from exc
+    if not _click_locator_robust(
+        google_btn,
+        timeout_ms=timeout_ms,
+        description="button:has-text('Continue with Google')",
+    ):
+        raise RuntimeError("MiniMax browser login failed: cannot start Google auth flow")
 
     # Google auth can open in current tab or in a popup page.
     google_page = page
@@ -2445,7 +2905,28 @@ def _login_with_google_if_needed(page: Any, email: str, password: str, timeout_m
         page.wait_for_timeout(250)
 
     if "accounts.google.com" not in (google_page.url or ""):
-        # Could already be authenticated and redirected back.
+        candidate_pages: list[Any] = []
+        try:
+            candidate_pages = list(origin_page.context.pages)
+        except Exception:
+            candidate_pages = [origin_page]
+        if origin_page not in candidate_pages:
+            candidate_pages.append(origin_page)
+        for candidate in candidate_pages:
+            try:
+                url = str(getattr(candidate, "url", "") or "")
+            except Exception:
+                url = ""
+            if "agent.minimax.io" not in url:
+                continue
+            if _locator_is_visible(candidate, ".tiptap-editor", timeout_ms=800) and not _login_modal_visible(candidate):
+                try:
+                    candidate.bring_to_front()
+                except Exception:
+                    pass
+                return
+        if _login_modal_visible(origin_page):
+            raise RuntimeError("MiniMax browser login failed: Google auth flow did not open")
         return
 
     try:
@@ -2732,12 +3213,21 @@ def _open_motion_coach_chat(page: Any, timeout_ms: int, *, email: str = "", pass
     raise RuntimeError("MiniMax browser flow failed: AI Motion Coach entry unavailable")
 
 
-def _populate_browser_message(page: Any, video_path: str, prompt: str, timeout_ms: int) -> None:
+def _populate_browser_message(
+    page: Any,
+    video_path: str,
+    prompt: str,
+    timeout_ms: int,
+    *,
+    email: str = "",
+    password: str = "",
+) -> None:
     page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
+    if _blanket_overlay_visible(page):
+        _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
 
-    # Populate prompt in the editor.
     editor = page.locator(".tiptap-editor").first
-    editor.click(timeout=timeout_ms)
+    _focus_browser_editor(editor, timeout_ms=timeout_ms)
     for hotkey in ("Meta+A", "Control+A"):
         try:
             page.keyboard.press(hotkey)
@@ -2748,7 +3238,10 @@ def _populate_browser_message(page: Any, video_path: str, prompt: str, timeout_m
     except Exception:
         pass
     if prompt:
-        page.keyboard.type(prompt)
+        try:
+            _set_browser_editor_text(editor, prompt)
+        except Exception:
+            page.keyboard.type(prompt)
 
     # Upload video file via hidden input.
     upload_input = page.locator("input[type='file']").last
@@ -2764,10 +3257,123 @@ def _populate_browser_message(page: Any, video_path: str, prompt: str, timeout_m
         page.wait_for_timeout(1300)
 
     if _login_modal_visible(page):
-        raise RuntimeError("MiniMax browser flow blocked by login modal before send")
+        dismissed = _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
+        if _login_modal_visible(page) and not dismissed:
+            if str(email or "").strip() and str(password or "").strip():
+                _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
+                if not _locator_is_visible(page, ".tiptap-editor", timeout_ms=3000):
+                    _open_motion_coach_chat(page, timeout_ms=timeout_ms, email=email, password=password)
+                if not _login_modal_visible(page):
+                    return _populate_browser_message(
+                        page,
+                        video_path,
+                        prompt,
+                        timeout_ms,
+                        email=email,
+                        password=password,
+                    )
+            raise RuntimeError("MiniMax browser flow blocked by login modal before send")
+
+
+def _focus_browser_editor(editor: Any, *, timeout_ms: int) -> None:
+    click_timeout = min(timeout_ms, 2500)
+    try:
+        editor.click(timeout=click_timeout)
+        return
+    except Exception as click_exc:
+        logger.warning("MiniMax browser editor click blocked, using DOM focus fallback: %s", click_exc)
+        try:
+            editor.evaluate(
+                """(el) => {
+                    if (!el) return;
+                    el.focus();
+                    const selection = window.getSelection ? window.getSelection() : null;
+                    if (!selection || !document.createRange) return;
+                    selection.removeAllRanges();
+                    const range = document.createRange();
+                    range.selectNodeContents(el);
+                    range.collapse(false);
+                    selection.addRange(range);
+                }"""
+            )
+            return
+        except Exception:
+            try:
+                editor.click(timeout=click_timeout, force=True)
+                return
+            except Exception:
+                raise click_exc
+
+
+def _set_browser_editor_text(editor: Any, prompt: str) -> None:
+    editor.evaluate(
+        """(el, text) => {
+            if (!el) return;
+            const value = String(text || "");
+            el.focus();
+            el.textContent = value;
+            const selection = window.getSelection ? window.getSelection() : null;
+            if (selection && document.createRange) {
+                selection.removeAllRanges();
+                const range = document.createRange();
+                range.selectNodeContents(el);
+                range.collapse(false);
+                selection.addRange(range);
+            }
+            const inputEvent = typeof InputEvent === "function"
+                ? new InputEvent("input", { bubbles: true, data: value, inputType: "insertText" })
+                : new Event("input", { bubbles: true });
+            el.dispatchEvent(inputEvent);
+        }""",
+        prompt,
+    )
+
+
+def _send_button_enabled(page: Any) -> bool:
+    try:
+        return bool(
+            page.evaluate(
+                """() => {
+                    const root = document.querySelector('#input-send-icon');
+                    if (!root) return false;
+                    const target = root.firstElementChild || root;
+                    const className = String(target.className || '');
+                    const ariaDisabled = String(target.getAttribute('aria-disabled') || '').toLowerCase();
+                    const disabled = className.includes('cursor-not-allowed')
+                        || className.includes('bg-bg_interaction_primary_inactive')
+                        || ariaDisabled === 'true';
+                    return !disabled;
+                }"""
+            )
+        )
+    except Exception:
+        return False
 
 
 def _send_browser_message(page: Any, timeout_ms: int) -> None:
+    if _blanket_overlay_visible(page):
+        _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
+    send_ready = _wait_for_page_condition(page, lambda: _send_button_enabled(page), timeout_ms=min(timeout_ms, 8000), step_ms=200)
+    if not send_ready:
+        try:
+            editor = page.locator(".tiptap-editor").first
+            prompt_text = str(editor.inner_text(timeout=1200) or "").strip()
+            if prompt_text:
+                _set_browser_editor_text(editor, prompt_text)
+                send_ready = _wait_for_page_condition(
+                    page,
+                    lambda: _send_button_enabled(page),
+                    timeout_ms=min(timeout_ms, 8000),
+                    step_ms=200,
+                )
+        except Exception:
+            send_ready = False
+    if not send_ready:
+        try:
+            send_html = str(page.locator("#input-send-icon").first.evaluate("(el) => el.outerHTML"))
+        except Exception:
+            send_html = ""
+        raise RuntimeError("MiniMax browser flow failed: send button stayed disabled {}".format(send_html[:400]))
     if not _click_first_visible(page, ("#input-send-icon", "div#input-send-icon"), timeout_ms=2200):
         try:
             send_icon = page.locator("#input-send-icon").first
@@ -2791,17 +3397,36 @@ def _upload_and_send_via_browser(
     last_exc: Exception | None = None
     for attempt in range(2):
         try:
-            _populate_browser_message(page, video_path, prompt, timeout_ms)
+            if _blanket_overlay_visible(page):
+                _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
+            if _login_modal_visible(page):
+                _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
+                if not _locator_is_visible(page, ".tiptap-editor", timeout_ms=3000):
+                    _open_motion_coach_chat(page, timeout_ms=timeout_ms, email=email, password=password)
+            _populate_browser_message(
+                page,
+                video_path,
+                prompt,
+                timeout_ms,
+                email=email,
+                password=password,
+            )
             _send_browser_message(page, timeout_ms)
             if _login_modal_visible(page):
-                raise RuntimeError("MiniMax browser flow blocked by login modal after send")
+                dismissed = _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
+                if _login_modal_visible(page) and not dismissed:
+                    raise RuntimeError("MiniMax browser flow blocked by login modal after send")
             return
         except Exception as exc:
             last_exc = exc
+            low_exc = str(exc).lower()
+            retryable_send_issue = "send button stayed disabled" in low_exc or "send action not available" in low_exc
             if attempt > 0:
                 break
-            if not _login_modal_visible(page) and "login modal" not in str(exc).lower():
+            if not _login_modal_visible(page) and "login modal" not in low_exc and not retryable_send_issue:
                 break
+            if retryable_send_issue:
+                _safe_page_wait(page, 1200)
             _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
             if not _locator_is_visible(page, ".tiptap-editor", timeout_ms=3000):
                 _open_motion_coach_chat(page, timeout_ms=timeout_ms, email=email, password=password)
@@ -2814,11 +3439,65 @@ def _compact_text(raw: str) -> str:
     return re.sub(r"\s+", " ", str(raw or "")).strip()
 
 
+def _is_analysis_candidate_text(text: str) -> bool:
+    normalized = _compact_text(text)
+    if len(normalized) < 80:
+        return False
+
+    low = normalized.lower()
+    if _looks_like_process_text(normalized) and not _has_final_output_markers(normalized):
+        return False
+
+    negative_markers = (
+        "bonjour ! je suis ravi de vous accompagner",
+        "je suis ravi de vous accompagner en tant que coach",
+        "upload your workout video",
+        "send me your video",
+        "i'd be happy to analyze",
+        "could you please provide",
+        "once you share the video",
+        "personal ai coach that never sleeps",
+    )
+    if any(marker in low for marker in negative_markers):
+        return False
+
+    if _has_final_output_markers(normalized):
+        return True
+
+    positive_markers = (
+        '"exercise"',
+        '"score"',
+        '"reps"',
+        '"intensity"',
+        '"report_markdown"',
+        '"sections"',
+        "analyse biomecanique",
+        "resume",
+        "corrections prioritaires",
+        "intensite de serie",
+        "decomposition du score",
+        "plan action",
+        "point biomecanique",
+    )
+    if any(marker in low for marker in positive_markers):
+        return True
+
+    if re.search(r"\b\d{1,3}/100\b", low) and re.search(r"\b\d+\s*reps?\b", low):
+        return True
+    if re.search(r"\bexercise\b", low) and re.search(r"\bconfidence\b", low):
+        return True
+    return False
+
+
 def _score_dom_candidate(text: str) -> int:
     low = text.lower()
+    if _looks_like_process_text(text) and not _has_final_output_markers(text):
+        return -1000
     score = len(text)
     if "{" in text and "}" in text:
         score += 220
+    if _has_final_output_markers(text):
+        score += 420
     for token in ('"exercise"', '"reps"', '"score"', '"intensity"', '"report_markdown"', '"sections"'):
         if token in low:
             score += 120
@@ -2876,16 +3555,11 @@ def _collect_dom_analysis_candidates(page: Any, max_items: int = 120) -> list[st
             continue
         if "start chat" in low:
             continue
-        if (
-            ("{" in text and "}" in text)
-            or ("analyse biomecanique" in low)
-            or ("plan action" in low)
-            or ("corrections prioritaires" in low)
-            or ("decomposition du score" in low)
-        ):
-            if text not in seen:
-                seen.add(text)
-                filtered.append(text)
+        if not _is_analysis_candidate_text(text):
+            continue
+        if text not in seen:
+            seen.add(text)
+            filtered.append(text)
 
     if len(filtered) > max_items:
         return filtered[-max_items:]
@@ -2931,6 +3605,7 @@ def _run_minimax_browser_only_once(
         "sent": False,
         "done": False,
         "best_text": "",
+        "latest_text": "",
         "stable_rounds": 0,
         "chat_status": 0,
         "chat_status_known": False,
@@ -2940,11 +3615,22 @@ def _run_minimax_browser_only_once(
         "dom_candidates_seen": 0,
         "dom_fallback_used": False,
         "chat_name": "",
+        "sent_chat_id": "",
         "responses_seen": 0,
+        "motion_coach_opened": False,
     }
 
     def _on_response(response: Any) -> None:
         url = str(getattr(response, "url", "") or "")
+        if "/matrix/api/v1/chat/send_msg" in url:
+            try:
+                payload = response.json()
+            except Exception:
+                payload = {}
+            if isinstance(payload, dict):
+                sent_chat_id = str(payload.get("chat_id") or "").strip()
+                if sent_chat_id:
+                    state["sent_chat_id"] = sent_chat_id
         if "/matrix/api/v1/chat/get_chat_detail" not in url:
             return
         try:
@@ -2969,6 +3655,8 @@ def _run_minimax_browser_only_once(
         state["known_ids"] = set(all_ids)
         state["chat_status"] = chat_status
         if candidate:
+            state["latest_text"] = candidate
+        if candidate and _is_analysis_candidate_text(candidate):
             if candidate == state.get("best_text", ""):
                 state["stable_rounds"] = int(state.get("stable_rounds", 0) or 0) + 1
             else:
@@ -3009,6 +3697,7 @@ def _run_minimax_browser_only_once(
 
             _install_browser_stealth(context)
             _inject_browser_cookies(context)
+            _inject_browser_storage(context)
             try:
                 context.set_extra_http_headers(
                     {
@@ -3024,6 +3713,7 @@ def _run_minimax_browser_only_once(
             page.goto(_motion_coach_expert_url(), wait_until="domcontentloaded", timeout=timeout_ms)
             _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
             _open_motion_coach_chat(page, timeout_ms=timeout_ms, email=email, password=password)
+            state["motion_coach_opened"] = True
 
             # Baseline collection window.
             page.wait_for_timeout(1400)
@@ -3040,6 +3730,15 @@ def _run_minimax_browser_only_once(
             )
             state["sent"] = True
             state["known_ids"] = set(state.get("baseline_ids", set()))
+            if _wait_for_page_condition(page, lambda: bool(str(state.get("sent_chat_id", "")).strip()), timeout_ms=8000, step_ms=250):
+                sent_chat_id = str(state.get("sent_chat_id", "") or "").strip()
+                if sent_chat_id:
+                    page.goto(_chat_page_url(sent_chat_id), wait_until="domcontentloaded", timeout=timeout_ms)
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
+                    except Exception:
+                        pass
+                    state["dom_baseline"] = set(_collect_dom_analysis_candidates(page))
 
             deadline = time.monotonic() + timeout_s_effective
             sleep_ms = max(300, int(max(0.8, poll_interval) * 1000))
@@ -3062,6 +3761,7 @@ def _run_minimax_browser_only_once(
                 dom_candidate = _select_new_dom_candidate(dom_candidates, dom_baseline)
                 if dom_candidate:
                     state["dom_fallback_used"] = True
+                    state["latest_text"] = dom_candidate
                     if dom_candidate == state.get("best_text", ""):
                         state["stable_rounds"] = int(state.get("stable_rounds", 0) or 0) + 1
                     else:
@@ -3084,6 +3784,9 @@ def _run_minimax_browser_only_once(
 
     best_text = str(state.get("best_text", "") or "").strip()
     if not best_text:
+        latest_text = _compact_text(str(state.get("latest_text", "") or ""))
+        if latest_text and not _looks_like_process_text(latest_text):
+            raise RuntimeError("MiniMax returned non-analysis reply: {}".format(latest_text[:400]))
         raise TimeoutError("MiniMax browser-only response timeout (no assistant message)")
 
     analysis = _parse_analysis_payload(best_text)
@@ -3093,7 +3796,10 @@ def _run_minimax_browser_only_once(
         {
             "transport": "browser_ui_only",
             "chat_name": chat_name,
-            "motion_coach_validated": bool(chat_name and _is_motion_coach_label(chat_name)),
+            "motion_coach_validated": bool(state.get("motion_coach_opened")) or bool(chat_name and _is_motion_coach_label(chat_name)),
+            "motion_coach_validation_source": (
+                "expert_browser_flow" if bool(state.get("motion_coach_opened")) else "chat_label"
+            ),
             "elapsed_s": round(elapsed, 2),
             "timeout_s_effective": int(timeout_s_effective),
             "chat_status": int(state.get("chat_status", 0) or 0),
@@ -3246,7 +3952,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         "{}|{}|{}".format(
             prompt,
             int(getattr(settings, "minimax_model_option", 0) or 0),
-            "v4_browser_only",
+            "v5_minimax_only_labeled",
         )
     )
     cached = _cache_get(video_hash, prompt_hash)
