@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 import unittest
 from types import SimpleNamespace
@@ -8,11 +9,13 @@ from analysis.minimax_motion_coach import MiniMaxAnalysis, _analysis_to_payload
 try:
     from app import database as db
     from app import handlers
+    from app import minimax_remote_worker
     from sqlalchemy.dialects import sqlite
     _HANDLERS_IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - local env may miss app deps
     db = None
     handlers = None
+    minimax_remote_worker = None
     sqlite = None
     _HANDLERS_IMPORT_ERROR = exc
 
@@ -186,6 +189,40 @@ class RemoteMiniMaxJobClaimTests(unittest.TestCase):
         self.assertIn("minimax_remote_jobs.status = 'queued'", sql)
         self.assertIn("minimax_remote_jobs.status = 'processing'", sql)
         self.assertIn("minimax_remote_jobs.updated_at <", sql)
+
+
+@unittest.skipIf(minimax_remote_worker is None, "app deps unavailable: {}".format(_HANDLERS_IMPORT_ERROR))
+class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
+    def test_run_worker_forces_headed_chrome(self) -> None:
+        original_headless = os.environ.get("MINIMAX_BROWSER_HEADLESS")
+        original_channel = os.environ.get("MINIMAX_BROWSER_CHANNEL")
+        original_claim = minimax_remote_worker._claim_job
+        observed: dict[str, str | None] = {"headless": None, "channel": None}
+
+        async def fake_claim(_client, _worker_id):
+            observed["headless"] = os.environ.get("MINIMAX_BROWSER_HEADLESS")
+            observed["channel"] = os.environ.get("MINIMAX_BROWSER_CHANNEL")
+            raise asyncio.CancelledError()
+
+        try:
+            os.environ["MINIMAX_BROWSER_HEADLESS"] = "true"
+            os.environ.pop("MINIMAX_BROWSER_CHANNEL", None)
+            minimax_remote_worker._claim_job = fake_claim
+            with self.assertRaises(asyncio.CancelledError):
+                asyncio.run(minimax_remote_worker.run_worker())
+        finally:
+            minimax_remote_worker._claim_job = original_claim
+            if original_headless is None:
+                os.environ.pop("MINIMAX_BROWSER_HEADLESS", None)
+            else:
+                os.environ["MINIMAX_BROWSER_HEADLESS"] = original_headless
+            if original_channel is None:
+                os.environ.pop("MINIMAX_BROWSER_CHANNEL", None)
+            else:
+                os.environ["MINIMAX_BROWSER_CHANNEL"] = original_channel
+
+        self.assertEqual(observed["headless"], "false")
+        self.assertEqual(observed["channel"], "chrome")
 
 
 if __name__ == "__main__":

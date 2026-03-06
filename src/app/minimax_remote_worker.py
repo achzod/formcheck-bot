@@ -115,11 +115,22 @@ async def _process_job(client: httpx.AsyncClient, job: dict) -> None:
 
 async def run_worker() -> None:
     os.environ["MINIMAX_BROWSER_ONLY"] = "true"
-    os.environ.setdefault("MINIMAX_BROWSER_HEADLESS", "false")
+    # MiniMax/Cloudflare blocks AI Motion Coach reliably in headless mode on this setup.
+    # Force a headed Chrome session for the production browser worker.
+    os.environ["MINIMAX_BROWSER_HEADLESS"] = "false"
+    os.environ.setdefault("MINIMAX_BROWSER_CHANNEL", "chrome")
 
     worker_id = _worker_id()
     poll_s = _poll_interval_s()
     timeout = httpx.Timeout(120.0, connect=20.0)
+
+    logger.info(
+        "MiniMax remote worker bootstrap (worker_id=%s headless=%s channel=%s base_url=%s)",
+        worker_id,
+        os.getenv("MINIMAX_BROWSER_HEADLESS", ""),
+        os.getenv("MINIMAX_BROWSER_CHANNEL", ""),
+        _base_url(),
+    )
 
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         while True:

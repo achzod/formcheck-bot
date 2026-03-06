@@ -2191,6 +2191,14 @@ def _browser_launch_options(headless: bool) -> dict[str, Any]:
             "--disable-gpu",
         ],
     }
+    if not headless:
+        options["args"].extend(
+            [
+                "--start-minimized",
+                "--window-position=-2400,0",
+                "--window-size=1440,1100",
+            ]
+        )
     channel = str(getattr(settings, "minimax_browser_channel", "") or "").strip()
     if channel:
         options["channel"] = channel

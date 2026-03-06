@@ -321,6 +321,13 @@ class MiniMaxBrowserLaunchOptionsTests(unittest.TestCase):
 
         self.assertNotIn("channel", options)
 
+    def test_browser_launch_options_minimize_headed_chrome(self) -> None:
+        options = mm._browser_launch_options(headless=False)
+        args = options.get("args", [])
+        self.assertIn("--start-minimized", args)
+        self.assertIn("--window-position=-2400,0", args)
+        self.assertIn("--window-size=1440,1100", args)
+
 
 class MiniMaxBrowserConfigValidationTests(unittest.TestCase):
     def test_validate_settings_allows_seeded_browser_profile_without_password(self) -> None:
