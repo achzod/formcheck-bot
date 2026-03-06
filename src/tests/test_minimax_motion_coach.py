@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 import sys
 import tempfile
 import types
@@ -245,6 +246,66 @@ class MiniMaxBrowserLaunchOptionsTests(unittest.TestCase):
             minimax_settings.minimax_browser_channel = original
 
         self.assertNotIn("channel", options)
+
+
+class MiniMaxBrowserConfigValidationTests(unittest.TestCase):
+    def test_validate_settings_allows_seeded_browser_profile_without_password(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "profile"
+            default_dir = profile_dir / "Default"
+            default_dir.mkdir(parents=True)
+            (default_dir / "Preferences").write_text("{}", encoding="utf-8")
+            original = {
+                "email": minimax_settings.minimax_browser_email,
+                "password": minimax_settings.minimax_browser_password,
+                "profile_dir": minimax_settings.minimax_browser_profile_dir,
+                "local": minimax_settings.minimax_browser_local_storage_json,
+                "session": minimax_settings.minimax_browser_session_storage_json,
+                "cookie": minimax_settings.minimax_cookie,
+            }
+            try:
+                minimax_settings.minimax_browser_email = "achzodyt@gmail.com"
+                minimax_settings.minimax_browser_password = ""
+                minimax_settings.minimax_browser_profile_dir = str(profile_dir)
+                minimax_settings.minimax_browser_local_storage_json = ""
+                minimax_settings.minimax_browser_session_storage_json = ""
+                minimax_settings.minimax_cookie = ""
+                self.assertEqual(mm._validate_settings(), [])
+            finally:
+                minimax_settings.minimax_browser_email = original["email"]
+                minimax_settings.minimax_browser_password = original["password"]
+                minimax_settings.minimax_browser_profile_dir = original["profile_dir"]
+                minimax_settings.minimax_browser_local_storage_json = original["local"]
+                minimax_settings.minimax_browser_session_storage_json = original["session"]
+                minimax_settings.minimax_cookie = original["cookie"]
+
+    def test_validate_settings_requires_password_or_seed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "empty-profile"
+            profile_dir.mkdir(parents=True)
+            original = {
+                "email": minimax_settings.minimax_browser_email,
+                "password": minimax_settings.minimax_browser_password,
+                "profile_dir": minimax_settings.minimax_browser_profile_dir,
+                "local": minimax_settings.minimax_browser_local_storage_json,
+                "session": minimax_settings.minimax_browser_session_storage_json,
+                "cookie": minimax_settings.minimax_cookie,
+            }
+            try:
+                minimax_settings.minimax_browser_email = "achzodyt@gmail.com"
+                minimax_settings.minimax_browser_password = ""
+                minimax_settings.minimax_browser_profile_dir = str(profile_dir)
+                minimax_settings.minimax_browser_local_storage_json = ""
+                minimax_settings.minimax_browser_session_storage_json = ""
+                minimax_settings.minimax_cookie = ""
+                self.assertEqual(mm._validate_settings(), ["minimax_browser_password_or_browser_auth_seed"])
+            finally:
+                minimax_settings.minimax_browser_email = original["email"]
+                minimax_settings.minimax_browser_password = original["password"]
+                minimax_settings.minimax_browser_profile_dir = original["profile_dir"]
+                minimax_settings.minimax_browser_local_storage_json = original["local"]
+                minimax_settings.minimax_browser_session_storage_json = original["session"]
+                minimax_settings.minimax_cookie = original["cookie"]
 
     def test_parse_labeled_output_embedded_in_thinking_process(self) -> None:
         text = (

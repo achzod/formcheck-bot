@@ -2036,15 +2036,39 @@ class _MiniMaxClient:
         return self.request("POST", "/matrix/api/v1/chat/send_msg", payload=payload)
 
 
+def _browser_profile_seed_available() -> bool:
+    raw = str(getattr(settings, "minimax_browser_profile_dir", "") or "").strip()
+    if not raw:
+        return False
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    if not path.exists() or not path.is_dir():
+        return False
+    try:
+        return any(path.iterdir())
+    except Exception:
+        return False
+
+
+def _browser_auth_seed_available() -> bool:
+    if str(getattr(settings, "minimax_cookie", "") or "").strip():
+        return True
+    if _normalized_storage_dump(getattr(settings, "minimax_browser_local_storage_json", ""), label="localStorage"):
+        return True
+    if _normalized_storage_dump(getattr(settings, "minimax_browser_session_storage_json", ""), label="sessionStorage"):
+        return True
+    return _browser_profile_seed_available()
+
+
 def _validate_settings() -> list[str]:
     missing: list[str] = []
-    required_browser = {
-        "minimax_browser_email": getattr(settings, "minimax_browser_email", ""),
-        "minimax_browser_password": getattr(settings, "minimax_browser_password", ""),
-    }
-    for key, value in required_browser.items():
-        if not str(value or "").strip():
-            missing.append(key)
+    email = str(getattr(settings, "minimax_browser_email", "") or "").strip()
+    password = str(getattr(settings, "minimax_browser_password", "") or "").strip()
+    if not email:
+        missing.append("minimax_browser_email")
+    if not password and not _browser_auth_seed_available():
+        missing.append("minimax_browser_password_or_browser_auth_seed")
     return missing
 
 
@@ -2301,6 +2325,9 @@ def _minimax_login_if_needed(page: Any, email: str, password: str, timeout_ms: i
         except Exception:
             continue
     if email_locator is None:
+        return
+    if not str(password or "").strip():
+        logger.warning("MiniMax direct login form visible but no password configured; relying on persisted browser auth.")
         return
 
     password_locator = None
@@ -2984,6 +3011,10 @@ def _login_with_google_if_needed(page: Any, email: str, password: str, timeout_m
             try:
                 locator = google_page.locator(selector).first
                 if locator.count() > 0 and locator.is_visible(timeout=1200):
+                    if not str(password or "").strip():
+                        raise RuntimeError(
+                            "MiniMax browser login failed: Google password step required but MINIMAX_BROWSER_PASSWORD is empty"
+                        )
                     locator.fill(password, timeout=timeout_ms)
                     if not _click_first_visible(
                         google_page,
@@ -3590,8 +3621,12 @@ def _run_minimax_browser_only_once(
 ) -> MiniMaxAnalysis:
     email = str(getattr(settings, "minimax_browser_email", "") or "").strip()
     password = str(getattr(settings, "minimax_browser_password", "") or "").strip()
-    if not email or not password:
-        raise RuntimeError("MiniMax browser-only mode requires MINIMAX_BROWSER_EMAIL and MINIMAX_BROWSER_PASSWORD")
+    has_auth_seed = _browser_auth_seed_available()
+    if not email or (not password and not has_auth_seed):
+        raise RuntimeError(
+            "MiniMax browser-only mode requires MINIMAX_BROWSER_EMAIL and either MINIMAX_BROWSER_PASSWORD "
+            "or persisted browser auth (profile/storage/cookie)"
+        )
 
     timeout_s = max(45, int(getattr(settings, "minimax_browser_timeout_s", 120) or 120))
     timeout_ms = timeout_s * 1000
