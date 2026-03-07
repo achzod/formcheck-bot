@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -72,6 +73,76 @@ class MiniMaxSigningTests(unittest.TestCase):
 
 
 class MiniMaxParsingTests(unittest.TestCase):
+    def test_parse_tagged_markdown_report(self) -> None:
+        text = """
+<FORMCHECK_REPORT_MD>
+# FORMCHECK
+- Exercice: Presse pectorale machine
+- Exercice slug: machine_chest_press
+- Confiance exercice: 0.91
+- Score global: 8/10
+- Repetitions detectees: 7
+- Repetitions completes: 7
+- Repetitions partielles: 0
+- Intensite: 74/100 (elevee)
+- Repos inter-reps moyen: 1.25 s
+
+## RESUME
+Serie globalement propre mais avec une excentrique a mieux freiner.
+
+## POINTS POSITIFS
+- Bon ancrage scapulaire
+- Trajectoire stable
+
+## AMPLITUDE DE MOUVEMENT
+Amplitude utile et complete sur la majorite de la serie.
+
+## CORRECTIONS PRIORITAIRES
+1. Tempo excentrique | Descente trop rapide | Perte de tension | Controle 2 secondes
+
+## ANALYSE DU TEMPO ET DES PHASES
+La phase excentrique manque un peu de maitrise en fin de serie.
+
+## ANALYSE REP PAR REP
+1. Rep 1 | 00:09 - 00:13 | Fluide et propre.
+2. Rep 2 | 00:14 - 00:18 | Legere baisse de vitesse.
+
+## INTENSITE DE SERIE
+Serie dense avec peu de repos inter-reps.
+
+## COMPENSATIONS ET BIOMECANIQUE AVANCEE
+Legere perte de verrouillage scapulaire en fin de serie.
+
+## DECOMPOSITION DU SCORE
+- Securite: 31/40
+- Efficacite technique: 24/30
+- Controle et tempo: 17/20
+- Symetrie: 8/10
+
+## POINT BIOMECANIQUE
+Pense a garder les omoplates fixes pendant toute la poussee.
+
+## RECOMMANDATION POUR LA PROCHAINE VIDEO
+Filme un peu plus large avec la machine complete visible.
+
+## PLAN ACTION
+- Ralentis la descente
+- Garde la cage haute
+- Filme plus large
+</FORMCHECK_REPORT_MD>
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.exercise_slug, "machine_chest_press")
+        self.assertEqual(out.exercise_display, "Presse pectorale machine")
+        self.assertEqual(out.score, 80)
+        self.assertEqual(out.reps_total, 7)
+        self.assertEqual(out.intensity_score, 74)
+        self.assertEqual(out.intensity_label, "elevee")
+        self.assertAlmostEqual(out.avg_inter_rep_rest_s, 1.25, places=2)
+        self.assertEqual(out.score_breakdown.get("Symetrie"), 8)
+        self.assertIn("## RESUME", out.report_text)
+        self.assertIn("## PLAN ACTION", out.report_text)
+
     def test_parse_structured_json_response(self) -> None:
         text = """
 ```json
@@ -329,6 +400,66 @@ class MiniMaxBrowserLaunchOptionsTests(unittest.TestCase):
         self.assertIn("--window-size=1440,1100", args)
 
 
+class MiniMaxVideoStatsTests(unittest.TestCase):
+    def test_video_stats_falls_back_to_ffprobe_when_cv2_returns_zeros(self) -> None:
+        fake_cv2 = types.SimpleNamespace(
+            CAP_PROP_FPS=5,
+            CAP_PROP_FRAME_COUNT=7,
+            CAP_PROP_FRAME_WIDTH=3,
+            CAP_PROP_FRAME_HEIGHT=4,
+        )
+
+        class _FakeCapture:
+            def __init__(self, _path):
+                pass
+
+            def get(self, _prop):
+                return 0.0
+
+            def release(self):
+                return None
+
+        fake_cv2.VideoCapture = _FakeCapture
+
+        ffprobe_payload = json.dumps(
+            {
+                "streams": [
+                    {
+                        "codec_type": "video",
+                        "width": 848,
+                        "height": 480,
+                        "avg_frame_rate": "600/19",
+                        "duration": "56.215510",
+                    }
+                ],
+                "format": {"duration": "56.215510"},
+            }
+        )
+
+        original_cv2 = sys.modules.get("cv2")
+        original_run = mm.subprocess.run
+        try:
+            sys.modules["cv2"] = fake_cv2
+
+            def _fake_run(cmd, capture_output=False, text=False, timeout=0):
+                self.assertIn("ffprobe", cmd[0])
+                return types.SimpleNamespace(returncode=0, stdout=ffprobe_payload)
+
+            mm.subprocess.run = _fake_run  # type: ignore[assignment]
+            stats = mm._video_stats("/tmp/video.mp4")
+        finally:
+            mm.subprocess.run = original_run  # type: ignore[assignment]
+            if original_cv2 is not None:
+                sys.modules["cv2"] = original_cv2
+            else:
+                sys.modules.pop("cv2", None)
+
+        self.assertAlmostEqual(stats["duration_s"], 56.215510, places=3)
+        self.assertAlmostEqual(stats["fps"], 600 / 19, places=4)
+        self.assertEqual(stats["width"], 848)
+        self.assertEqual(stats["height"], 480)
+
+
 class MiniMaxBrowserConfigValidationTests(unittest.TestCase):
     def test_validate_settings_allows_seeded_browser_profile_without_password(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -451,6 +582,24 @@ class MiniMaxMessageExtractionTests(unittest.TestCase):
             mm._is_analysis_candidate_text(
                 "EXERCISE: machine_chest_press\nDISPLAY_NAME_FR: Presse pectorale machine\n"
                 "SCORE: 88/100\nREPS_TOTAL: 9\nPLAN_ACTION:\n- Controle la descente"
+            )
+        )
+
+    def test_analysis_candidate_filter_accepts_tagged_markdown_report(self) -> None:
+        self.assertTrue(
+            mm._is_analysis_candidate_text(
+                "<FORMCHECK_REPORT_MD>\n# FORMCHECK\n- Exercice: Presse pectorale machine\n"
+                "- Score global: 82/100\n- Repetitions detectees: 9\n## RESUME\nSerie propre.\n"
+                "## PLAN ACTION\n- Controle la descente\n</FORMCHECK_REPORT_MD>"
+            )
+        )
+
+    def test_analysis_candidate_filter_rejects_thinking_process_with_markdown_instructions(self) -> None:
+        self.assertFalse(
+            mm._is_analysis_candidate_text(
+                "Thinking Process Je dois respecter le format final entre <FORMCHECK_REPORT_MD> et "
+                "</FORMCHECK_REPORT_MD>. # FORMCHECK - Exercice: nom exact - Score global: 0/100 "
+                "## RESUME 3 a 5 phrases ## PLAN ACTION - action 1"
             )
         )
 

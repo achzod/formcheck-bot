@@ -58,71 +58,68 @@ _LABEL_NORMALIZATION_TABLE = str.maketrans(
         "&": "e",
     }
 )
+_REPORT_START_TAG = "<FORMCHECK_REPORT_MD>"
+_REPORT_END_TAG = "</FORMCHECK_REPORT_MD>"
+
 _DEFAULT_ANALYSIS_PROMPT = (
-    "Analyse cette video de musculation comme un coach expert en biomecanique de la musculation et reponds "
-    "UNIQUEMENT en francais, une fois l'analyse terminee.\n"
+    "Analyse cette video de musculation comme un coach expert en biomecanique de la musculation.\n"
+    "Reponds UNIQUEMENT en francais.\n"
     "Pas de preambule, pas d'explication de workflow, pas de thinking process.\n"
     "Tu t'adresses directement au client, tu le tutoies, tu es critique, didactique, detaille, minutieux et precis.\n"
-    "Tu dois rester strict: n'arrondis jamais a la hausse et dis clairement quand la technique se degrade.\n"
-    "Le score global DOIT etre egal a la somme exacte des 4 sous-scores ci-dessous, sans incoherence.\n"
-    "Bareme obligatoire:\n"
-    "- Securite /40 = alignement articulaire, stabilite, compensations, risque.\n"
-    "- Efficacite technique /30 = trajectoire, amplitude utile, placement, ciblage musculaire.\n"
-    "- Controle et tempo /20 = maitrise excentrique, pauses, vitesse, regularite rep par rep.\n"
-    "- Symetrie /10 = equilibre gauche/droite, deviation laterale, asymetrie de trajectoire.\n"
-    "Un score >85/100 signifie une execution tres propre avec seulement de faibles defauts.\n"
-    "Regles de notation:\n"
-    "- 90 a 100 = serie tres propre, pas de compensation majeure, tres peu de perte technique avec la fatigue.\n"
-    "- 75 a 89 = bonne execution mais au moins 1 ou 2 defauts nets a corriger.\n"
-    "- 60 a 74 = execution correcte mais plusieurs defauts visibles, baisse technique ou controle insuffisant.\n"
-    "- <60 = execution insuffisante, compensation claire, amplitude insuffisante ou risque technique notable.\n"
-    "Format de sortie obligatoire:\n"
-    "EXERCISE: snake_case_exact\n"
-    "DISPLAY_NAME_FR: nom exact en francais\n"
-    "CONFIDENCE: 0.00\n"
-    "SCORE: 0/100\n"
-    "REPS_TOTAL: 0\n"
-    "REPS_COMPLETE: 0\n"
-    "REPS_PARTIAL: 0\n"
-    "INTENSITY_SCORE: 0/100\n"
-    "INTENSITY_LABEL: tres elevee|elevee|moderee|faible|tres faible\n"
-    "AVG_INTER_REP_REST_S: 0.00\n"
-    "POINTS_POSITIFS:\n"
-    "- item\n"
-    "CORRECTIONS_PRIORITAIRES:\n"
+    "N'arrondis jamais a la hausse et dis clairement quand la technique se degrade.\n"
+    "Le score global doit etre coherent avec les 4 sous-scores.\n"
+    "Le message final doit etre UNIQUEMENT un rapport Markdown place entre les balises exactes suivantes:\n"
+    "{start}\n"
+    "...rapport markdown...\n"
+    "{end}\n"
+    "Ne mets rien avant {start} et rien apres {end}.\n"
+    "Rapport Markdown attendu:\n"
+    "# FORMCHECK\n"
+    "- Exercice: nom exact en francais\n"
+    "- Exercice slug: snake_case_exact\n"
+    "- Confiance exercice: 0.00 a 1.00\n"
+    "- Score global: 0/100\n"
+    "- Repetitions detectees: 0\n"
+    "- Repetitions completes: 0\n"
+    "- Repetitions partielles: 0\n"
+    "- Intensite: 0/100 (tres elevee|elevee|moderee|faible|tres faible)\n"
+    "- Repos inter-reps moyen: 0.00 s\n"
+    "## RESUME\n"
+    "3 a 5 phrases critiques et pedagogiques en tutoiement.\n"
+    "## POINTS POSITIFS\n"
+    "- point 1\n"
+    "- point 2\n"
+    "## AMPLITUDE DE MOUVEMENT\n"
+    "3 a 5 phrases.\n"
+    "## CORRECTIONS PRIORITAIRES\n"
     "1. titre | pourquoi | impact | cue\n"
-    "RESUME:\n"
-    "3 a 6 phrases critiques et pedagogiques en tutoiement\n"
-    "AMPLITUDE_DE_MOUVEMENT:\n"
-    "3 a 6 phrases avec amplitude utile, restrictions, verrouillage, reduction d'amplitude si presente\n"
-    "ANALYSE_DU_TEMPO_ET_DES_PHASES:\n"
-    "3 a 6 phrases avec excentrique, isometrique, concentrique, sticking point, pauses et regularite\n"
-    "ANALYSE_REP_PAR_REP:\n"
-    "1. Rep 1 | 00:00 - 00:00 | commentaire bref, critique, concret\n"
-    "2. Rep 2 | 00:00 - 00:00 | commentaire bref, critique, concret\n"
-    "Fais exactement une ligne numerotee par rep detectee, de 1 a REPS_TOTAL, sans en sauter.\n"
-    "Pour CHAQUE rep detectee, mentionne au minimum la plage temporelle, la vitesse relative, la proprete technique, "
-    "la fatigue, les pauses notables entre reps, et toute degradation de trajectoire, d'amplitude ou d'alignement.\n"
+    "## ANALYSE DU TEMPO ET DES PHASES\n"
+    "3 a 5 phrases.\n"
+    "## ANALYSE REP PAR REP\n"
+    "1. Rep 1 | 00:00 - 00:00 | commentaire bref, critique et concret\n"
+    "Fais exactement une ligne numerotee par rep detectee, sans en sauter.\n"
+    "Pour chaque rep, mentionne au minimum la plage temporelle, la vitesse relative, la proprete technique, "
+    "la fatigue, les pauses notables entre reps et toute degradation de trajectoire, d'amplitude ou d'alignement.\n"
     "Si une pause entre deux reps depasse environ 1.5 seconde, signale-la explicitement.\n"
-    "INTENSITE_DE_SERIE:\n"
-    "3 a 6 phrases avec densite, repos inter-reps, ralentissement de fin de serie et perception d'effort\n"
-    "COMPENSATIONS_ET_BIOMECANIQUE_AVANCEE:\n"
-    "3 a 6 phrases avec compensations observees, causes probables, zones qui prennent le relais et risque potentiel\n"
-    "DECOMPOSITION_DU_SCORE:\n"
+    "## INTENSITE DE SERIE\n"
+    "3 a 5 phrases avec densite, repos inter-reps, ralentissement de fin de serie et perception d'effort.\n"
+    "## COMPENSATIONS ET BIOMECANIQUE AVANCEE\n"
+    "3 a 5 phrases avec compensations observees, causes probables, zones qui prennent le relais et risque potentiel.\n"
+    "## DECOMPOSITION DU SCORE\n"
     "- Securite: x/40\n"
     "- Efficacite technique: x/30\n"
     "- Controle et tempo: x/20\n"
     "- Symetrie: x/10\n"
-    "POINT_BIOMECANIQUE:\n"
-    "2 a 4 phrases tres concretes, biomecaniques et utiles pour progresser\n"
-    "RECOMMANDATION_POUR_LA_PROCHAINE_VIDEO:\n"
-    "1 a 3 phrases sur l'angle camera, le cadrage et ce qui doit etre visible pour affiner l'analyse\n"
-    "PLAN_ACTION:\n"
+    "## POINT BIOMECANIQUE\n"
+    "2 a 4 phrases tres concretes, biomecaniques et utiles pour progresser.\n"
+    "## RECOMMANDATION POUR LA PROCHAINE VIDEO\n"
+    "1 a 3 phrases sur l'angle camera, le cadrage et ce qui doit etre visible pour affiner l'analyse.\n"
+    "## PLAN ACTION\n"
     "- action 1\n"
     "- action 2\n"
     "- action 3\n"
-    "Si une donnee n'est pas mesurable, ecris NON MESURABLE. N'utilise NON MESURABLE que si l'information est vraiment invisible."
-)
+    "Si une information est invisible, ecris NON MESURABLE."
+).format(start=_REPORT_START_TAG, end=_REPORT_END_TAG)
 
 _INTENSITY_LABELS = (
     ("tres elevee", 85),
@@ -472,10 +469,48 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
 
 
 def _extract_score_from_text(text: str) -> int:
-    match = re.search(r"\b(\d{1,3})\s*/\s*100\b", text)
-    if not match:
-        return 0
-    return _clamp_int(match.group(1))
+    labeled_match = re.search(
+        r"(?:score(?:\s+global)?|note(?:\s+globale)?)\s*[:\-]?\s*(\d{1,3})\s*/\s*(100|10)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if labeled_match:
+        value = int(labeled_match.group(1))
+        denominator = int(labeled_match.group(2))
+        if denominator == 10:
+            value *= 10
+        return _clamp_int(value)
+
+    generic_100 = re.search(r"\b(\d{1,3})\s*/\s*100\b", text)
+    if generic_100:
+        return _clamp_int(generic_100.group(1))
+
+    generic_10 = re.search(r"\b(\d{1,2})\s*/\s*10\b", text)
+    if generic_10:
+        return _clamp_int(int(generic_10.group(1)) * 10)
+    return 0
+
+
+def _looks_like_report_template(text: str) -> bool:
+    low = _compact_text(text).lower()
+    if not low:
+        return False
+    template_markers = (
+        "nom exact",
+        "snake_case_exact",
+        "0/100",
+        "0.00",
+        "3 a 5 phrases",
+        "commentaire bref",
+        "point 1",
+        "action 1",
+        "x/40",
+        "x/30",
+        "x/20",
+        "x/10",
+    )
+    hits = sum(1 for marker in template_markers if marker in low)
+    return hits >= 3
 
 
 def _extract_reps_from_text(text: str) -> int:
@@ -490,12 +525,16 @@ def _extract_intensity_from_text(text: str) -> tuple[int, float]:
     rest = 0.0
 
     score_match = re.search(
-        r"intensit[eé]\s*[:\-]?\s*(\d{1,3})\s*/\s*100",
+        r"intensit[eé]\s*[:\-]?\s*(\d{1,3})\s*/\s*(100|10)",
         text,
         flags=re.IGNORECASE,
     )
     if score_match:
-        score = _clamp_int(score_match.group(1))
+        value = int(score_match.group(1))
+        denominator = int(score_match.group(2))
+        if denominator == 10:
+            value *= 10
+        score = _clamp_int(value)
 
     rest_match = re.search(
         r"repos?\s+(?:moyen|avg|average)?\s*([0-9]+(?:[.,][0-9]+)?)\s*s",
@@ -519,6 +558,199 @@ def _extract_exercise_from_text(text: str) -> str:
     if "—" in first:
         first = first.split("—", 1)[0].strip()
     return first or "Exercice non identifie"
+
+
+def _clean_markdown_report_text(text: str) -> str:
+    normalized = str(text or "").replace("\r", "\n")
+    lines: list[str] = []
+    noise_prefixes = (
+        "New Task",
+        "Search",
+        "Assets",
+        "Gallery",
+        "MiniMax Lab",
+        "MaxClaw",
+        "Experts",
+        "Explore Experts",
+        "Task History",
+        "You have control of the AI window",
+        "End Takeover",
+        "Files",
+        "Current Process",
+        "Thinking Process",
+        "Ongoing Video Understanding",
+        "Completed Skill",
+        "Ongoing Command Line Execution",
+        "Completed Command Line Execution",
+        "Upload your workout video",
+        "Made by MiniMax",
+    )
+    for raw_line in normalized.splitlines():
+        line = raw_line.strip()
+        if not line:
+            lines.append("")
+            continue
+        if any(line.startswith(prefix) for prefix in noise_prefixes):
+            continue
+        if line == "MAX":
+            continue
+        lines.append(raw_line.rstrip())
+    cleaned = "\n".join(lines)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _normalize_report_heading(line: str) -> str:
+    heading = re.sub(r"^#+\s*", "", str(line or "").strip())
+    heading = re.sub(r"^[*-]\s*", "", heading)
+    heading = heading.strip(" :.-")
+    return _normalize_label_text(heading)
+
+
+def _looks_like_markdown_report(text: str) -> bool:
+    raw = str(text or "").strip()
+    if not raw:
+        return False
+
+    metric_hits = 0
+    heading_hits = 0
+    for raw_line in raw.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        norm = _normalize_report_heading(line)
+        if norm in {
+            "resume",
+            "points positifs",
+            "amplitude de mouvement",
+            "corrections prioritaires",
+            "analyse du tempo et des phases",
+            "analyse rep par rep",
+            "intensite de serie",
+            "compensations et biomecanique avancee",
+            "decomposition du score",
+            "point biomecanique",
+            "recommandation pour la prochaine video",
+            "plan action",
+        }:
+            heading_hits += 1
+        metric_line = re.sub(r"^[-*]\s*", "", line)
+        metric_norm = _normalize_label_text(metric_line.split(":", 1)[0]) if ":" in metric_line else ""
+        if metric_norm in {
+            "exercice",
+            "exercice slug",
+            "confiance exercice",
+            "score global",
+            "repetitions detectees",
+            "repetitions completes",
+            "repetitions partielles",
+            "intensite",
+            "repos inter reps moyen",
+        }:
+            metric_hits += 1
+    return metric_hits >= 3 or (metric_hits >= 2 and heading_hits >= 2)
+
+
+def _extract_tagged_report_block(text: str) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    pattern = re.compile(
+        re.escape(_REPORT_START_TAG) + r"([\s\S]*?)" + re.escape(_REPORT_END_TAG),
+        flags=re.IGNORECASE,
+    )
+    matches = pattern.findall(raw)
+    for candidate in reversed(matches):
+        cleaned = _clean_markdown_report_text(candidate)
+        if cleaned and not _looks_like_report_template(cleaned) and _looks_like_markdown_report(cleaned):
+            return cleaned
+    return ""
+
+
+def _extract_markdown_report_block(text: str) -> str:
+    tagged = _extract_tagged_report_block(text)
+    if tagged:
+        return tagged
+
+    raw = _clean_markdown_report_text(text)
+    if not raw:
+        return ""
+    if _looks_like_process_text(raw):
+        return ""
+    if _looks_like_report_template(raw):
+        return ""
+    if _looks_like_markdown_report(raw):
+        return raw
+    return ""
+
+
+def _extract_metric_line(text: str, aliases: tuple[str, ...]) -> str:
+    normalized_aliases = {_normalize_label_text(alias) for alias in aliases}
+    for raw_line in str(text or "").splitlines():
+        line = re.sub(r"^[-*]\s*", "", raw_line.strip())
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        if _normalize_label_text(key) in normalized_aliases:
+            return value.strip()
+    return ""
+
+
+def _canonical_markdown_section_key(heading: str) -> str:
+    norm = _normalize_report_heading(heading)
+    aliases: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("resume", ("resume",)),
+        ("rom", ("amplitude de mouvement", "amplitude", "range of motion")),
+        ("tempo", ("analyse du tempo et des phases", "tempo et phases", "tempo")),
+        ("rep_par_rep", ("analyse rep par rep", "analyse repetition par repetition", "rep par rep")),
+        ("intensite", ("intensite de serie", "intensite", "densite")),
+        ("compensations", ("compensations et biomecanique avancee", "compensations", "biomecanique avancee")),
+        ("breakdown", ("decomposition du score",)),
+        ("biomecanique", ("point biomecanique",)),
+        ("next_video", ("recommandation pour la prochaine video", "recommandation")),
+        ("plan_action", ("plan action", "plan d action")),
+        ("positives", ("points positifs",)),
+        ("corrections", ("corrections prioritaires",)),
+    )
+    for canonical, keys in aliases:
+        if norm in keys:
+            return canonical
+    return ""
+
+
+def _split_markdown_sections(text: str) -> tuple[str, dict[str, str]]:
+    intro_lines: list[str] = []
+    sections: dict[str, list[str]] = {}
+    current_key = ""
+
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            if current_key:
+                sections.setdefault(current_key, []).append("")
+            else:
+                intro_lines.append("")
+            continue
+        if line in {_REPORT_START_TAG, _REPORT_END_TAG}:
+            continue
+        if _normalize_report_heading(line) == "formcheck":
+            continue
+        heading_key = _canonical_markdown_section_key(line)
+        if heading_key:
+            current_key = heading_key
+            sections.setdefault(current_key, [])
+            continue
+        if current_key:
+            sections.setdefault(current_key, []).append(raw_line.rstrip())
+        else:
+            intro_lines.append(raw_line.rstrip())
+
+    out = {
+        key: "\n".join(value).strip()
+        for key, value in sections.items()
+        if "\n".join(value).strip()
+    }
+    return "\n".join(intro_lines).strip(), out
 
 
 def _looks_like_process_text(text: str) -> bool:
@@ -740,6 +972,88 @@ def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
             analysis.score = derived_total
     analysis.plan_action = _extract_bullets(plan_block)[:6]
     analysis.report_text = _build_structured_report_text(analysis)
+    return analysis
+
+
+def _parse_markdown_analysis_payload(text: str) -> MiniMaxAnalysis | None:
+    report_text = _extract_markdown_report_block(text)
+    if not report_text:
+        return None
+
+    intro_text, markdown_sections = _split_markdown_sections(report_text)
+    analysis = MiniMaxAnalysis(raw_response=(text or "").strip())
+
+    exercise_display = (
+        _extract_metric_line(report_text, ("Exercice", "Display name", "Nom exercice"))
+        or _extract_exercise_from_text(report_text)
+    )
+    exercise_slug = _extract_metric_line(report_text, ("Exercice slug", "Exercise slug", "Exercise"))
+    confidence_text = _extract_metric_line(report_text, ("Confiance exercice", "Confidence", "Confiance"))
+    score_text = _extract_metric_line(report_text, ("Score global", "Score", "Note globale"))
+    reps_total_text = _extract_metric_line(report_text, ("Repetitions detectees", "Reps total", "Nombre de reps"))
+    reps_complete_text = _extract_metric_line(report_text, ("Repetitions completes", "Reps completes"))
+    reps_partial_text = _extract_metric_line(report_text, ("Repetitions partielles", "Reps partielles"))
+    intensity_text = _extract_metric_line(report_text, ("Intensite",))
+    rest_text = _extract_metric_line(report_text, ("Repos inter-reps moyen", "Repos inter reps moyen", "Repos moyen"))
+
+    analysis.exercise_display = exercise_display or analysis.exercise_display
+    analysis.exercise_slug = _slugify(exercise_slug or exercise_display)
+    analysis.exercise_confidence = max(0.0, min(1.0, _coerce_float(confidence_text.replace(",", "."), 0.0)))
+    analysis.score = _extract_score_from_text(score_text or report_text)
+    analysis.reps_total = max(0, int(_coerce_float(reps_total_text, 0.0)))
+    analysis.reps_complete = max(0, int(_coerce_float(reps_complete_text, 0.0)))
+    analysis.reps_partial = max(0, int(_coerce_float(reps_partial_text, 0.0)))
+    analysis.intensity_score, extracted_rest = _extract_intensity_from_text(
+        ("Intensite: " + intensity_text) if intensity_text else report_text
+    )
+    if analysis.intensity_score <= 0 and intensity_text:
+        analysis.intensity_score = _extract_score_from_text(intensity_text)
+    rest_value = 0.0
+    if rest_text:
+        rest_match = re.search(r"([0-9]+(?:[.,][0-9]+)?)", rest_text)
+        if rest_match:
+            rest_value = _coerce_float(rest_match.group(1).replace(",", "."), 0.0)
+    analysis.avg_inter_rep_rest_s = max(extracted_rest, rest_value)
+
+    intensity_label_match = re.search(
+        r"\((tres elevee|elevee|moderee|faible|tres faible)\)",
+        intensity_text,
+        flags=re.IGNORECASE,
+    )
+    analysis.intensity_label = (
+        str(intensity_label_match.group(1) or "").strip().lower()
+        if intensity_label_match
+        else _intensity_label_from_score(analysis.intensity_score)
+    )
+
+    if analysis.reps_total <= 0:
+        analysis.reps_total = _extract_reps_from_text(report_text)
+    if analysis.reps_complete <= 0 and analysis.reps_total > 0:
+        analysis.reps_complete = analysis.reps_total
+
+    analysis.sections = {
+        key: markdown_sections[key]
+        for key in ("resume", "rom", "tempo", "rep_par_rep", "intensite", "compensations", "biomecanique", "next_video")
+        if key in markdown_sections
+    }
+    analysis.positives = _extract_bullets(markdown_sections.get("positives", ""))[:6]
+    analysis.corrections = _parse_corrections_block(markdown_sections.get("corrections", ""))[:6]
+    analysis.plan_action = _extract_bullets(markdown_sections.get("plan_action", ""))[:6]
+    analysis.score_breakdown = _parse_score_breakdown_block(markdown_sections.get("breakdown", ""), analysis.score)
+
+    if analysis.score_breakdown:
+        derived_total = _score_breakdown_total(analysis.score_breakdown)
+        if derived_total > 0:
+            analysis.score = derived_total
+
+    if intro_text and "resume" not in analysis.sections:
+        analysis.sections["resume"] = intro_text
+    analysis.report_text = report_text
+
+    if not analysis.exercise_slug:
+        analysis.exercise_slug = _slugify(analysis.exercise_display)
+    if not analysis.exercise_display:
+        analysis.exercise_display = "Exercice non identifie"
     return analysis
 
 
@@ -1183,6 +1497,69 @@ def _video_stats(video_path: str) -> dict[str, float]:
         )
     except Exception as exc:
         logger.debug("Video stats probe failed: %s", exc)
+
+    if stats["duration_s"] > 0 and stats["width"] > 0 and stats["height"] > 0:
+        return stats
+
+    try:
+        proc = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-print_format",
+                "json",
+                "-show_streams",
+                "-show_format",
+                video_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            payload = json.loads(proc.stdout)
+            streams = payload.get("streams", []) if isinstance(payload, dict) else []
+            fmt = payload.get("format", {}) if isinstance(payload, dict) else {}
+            video_stream = None
+            for stream in streams:
+                if isinstance(stream, dict) and stream.get("codec_type") == "video":
+                    video_stream = stream
+                    break
+            if isinstance(video_stream, dict):
+                width = _coerce_float(video_stream.get("width"), 0.0)
+                height = _coerce_float(video_stream.get("height"), 0.0)
+                fps_raw = str(
+                    video_stream.get("avg_frame_rate")
+                    or video_stream.get("r_frame_rate")
+                    or ""
+                ).strip()
+                fps = 0.0
+                if "/" in fps_raw:
+                    num_text, den_text = fps_raw.split("/", 1)
+                    den = _coerce_float(den_text, 0.0)
+                    if den > 0:
+                        fps = _coerce_float(num_text, 0.0) / den
+                else:
+                    fps = _coerce_float(fps_raw, 0.0)
+                duration = _coerce_float(
+                    video_stream.get("duration"),
+                    _coerce_float(fmt.get("duration"), 0.0),
+                )
+                total_frames = _coerce_float(video_stream.get("nb_frames"), 0.0)
+                if total_frames <= 0 and duration > 0 and fps > 0:
+                    total_frames = duration * fps
+                stats.update(
+                    {
+                        "duration_s": max(stats["duration_s"], duration),
+                        "fps": max(stats["fps"], fps),
+                        "total_frames": max(stats["total_frames"], total_frames),
+                        "width": max(stats["width"], width),
+                        "height": max(stats["height"], height),
+                    }
+                )
+    except Exception as exc:
+        logger.debug("ffprobe stats fallback failed: %s", exc)
     return stats
 
 
@@ -1367,6 +1744,10 @@ def _prepare_video_for_minimax(video_path: str) -> _PreparedVideo:
 
 
 def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
+    markdown = _parse_markdown_analysis_payload(text)
+    if markdown is not None:
+        return markdown
+
     payload = _extract_json_object(text)
     raw_text = (text or "").strip()
     analysis = MiniMaxAnalysis(raw_response=raw_text)
@@ -3558,6 +3939,26 @@ def _is_analysis_candidate_text(text: str) -> bool:
         return False
 
     low = normalized.lower()
+    if _extract_tagged_report_block(text):
+        return True
+
+    if _looks_like_process_text(normalized):
+        process_only_markers = (
+            "format de sortie obligatoire",
+            "the user wants me to",
+            "let me",
+            "je dois",
+            "i must",
+            "you have control of the ai window",
+        )
+        if any(marker in low for marker in process_only_markers):
+            return False
+        if not _has_final_output_markers(normalized):
+            return False
+
+    if _extract_markdown_report_block(text):
+        return True
+
     if _looks_like_process_text(normalized) and not _has_final_output_markers(normalized):
         return False
 
@@ -3591,6 +3992,15 @@ def _is_analysis_candidate_text(text: str) -> bool:
         "decomposition du score",
         "plan action",
         "point biomecanique",
+        "score global:",
+        "repetitions detectees:",
+        "repetitions completes:",
+        "repetitions partielles:",
+        "repos inter-reps moyen:",
+        "## resume",
+        "## amplitude de mouvement",
+        "## analyse rep par rep",
+        "## plan action",
     )
     if any(marker in low for marker in positive_markers):
         return True
@@ -3679,6 +4089,39 @@ def _collect_dom_analysis_candidates(page: Any, max_items: int = 120) -> list[st
     return filtered
 
 
+def _collect_page_report_candidate(page: Any) -> str:
+    try:
+        body_text = str(page.locator("body").inner_text(timeout=1800) or "")
+    except Exception:
+        return ""
+    report_block = _extract_markdown_report_block(body_text)
+    if report_block:
+        return report_block
+    if _is_analysis_candidate_text(body_text):
+        return _compact_text(body_text)
+    return ""
+
+
+def _browser_task_failed_visible(page: Any) -> bool:
+    try:
+        body_text = str(page.locator("body").inner_text(timeout=1500) or "")
+    except Exception:
+        return False
+    return "task failed" in body_text.lower()
+
+
+def _retry_browser_task(page: Any, timeout_ms: int) -> bool:
+    return _click_first_visible(
+        page,
+        (
+            "button:has-text('Retry')",
+            "button:has-text('Try again')",
+            "button:has-text('Réessayer')",
+        ),
+        timeout_ms=min(timeout_ms, 3500),
+    )
+
+
 def _select_new_dom_candidate(candidates: list[str], baseline: set[str]) -> str:
     fresh = [candidate for candidate in candidates if candidate not in baseline]
     if not fresh:
@@ -3735,6 +4178,7 @@ def _run_minimax_browser_only_once(
         "sent_chat_id": "",
         "responses_seen": 0,
         "motion_coach_opened": False,
+        "task_failed_retries": 0,
     }
 
     def _on_response(response: Any) -> None:
@@ -3868,6 +4312,20 @@ def _run_minimax_browser_only_once(
                     )
                 ):
                     break
+
+                if _browser_task_failed_visible(page):
+                    page_report = _collect_page_report_candidate(page)
+                    if page_report:
+                        state["latest_text"] = page_report
+                        state["best_text"] = page_report
+                        state["done"] = True
+                        break
+                    if int(state.get("task_failed_retries", 0) or 0) < 2 and _retry_browser_task(page, timeout_ms=timeout_ms):
+                        state["task_failed_retries"] = int(state.get("task_failed_retries", 0) or 0) + 1
+                        page.wait_for_timeout(2500)
+                        continue
+                    raise RuntimeError("MiniMax browser task failed in UI")
+
                 page.wait_for_timeout(sleep_ms)
                 dom_candidates = _collect_dom_analysis_candidates(page)
                 state["dom_candidates_seen"] = max(
@@ -3885,6 +4343,13 @@ def _run_minimax_browser_only_once(
                         state["best_text"] = dom_candidate
                         state["stable_rounds"] = 0
                     if int(state.get("stable_rounds", 0) or 0) >= 2:
+                        state["done"] = True
+                elif not state.get("best_text"):
+                    page_report = _collect_page_report_candidate(page)
+                    if page_report:
+                        state["dom_fallback_used"] = True
+                        state["latest_text"] = page_report
+                        state["best_text"] = page_report
                         state["done"] = True
 
         finally:
@@ -4069,7 +4534,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         "{}|{}|{}".format(
             prompt,
             int(getattr(settings, "minimax_model_option", 0) or 0),
-            "v5_minimax_only_labeled",
+            "v6_minimax_markdown_only",
         )
     )
     cached = _cache_get(video_hash, prompt_hash)
