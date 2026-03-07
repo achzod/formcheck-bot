@@ -278,6 +278,20 @@ PLAN_ACTION:
         self.assertEqual(out.intensity_label, "elevee")
         self.assertAlmostEqual(out.avg_inter_rep_rest_s, 0.92, places=2)
 
+    def test_parse_unstructured_report_preserves_raw_report_text(self) -> None:
+        text = """
+Machine Chest Press
+Tu as une bonne stabilite globale sur la machine et ton placement de dos est propre.
+L'amplitude est correcte, mais tu acceleres trop la phase excentrique sur les deux dernieres repetitions.
+On voit aussi une legere compensation de l'epaule droite quand la fatigue monte.
+- Point fort: trajectoire globalement stable
+- Correction: ralentis la descente et garde les coudes mieux alignes
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.exercise_display, "Machine Chest Press")
+        self.assertIn("bonne stabilite globale", out.report_text.lower())
+        self.assertIn("correction: ralentis la descente", out.report_text.lower())
+
     def test_score_breakdown_is_clamped_per_category(self) -> None:
         text = """
 {
@@ -591,6 +605,25 @@ class MiniMaxMessageExtractionTests(unittest.TestCase):
                 "<FORMCHECK_REPORT_MD>\n# FORMCHECK\n- Exercice: Presse pectorale machine\n"
                 "- Score global: 82/100\n- Repetitions detectees: 9\n## RESUME\nSerie propre.\n"
                 "## PLAN ACTION\n- Controle la descente\n</FORMCHECK_REPORT_MD>"
+            )
+        )
+
+    def test_unstructured_report_text_detector_accepts_real_analysis(self) -> None:
+        self.assertTrue(
+            mm._looks_like_unstructured_report_text(
+                "Tu as une bonne posture de depart et une amplitude cohérente. "
+                "La phase excentrique est trop rapide sur les dernières répétitions. "
+                "On voit une compensation d'épaule quand la fatigue monte, ce qui dégrade l'alignement. "
+                "- Point fort: stabilité du tronc\n- Correction: ralentis la descente"
+            )
+        )
+
+    def test_unstructured_report_text_detector_rejects_english_process_output(self) -> None:
+        self.assertFalse(
+            mm._looks_like_unstructured_report_text(
+                "The extract_frames.py script doesn't exist. Let me check what's in the skills directory "
+                "and find an alternative way to extract frames. I can use ffmpeg directly to extract frames "
+                "from the video."
             )
         )
 

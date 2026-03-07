@@ -164,9 +164,16 @@ _PROCESS_MARKERS = (
     "invoke motion-analysis skill",
     "invoke stickman-generation skill",
     "let me first",
+    "let me check",
     "the user wants me to",
     "i need to first",
+    "script doesn't exist",
     "script path doesn't exist",
+    "extract_frames.py",
+    "skills directory",
+    "ffmpeg directly",
+    "i can use ffmpeg directly",
+    "extract frames from the video",
     "search for the correct path",
     "extract keyframes",
 )
@@ -511,6 +518,51 @@ def _looks_like_report_template(text: str) -> bool:
     )
     hits = sum(1 for marker in template_markers if marker in low)
     return hits >= 3
+
+
+def _looks_like_unstructured_report_text(text: str) -> bool:
+    normalized = _clean_markdown_report_text(text)
+    low = _compact_text(normalized).lower()
+    if len(low) < 180:
+        return False
+    if _looks_like_process_text(low):
+        return False
+    if _looks_like_report_template(low):
+        return False
+    negative_markers = (
+        "upload your workout video",
+        "personal ai coach that never sleeps",
+        "made by minimax",
+        "new task",
+        "explore experts",
+        "task history",
+        "you have control of the ai window",
+        "end takeover",
+        "format de sortie obligatoire",
+    )
+    if any(marker in low for marker in negative_markers):
+        return False
+    keyword_hits = sum(
+        1
+        for token in (
+            "amplitude",
+            "tempo",
+            "compensation",
+            "biomecan",
+            "alignement",
+            "stabil",
+            "posture",
+            "fatigue",
+            "repetition",
+            "rep ",
+            "intensit",
+            "serie",
+        )
+        if token in low
+    )
+    sentence_hits = len(re.findall(r"[.!?]\s+", normalized))
+    bullet_hits = normalized.count("\n- ") + normalized.count("\n* ")
+    return keyword_hits >= 3 or sentence_hits >= 3 or bullet_hits >= 2
 
 
 def _extract_reps_from_text(text: str) -> int:
@@ -1901,7 +1953,10 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
     analysis.avg_inter_rep_rest_s = avg_rest
     analysis.sections = {}
     analysis.plan_action = []
-    analysis.report_text = _build_structured_report_text(analysis)
+    if _looks_like_unstructured_report_text(raw_text):
+        analysis.report_text = _clean_markdown_report_text(raw_text)
+    else:
+        analysis.report_text = _build_structured_report_text(analysis)
     if raw_text:
         analysis.raw_response = raw_text
     return analysis
@@ -4089,7 +4144,70 @@ def _collect_dom_analysis_candidates(page: Any, max_items: int = 120) -> list[st
     return filtered
 
 
+def _collect_dom_text_candidates(page: Any, max_items: int = 160) -> list[str]:
+    script = """
+() => {
+  const selectors = [
+    "[data-message-author-role='assistant']",
+    "[data-message-role='assistant']",
+    "[data-testid*='assistant']",
+    ".markdown-body",
+    "[class*='markdown']",
+    "[class*='assistant'] [class*='content']"
+  ];
+  const out = [];
+  for (const sel of selectors) {
+    for (const node of Array.from(document.querySelectorAll(sel))) {
+      const txt = (node && (node.innerText || node.textContent || "") || "").trim();
+      if (txt) out.push(txt);
+    }
+  }
+  return out.slice(-400);
+}
+"""
+    try:
+        raw_values = page.evaluate(script)
+    except Exception:
+        return []
+    if not isinstance(raw_values, list):
+        return []
+
+    filtered: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        text = _clean_markdown_report_text(str(raw or ""))
+        if len(text) < 80:
+            continue
+        low = text.lower()
+        if _looks_like_process_text(text):
+            continue
+        if low.startswith("tu es un coach biomecanique expert"):
+            continue
+        if "analyse cette video de musculation comme un coach expert" in low:
+            continue
+        if "format de sortie obligatoire" in low:
+            continue
+        if "start chat" in low:
+            continue
+        if text not in seen:
+            seen.add(text)
+            filtered.append(text)
+    if len(filtered) > max_items:
+        return filtered[-max_items:]
+    return filtered
+
+
 def _collect_page_report_candidate(page: Any) -> str:
+    dom_candidates = _collect_dom_analysis_candidates(page)
+    if dom_candidates:
+        return _select_new_dom_candidate(dom_candidates, set())
+
+    broad_dom_candidates = _collect_dom_text_candidates(page)
+    unstructured = [candidate for candidate in broad_dom_candidates if _looks_like_unstructured_report_text(candidate)]
+    if unstructured:
+        unstructured.sort(key=lambda item: (len(item), item.count("\n")), reverse=True)
+        return unstructured[0]
+
     try:
         body_text = str(page.locator("body").inner_text(timeout=1800) or "")
     except Exception:
@@ -4097,6 +4215,8 @@ def _collect_page_report_candidate(page: Any) -> str:
     report_block = _extract_markdown_report_block(body_text)
     if report_block:
         return report_block
+    if _looks_like_unstructured_report_text(body_text):
+        return _clean_markdown_report_text(body_text)
     if _is_analysis_candidate_text(body_text):
         return _compact_text(body_text)
     return ""
@@ -4179,6 +4299,8 @@ def _run_minimax_browser_only_once(
         "responses_seen": 0,
         "motion_coach_opened": False,
         "task_failed_retries": 0,
+        "page_report": "",
+        "timeout_debug": {},
     }
 
     def _on_response(response: Any) -> None:
@@ -4351,8 +4473,30 @@ def _run_minimax_browser_only_once(
                         state["latest_text"] = page_report
                         state["best_text"] = page_report
                         state["done"] = True
+                page_report_snapshot = _collect_page_report_candidate(page)
+                if page_report_snapshot:
+                    state["page_report"] = page_report_snapshot
 
         finally:
+            if page is not None and not str(state.get("best_text", "") or "").strip():
+                debug: dict[str, Any] = {}
+                try:
+                    debug["page_state"] = _motion_coach_page_state(page)
+                except Exception:
+                    pass
+                try:
+                    body_text = str(page.locator("body").inner_text(timeout=1800) or "")
+                    debug["body_tail"] = body_text[-1800:]
+                except Exception:
+                    pass
+                try:
+                    shot_path = Path.cwd() / "tmp" / "minimax-timeout-{}.png".format(uuid.uuid4().hex[:8])
+                    shot_path.parent.mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(shot_path), full_page=True)
+                    debug["screenshot"] = str(shot_path)
+                except Exception:
+                    pass
+                state["timeout_debug"] = debug
             if page is not None:
                 try:
                     page.off("response", _on_response)
@@ -4366,10 +4510,35 @@ def _run_minimax_browser_only_once(
 
     best_text = str(state.get("best_text", "") or "").strip()
     if not best_text:
+        page_report = _clean_markdown_report_text(str(state.get("page_report", "") or ""))
+        if page_report:
+            best_text = page_report
+            analysis = _parse_analysis_payload(best_text)
+            elapsed = time.monotonic() - start
+            analysis.metadata.update(
+                {
+                    "transport": "browser_ui_only",
+                    "chat_name": str(state.get("chat_name", "") or "").strip(),
+                    "motion_coach_validated": bool(state.get("motion_coach_opened")),
+                    "motion_coach_validation_source": "expert_browser_flow",
+                    "elapsed_s": round(elapsed, 2),
+                    "timeout_s_effective": int(timeout_s_effective),
+                    "chat_status": int(state.get("chat_status", 0) or 0),
+                    "responses_seen": int(state.get("responses_seen", 0) or 0),
+                    "dom_fallback_used": True,
+                    "dom_candidates_seen": int(state.get("dom_candidates_seen", 0) or 0),
+                    "task_failed_retries": int(state.get("task_failed_retries", 0) or 0),
+                }
+            )
+            return analysis
         latest_text = _compact_text(str(state.get("latest_text", "") or ""))
         if latest_text and not _looks_like_process_text(latest_text):
             raise RuntimeError("MiniMax returned non-analysis reply: {}".format(latest_text[:400]))
-        raise TimeoutError("MiniMax browser-only response timeout (no assistant message)")
+        timeout_debug = state.get("timeout_debug") or {}
+        debug_suffix = ""
+        if isinstance(timeout_debug, dict) and timeout_debug:
+            debug_suffix = " debug={}".format(json.dumps(timeout_debug, ensure_ascii=False)[:1600])
+        raise TimeoutError("MiniMax browser-only response timeout (no assistant message){}".format(debug_suffix))
 
     analysis = _parse_analysis_payload(best_text)
     elapsed = time.monotonic() - start
@@ -4554,8 +4723,8 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         float(prepared.prepared_duration_s or 0.0),
         float(prepared.source_duration_s or 0.0),
     )
-    adaptive_timeout_s = int(120 + (base_duration_s * 3.0))
-    timeout_s_effective = max(timeout_s, min(600, adaptive_timeout_s))
+    adaptive_timeout_s = int(180 + (base_duration_s * 5.0))
+    timeout_s_effective = max(timeout_s, min(900, adaptive_timeout_s))
     analysis: MiniMaxAnalysis | None = None
 
     try:
