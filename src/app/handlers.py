@@ -239,9 +239,6 @@ async def handle_incoming_message(data: dict) -> None:
 
     if is_new:
         await wa.send_text(phone, msg.WELCOME)
-        # Proposer le profil morpho au nouveau client
-        await wa.send_text(phone, msg.MORPHO_WELCOME)
-        await db.set_morpho_flow_state(phone, "waiting_front")
         return
 
     msg_type: str = data["type"]
@@ -332,7 +329,7 @@ async def handle_text(user: db.User, data: dict) -> None:
     elif text in ("morpho reset", "reset morpho"):
         # Forcer un nouveau profil morpho
         await db.delete_morpho_flow_state(phone)
-        await wa.send_text(phone, msg.MORPHO_INSTRUCTIONS_FRONT)
+        await wa.send_text(phone, msg.MORPHO_WELCOME)
         await db.set_morpho_flow_state(phone, "waiting_front")
     elif text in ("salut", "hello", "bonjour", "yo", "hey", "hi", "coucou", "slt"):
         await wa.send_text(
@@ -423,13 +420,7 @@ async def handle_video(user: db.User, data: dict) -> None:
 
             has_morpho = await db.has_morpho_profile(user.id)
             if not has_morpho:
-                await wa.send_text(
-                    phone,
-                    "Tu n'as pas encore de profil morphologique. "
-                    "L'analyse utilisera des seuils generiques.\n"
-                    "Tape *morpho* apres cette analyse pour creer ton profil "
-                    "et avoir des analyses personnalisees.",
-                )
+                await wa.send_text(phone, msg.MORPHO_OPTIONAL_NUDGE)
 
             await wa.send_text(
                 phone,
@@ -481,13 +472,7 @@ async def handle_video(user: db.User, data: dict) -> None:
         # Suggerer le profil morpho si le client n'en a pas (une seule fois).
         has_morpho = await db.has_morpho_profile(user.id)
         if not has_morpho:
-            await wa.send_text(
-                phone,
-                "Tu n'as pas encore de profil morphologique. "
-                "L'analyse utilisera des seuils generiques.\n"
-                "Tape *morpho* apres cette analyse pour creer ton profil "
-                "et avoir des analyses personnalisees.",
-            )
+            await wa.send_text(phone, msg.MORPHO_OPTIONAL_NUDGE)
 
         await wa.send_text(phone, msg.VIDEO_RECEIVED)
 
@@ -520,13 +505,7 @@ async def enqueue_uploaded_video(phone: str, video_path: str) -> tuple[bool, str
 
         has_morpho = await db.has_morpho_profile(user.id)
         if not has_morpho:
-            await wa.send_text(
-                phone,
-                "Tu n'as pas encore de profil morphologique. "
-                "L'analyse utilisera des seuils generiques.\n"
-                "Tape *morpho* apres cette analyse pour creer ton profil "
-                "et avoir des analyses personnalisees.",
-            )
+            await wa.send_text(phone, msg.MORPHO_OPTIONAL_NUDGE)
 
         import time
         active_since = _active_analyses.get(phone, 0)
@@ -1027,7 +1006,7 @@ async def _start_morpho_flow(user: db.User) -> None:
     if has_profile:
         await wa.send_text(phone, msg.MORPHO_ALREADY_EXISTS)
         return
-    await wa.send_text(phone, msg.MORPHO_INSTRUCTIONS_FRONT)
+    await wa.send_text(phone, msg.MORPHO_WELCOME)
     await db.set_morpho_flow_state(phone, "waiting_front")
 
 

@@ -70,9 +70,8 @@ FILMING_GUIDE = (
 
 MORPHO_WELCOME = (
     "*PROFIL MORPHOLOGIQUE*\n\n"
-    "Avant de lancer ta premiere analyse, je vais creer ton "
-    "profil morpho. 2 minutes, 3 photos, et ensuite toutes tes "
-    "analyses seront calibrees sur TES proportions.\n\n"
+    "Option premium utile, mais *pas obligatoire* pour lancer tes analyses video.\n"
+    "En 2 minutes et 3 photos, je cree ton profil morpho pour personnaliser tes futurs rapports.\n\n"
     "Ce que ca change concretement :\n"
     "1. Les seuils d'angles sont adaptes a tes segments (femurs, torse, bras)\n"
     "2. Les recommandations de stance et de prise sont personnalisees\n"
@@ -83,8 +82,15 @@ MORPHO_WELCOME = (
     "2. De *profil* (cote)\n"
     "3. De *dos*\n\n"
     "Envoie ta photo de *face* pour commencer.\n\n"
-    "Tape *skip* si tu veux passer direct a l'analyse video "
-    "(les seuils seront generiques)."
+    "Tape *skip* si tu veux annuler ce flow "
+    "(tes analyses video continueront a fonctionner avec des seuils generiques)."
+)
+
+MORPHO_OPTIONAL_NUDGE = (
+    "Optionnel : tu peux creer ton *profil morphologique* pour personnaliser "
+    "tes prochains rapports selon tes proportions.\n"
+    "Tape *morpho* quand tu veux.\n"
+    "Sans ca, l'analyse video marche quand meme avec des seuils generiques."
 )
 
 MORPHO_INSTRUCTIONS_FRONT = (
