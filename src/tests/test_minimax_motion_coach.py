@@ -21,6 +21,7 @@ from analysis.minimax_motion_coach import (
     _SIGNING_SECRET,
     _UploadedAsset,
     _YY_SUFFIX,
+    _analysis_is_valid_final_output,
     _cache_get,
     _cache_put,
     _extract_chat_candidates,
@@ -659,6 +660,15 @@ class MiniMaxMessageExtractionTests(unittest.TestCase):
             )
         )
 
+    def test_analysis_candidate_filter_rejects_french_self_instruction(self) -> None:
+        self.assertFalse(
+            mm._is_analysis_candidate_text(
+                "L'utilisateur me demande d'analyser une vidéo de musculation comme un coach expert en biomécanique. "
+                "Je dois: 1. Regarder la vidéo jointe. 2. Analyser l'exercice en identifiant visuellement "
+                "le segment qui déplace la charge."
+            )
+        )
+
     def test_extract_agent_message_ignores_known_ids(self) -> None:
         payload = {
             "data": {
@@ -839,6 +849,23 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         self.assertEqual(out.detection.exercise.value, "machine_chest_press")
 
 
+class MiniMaxFinalOutputValidationTests(unittest.TestCase):
+    def test_validation_rejects_reasoning_blob(self) -> None:
+        analysis = _parse_analysis_payload(
+            "L'utilisateur me demande d'analyser une vidéo de musculation comme un coach expert en biomécanique. "
+            "Je dois:\n1. Regarder la vidéo jointe\n2. Analyser l'exercice en identifiant visuellement le segment qui déplace la charge."
+        )
+        self.assertFalse(_analysis_is_valid_final_output(analysis))
+
+    def test_validation_accepts_tagged_markdown_report(self) -> None:
+        analysis = _parse_analysis_payload(
+            "<FORMCHECK_REPORT_MD>\n# FORMCHECK\n- Exercice: Presse pectorale machine\n- Exercice slug: machine_chest_press\n"
+            "- Score global: 80/100\n- Repetitions detectees: 8\n## RESUME\nSerie propre.\n## PLAN ACTION\n- Controle la descente\n"
+            "</FORMCHECK_REPORT_MD>"
+        )
+        self.assertTrue(_analysis_is_valid_final_output(analysis))
+
+
 class MiniMaxCacheTests(unittest.TestCase):
     def test_cache_roundtrip_returns_analysis(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -864,6 +891,29 @@ class MiniMaxCacheTests(unittest.TestCase):
                 self.assertEqual(loaded.exercise_slug, "squat")
                 self.assertEqual(loaded.reps_total, 9)
                 self.assertTrue(bool(loaded.metadata.get("cache_hit")))
+            finally:
+                minimax_settings.minimax_cache_path = old_path
+                minimax_settings.minimax_enable_cache = old_enabled
+                minimax_settings.minimax_cache_ttl_hours = old_ttl
+
+    def test_cache_ignores_invalid_reasoning_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_path = minimax_settings.minimax_cache_path
+            old_enabled = minimax_settings.minimax_enable_cache
+            old_ttl = minimax_settings.minimax_cache_ttl_hours
+            minimax_settings.minimax_cache_path = "{}/cache.sqlite".format(tmpdir)
+            minimax_settings.minimax_enable_cache = True
+            minimax_settings.minimax_cache_ttl_hours = 24
+            try:
+                analysis = MiniMaxAnalysis(
+                    exercise_slug="l_utilisateur_me_demande",
+                    exercise_display="L'utilisateur me demande d'analyser une vidéo",
+                    raw_response="L'utilisateur me demande d'analyser une vidéo. Je dois regarder la vidéo jointe.",
+                    report_text="ANALYSE BIOMECANIQUE — L'utilisateur me demande d'analyser une vidéo",
+                )
+                _cache_put("video_hash_bad", "prompt_hash_bad", analysis)
+                loaded = _cache_get("video_hash_bad", "prompt_hash_bad")
+                self.assertIsNone(loaded)
             finally:
                 minimax_settings.minimax_cache_path = old_path
                 minimax_settings.minimax_enable_cache = old_enabled

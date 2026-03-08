@@ -180,6 +180,11 @@ _PROCESS_MARKERS = (
     "extract frames from the video",
     "search for the correct path",
     "extract keyframes",
+    "l'utilisateur me demande",
+    "regarder la video jointe",
+    "analyser l'exercice en identifiant visuellement",
+    "je vais analyser cette video",
+    "je vais analyser cette vidéo",
 )
 _LABELED_HEADINGS = (
     "EXERCISE",
@@ -543,6 +548,9 @@ def _looks_like_unstructured_report_text(text: str) -> bool:
         "you have control of the ai window",
         "end takeover",
         "format de sortie obligatoire",
+        "l'utilisateur me demande",
+        "regarder la video jointe",
+        "analyser l'exercice en identifiant visuellement",
     )
     if any(marker in low for marker in negative_markers):
         return False
@@ -1471,6 +1479,18 @@ def _cache_get(video_hash: str, prompt_hash: str) -> MiniMaxAnalysis | None:
         analysis = _analysis_from_payload(str(row[0]))
         if analysis is None:
             return None
+        if not _analysis_is_valid_final_output(analysis):
+            logger.warning(
+                "MiniMax cache entry ignored: invalid final output (video_hash=%s prompt_hash=%s)",
+                video_hash[:12],
+                prompt_hash[:12],
+            )
+            conn.execute(
+                "DELETE FROM minimax_cache WHERE video_hash = ? AND prompt_hash = ? AND model_option = ?",
+                (video_hash, prompt_hash, model_option),
+            )
+            conn.commit()
+            return None
         conn.execute(
             """
             UPDATE minimax_cache
@@ -1492,6 +1512,13 @@ def _cache_get(video_hash: str, prompt_hash: str) -> MiniMaxAnalysis | None:
 
 def _cache_put(video_hash: str, prompt_hash: str, analysis: MiniMaxAnalysis) -> None:
     if not _as_bool(getattr(settings, "minimax_enable_cache", True), True):
+        return
+    if not _analysis_is_valid_final_output(analysis):
+        logger.warning(
+            "MiniMax cache write skipped: invalid final output (video_hash=%s prompt_hash=%s)",
+            video_hash[:12],
+            prompt_hash[:12],
+        )
         return
     model_option = int(getattr(settings, "minimax_model_option", 0) or 0)
     now = time.time()
@@ -1966,6 +1993,42 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
     return analysis
 
 
+def _analysis_is_valid_final_output(analysis: MiniMaxAnalysis) -> bool:
+    raw = str(getattr(analysis, "raw_response", "") or "").strip()
+    display = str(getattr(analysis, "exercise_display", "") or "").strip()
+    report = str(getattr(analysis, "report_text", "") or "").strip()
+    low_blob = _compact_text("\n".join(part for part in (raw, display, report) if part)).lower()
+    invalid_markers = (
+        "l'utilisateur me demande",
+        "the user wants me to",
+        "regarder la video jointe",
+        "analyser l'exercice en identifiant visuellement",
+        "rapport markdown attendu",
+        "format de sortie obligatoire",
+    )
+    if any(marker in low_blob for marker in invalid_markers):
+        return False
+
+    if _extract_tagged_report_block(raw) or _extract_markdown_report_block(raw):
+        return True
+
+    has_metrics = bool(
+        int(getattr(analysis, "score", 0) or 0) > 0
+        or int(getattr(analysis, "reps_total", 0) or 0) > 0
+        or int(getattr(analysis, "intensity_score", 0) or 0) > 0
+    )
+    has_content = any(
+        bool(item)
+        for item in (
+            getattr(analysis, "sections", {}),
+            getattr(analysis, "positives", []),
+            getattr(analysis, "corrections", []),
+            getattr(analysis, "plan_action", []),
+        )
+    )
+    return has_metrics or has_content
+
+
 def _iter_dicts(obj: Any):
     if isinstance(obj, dict):
         yield obj
@@ -2109,6 +2172,9 @@ def _extract_message_text(msg: dict[str, Any]) -> str:
             "fais exactement une ligne numerotee par rep detectee",
             "type to chat with ai motion coach",
             "start chat",
+            "l'utilisateur me demande",
+            "regarder la video jointe",
+            "analyser l'exercice en identifiant visuellement",
         )
         if any(marker in low for marker in prompt_markers):
             score -= 8_000
@@ -4566,6 +4632,10 @@ def _run_minimax_browser_only_once(
         if page_report:
             best_text = page_report
             analysis = _parse_analysis_payload(best_text)
+            if not _analysis_is_valid_final_output(analysis):
+                raise RuntimeError(
+                    "MiniMax returned process text instead of final analysis: {}".format(best_text[:400])
+                )
             elapsed = time.monotonic() - start
             analysis.metadata.update(
                 {
@@ -4593,6 +4663,10 @@ def _run_minimax_browser_only_once(
         raise TimeoutError("MiniMax browser-only response timeout (no assistant message){}".format(debug_suffix))
 
     analysis = _parse_analysis_payload(best_text)
+    if not _analysis_is_valid_final_output(analysis):
+        raise RuntimeError(
+            "MiniMax returned process text instead of final analysis: {}".format(best_text[:400])
+        )
     elapsed = time.monotonic() - start
     chat_name = str(state.get("chat_name", "") or "").strip()
     analysis.metadata.update(
@@ -4708,6 +4782,10 @@ def _run_minimax_direct_once(
             raise TimeoutError("MiniMax response timeout (no assistant message)")
 
         analysis = _parse_analysis_payload(best_text)
+        if not _analysis_is_valid_final_output(analysis):
+            raise RuntimeError(
+                "MiniMax returned process text instead of final analysis: {}".format(best_text[:400])
+            )
         elapsed = time.monotonic() - start
         analysis.metadata.update(
             {
@@ -4755,7 +4833,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         "{}|{}|{}".format(
             prompt,
             int(getattr(settings, "minimax_model_option", 0) or 0),
-            "v6_minimax_markdown_only",
+            "v7_minimax_reasoning_guard",
         )
     )
     cached = _cache_get(video_hash, prompt_hash)
