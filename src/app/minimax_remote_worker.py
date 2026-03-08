@@ -97,6 +97,15 @@ async def _process_job(client: httpx.AsyncClient, job: dict) -> None:
     try:
         video_path = await _download_video(client, job_id, video_url)
         analysis = await asyncio.to_thread(run_minimax_motion_coach, str(video_path))
+        logger.info(
+            "MiniMax remote job analysis summary (job_id=%s exercise_slug=%s exercise_display=%s score=%s reps_total=%s intensity_score=%s)",
+            job_id,
+            getattr(analysis, "exercise_slug", ""),
+            getattr(analysis, "exercise_display", ""),
+            getattr(analysis, "score", 0),
+            getattr(analysis, "reps_total", 0),
+            getattr(analysis, "intensity_score", 0),
+        )
         await _complete_job(client, job_id, _analysis_to_payload(analysis))
         logger.info("MiniMax remote job completed (job_id=%s)", job_id)
     except Exception as exc:

@@ -63,6 +63,10 @@ _REPORT_END_TAG = "</FORMCHECK_REPORT_MD>"
 
 _DEFAULT_ANALYSIS_PROMPT = (
     "Analyse cette video de musculation comme un coach expert en biomecanique de la musculation.\n"
+    "Ignore absolument tout l'historique du chat, toute ancienne video et toute consigne precedente.\n"
+    "Base-toi UNIQUEMENT sur la video jointe dans CE message.\n"
+    "Avant de nommer l'exercice, verifie visuellement le segment qui deplace la charge, le type d'appareil, la position du corps et la trajectoire.\n"
+    "Si l'exercice n'est pas certain, choisis l'option la plus probable sans inventer un autre mouvement.\n"
     "Reponds UNIQUEMENT en francais.\n"
     "Pas de preambule, pas d'explication de workflow, pas de thinking process.\n"
     "Tu t'adresses directement au client, tu le tutoies, tu es critique, didactique, detaille, minutieux et precis.\n"
@@ -76,7 +80,7 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "Rapport Markdown attendu:\n"
     "# FORMCHECK\n"
     "- Exercice: nom exact en francais\n"
-    "- Exercice slug: snake_case_exact\n"
+    "- Exercice slug: slug court et stable, le plus proche possible d'une famille interne classique (par exemple machine_chest_press, bench_press, incline_bench, decline_bench, ohp, lat_pulldown, cable_row, squat, leg_press, bulgarian_split_squat, deadlift, rdl, hip_thrust, curl, tricep_extension, lateral_raise, face_pull, pullover, leg_extension, leg_curl)\n"
     "- Confiance exercice: 0.00 a 1.00\n"
     "- Score global: 0/100\n"
     "- Repetitions detectees: 0\n"
@@ -2012,6 +2016,19 @@ def _extract_chat_name(payload: Any) -> str:
             txt = value.strip()
             if not txt:
                 continue
+            if "\n" in txt or len(txt) > 160:
+                continue
+            low = txt.lower()
+            if any(
+                marker in low for marker in (
+                    "analyse cette video",
+                    "rapport markdown attendu",
+                    "format de sortie",
+                    "thinking process",
+                    _REPORT_START_TAG.lower(),
+                )
+            ):
+                continue
             if _is_motion_coach_label(txt):
                 return txt
             if len(txt) > len(best):
@@ -2071,6 +2088,34 @@ def _resolve_target_chat_id(
 
 
 def _extract_message_text(msg: dict[str, Any]) -> str:
+    def _candidate_score(text: str) -> int:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return -10_000
+        low = normalized.lower()
+        score = len(normalized)
+        if _extract_tagged_report_block(normalized):
+            score += 3_000
+        if _extract_markdown_report_block(normalized):
+            score += 2_500
+        if _has_final_output_markers(normalized):
+            score += 2_000
+        if _looks_like_unstructured_report_text(normalized):
+            score += 1_500
+        prompt_markers = (
+            "analyse cette video de musculation comme un coach expert",
+            "le message final doit etre uniquement un rapport markdown",
+            "rapport markdown attendu",
+            "fais exactement une ligne numerotee par rep detectee",
+            "type to chat with ai motion coach",
+            "start chat",
+        )
+        if any(marker in low for marker in prompt_markers):
+            score -= 8_000
+        if _looks_like_process_text(normalized):
+            score -= 5_000
+        return score
+
     def _iter_text_candidates(value: Any):
         if isinstance(value, str):
             text = value.strip()
@@ -2088,20 +2133,27 @@ def _extract_message_text(msg: dict[str, Any]) -> str:
     for key in ("msg_content", "content", "text", "answer"):
         value = msg.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()
+            direct = value.strip()
+            if _candidate_score(direct) >= 0:
+                return direct
         if isinstance(value, dict):
             nested = value.get("text") or value.get("content") or value.get("answer")
             if isinstance(nested, str) and nested.strip():
-                return nested.strip()
+                direct = nested.strip()
+                if _candidate_score(direct) >= 0:
+                    return direct
     # Fallback: recursively scan the message payload for the most meaningful text.
     best = ""
+    best_score = -10_000
     for candidate in _iter_text_candidates(msg):
         normalized = candidate.strip()
         if len(normalized) <= 12:
             continue
         if normalized.startswith("http://") or normalized.startswith("https://"):
             continue
-        if len(normalized) > len(best):
+        score = _candidate_score(normalized)
+        if score > best_score:
+            best_score = score
             best = normalized
     return best
 

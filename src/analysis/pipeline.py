@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import partial
@@ -230,7 +231,16 @@ def _notify_progress(cfg: PipelineConfig, step: int, desc: str) -> None:
 
 
 def _normalize_exercise_name(name: str | None) -> str:
-    return (name or "").strip().lower().replace(" ", "_").replace("-", "_")
+    raw = str(name or "").strip().lower()
+    if not raw:
+        return ""
+    folded = (
+        unicodedata.normalize("NFKD", raw)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
+    folded = folded.replace("&", "et")
+    return folded.replace(" ", "_").replace("-", "_")
 
 
 def _map_model_exercise_name(raw_name: str | None) -> str:
@@ -252,6 +262,29 @@ def _map_model_exercise_name(raw_name: str | None) -> str:
             return "leg_press"
         if has_chest and not has_leg:
             if "machine" in name or "seated" in name or "plate" in name:
+                return "machine_chest_press"
+            return "bench_press"
+
+    has_french_press = "developpe" in name or "presse" in name
+    has_machine = any(token in name for token in ("machine", "convergente", "hammer_strength", "guidee", "guide"))
+    has_db = any(token in name for token in ("dumbbell", "haltere", "halteres"))
+    has_chest_french = any(token in name for token in ("couche", "poitrine", "pector", "pec", "chest"))
+    has_shoulder_french = any(token in name for token in ("epaule", "epaules", "shoulder", "militaire", "overhead"))
+    has_incline = "incline" in name
+    has_decline = "decline" in name or "declinee" in name
+    if has_french_press or "bench" in name:
+        if has_shoulder_french:
+            return "ohp"
+        if has_chest_french or "bench" in name:
+            if has_incline and has_db:
+                return "dumbbell_incline"
+            if has_incline:
+                return "incline_bench"
+            if has_decline:
+                return "decline_bench"
+            if has_db:
+                return "dumbbell_bench"
+            if has_machine:
                 return "machine_chest_press"
             return "bench_press"
 
@@ -341,19 +374,18 @@ _EXERCISE_VALUES = {ex.value for ex in Exercise}
 
 
 def _map_minimax_exercise_name(slug: str | None, display_name: str | None) -> str:
-    """Minimal mapping for MiniMax outputs.
+    """Normalize MiniMax labels to the closest supported internal family.
 
-    Principle:
-    - Trust MiniMax slug when already supported.
-    - Allow only a tiny alias list for known MiniMax naming variants.
-    - Never reinterpret from display text in strict MiniMax mode.
+    MiniMax often returns a rich French display name plus a free-form slug.
+    We preserve the exact display text for the client, but normalize it here
+    so internal HTML/rules/metrics stay consistent.
     """
     slug_norm = _normalize_exercise_name(slug)
-    if slug_norm in _EXERCISE_VALUES:
-        return slug_norm
+    display_norm = _normalize_exercise_name(display_name)
 
     explicit_aliases = {
         "chest_press": "machine_chest_press",
+        "chest_press_machine": "machine_chest_press",
         "machine_press": "machine_chest_press",
         "seated_chest_press": "machine_chest_press",
         "military_press": "ohp",
@@ -364,8 +396,32 @@ def _map_minimax_exercise_name(slug: str | None, display_name: str | None) -> st
         "barbell_row": "barbell_row",
         "bent_over_row": "barbell_row",
     }
-    if slug_norm in explicit_aliases:
-        return explicit_aliases[slug_norm]
+
+    def _map_free_label(name: str) -> str:
+        if not name:
+            return ""
+        if name in _EXERCISE_VALUES:
+            return name
+        if name in explicit_aliases:
+            return explicit_aliases[name]
+        mapped = _map_model_exercise_name(name)
+        return mapped if mapped in _EXERCISE_VALUES else ""
+
+    display_mapped = _map_free_label(display_norm)
+    slug_mapped = _map_free_label(slug_norm)
+
+    if display_mapped:
+        if slug_mapped and slug_mapped != display_mapped:
+            logger.warning(
+                "MiniMax slug/display disagreement resolved via display label: slug='%s' -> '%s', display='%s' -> '%s'",
+                slug_norm,
+                slug_mapped,
+                display_norm,
+                display_mapped,
+            )
+        return display_mapped
+    if slug_mapped:
+        return slug_mapped
     return ""
 
 

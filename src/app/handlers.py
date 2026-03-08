@@ -686,6 +686,15 @@ async def complete_remote_minimax_job(job_id: int, analysis_payload: str) -> boo
     result.success = result.report is not None
     if not result.success or result.report is None:
         raise RuntimeError("remote MiniMax payload did not produce a valid report")
+    logger.info(
+        "Remote MiniMax payload mapped (job_id=%s raw_slug=%s raw_display=%s mapped_exercise=%s score=%s reps=%s)",
+        job_id,
+        analysis.exercise_slug,
+        analysis.exercise_display,
+        result.report.exercise,
+        result.report.score,
+        result.reps.total_reps if result.reps else 0,
+    )
 
     await _deliver_pipeline_success(
         phone=job.phone,

@@ -25,6 +25,8 @@ from analysis.minimax_motion_coach import (
     _cache_put,
     _extract_chat_candidates,
     _extract_agent_message,
+    _extract_chat_name,
+    _extract_message_text,
     _is_motion_coach_label,
     _resolve_target_chat_id,
     _is_retryable_minimax_error,
@@ -142,6 +144,27 @@ Filme un peu plus large avec la machine complete visible.
         self.assertEqual(out.score_breakdown.get("Symetrie"), 8)
         self.assertIn("## RESUME", out.report_text)
         self.assertIn("## PLAN ACTION", out.report_text)
+
+    def test_extract_message_text_prefers_real_report_over_prompt_template(self) -> None:
+        msg = {
+            "msg_type": 2,
+            "msg_content": {
+                "text": "Analyse cette video de musculation comme un coach expert en biomecanique de la musculation.\nRapport Markdown attendu:\n# FORMCHECK\n- Exercice: nom exact en francais"
+            },
+            "answer": "<FORMCHECK_REPORT_MD>\n# FORMCHECK\n- Exercice: Presse pectorale machine\n- Exercice slug: machine_chest_press\n- Score global: 80/100\n</FORMCHECK_REPORT_MD>",
+        }
+        text = _extract_message_text(msg)
+        self.assertIn("Presse pectorale machine", text)
+        self.assertNotIn("Rapport Markdown attendu", text)
+
+    def test_extract_chat_name_ignores_prompt_blob(self) -> None:
+        payload = {
+            "data": {
+                "session_name": "Analyse cette video de musculation comme un coach expert en biomecanique de la musculation.\nRapport Markdown attendu:",
+                "expert_name": "AI Motion Coach",
+            }
+        }
+        self.assertEqual(_extract_chat_name(payload), "AI Motion Coach")
 
     def test_parse_structured_json_response(self) -> None:
         text = """
@@ -758,7 +781,7 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         self.assertEqual(out.reps.intensity_score, 74)
         self.assertEqual(out.detection.exercise.value, "lat_pulldown")
 
-    def test_pipeline_mapping_keeps_minimax_slug_when_display_conflicts(self) -> None:
+    def test_pipeline_mapping_prefers_display_when_slug_conflicts(self) -> None:
         base = PipelineResult(video_path="video.mp4", output_dir="out")
         analysis = MiniMaxAnalysis(
             exercise_slug="leg_press",
@@ -775,7 +798,45 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         )
         out = _apply_minimax_analysis_to_result(base, analysis)
         assert out.detection is not None
-        self.assertEqual(out.detection.exercise.value, "leg_press")
+        self.assertEqual(out.detection.exercise.value, "machine_chest_press")
+
+    def test_pipeline_mapping_handles_freeform_minimax_machine_shoulder_slug(self) -> None:
+        base = PipelineResult(video_path="video.mp4", output_dir="out")
+        analysis = MiniMaxAnalysis(
+            exercise_slug="developpe_epaules_machine_convergente",
+            exercise_display="Développé épaules à la machine convergente",
+            exercise_confidence=0.90,
+            score=91,
+            reps_total=8,
+            reps_complete=8,
+            reps_partial=0,
+            intensity_score=90,
+            intensity_label="tres elevee",
+            avg_inter_rep_rest_s=0.2,
+            report_text="Rapport MiniMax",
+        )
+        out = _apply_minimax_analysis_to_result(base, analysis)
+        assert out.detection is not None
+        self.assertEqual(out.detection.exercise.value, "ohp")
+
+    def test_pipeline_mapping_handles_freeform_minimax_machine_chest_slug(self) -> None:
+        base = PipelineResult(video_path="video.mp4", output_dir="out")
+        analysis = MiniMaxAnalysis(
+            exercise_slug="chest_press_machine",
+            exercise_display="Développé Couché à la Machine (Hammer Strength)",
+            exercise_confidence=0.95,
+            score=90,
+            reps_total=10,
+            reps_complete=10,
+            reps_partial=0,
+            intensity_score=75,
+            intensity_label="moderee",
+            avg_inter_rep_rest_s=4.0,
+            report_text="Rapport MiniMax",
+        )
+        out = _apply_minimax_analysis_to_result(base, analysis)
+        assert out.detection is not None
+        self.assertEqual(out.detection.exercise.value, "machine_chest_press")
 
 
 class MiniMaxCacheTests(unittest.TestCase):
