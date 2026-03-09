@@ -902,6 +902,580 @@ try:
             ],
         }
 
+    @app.post("/internal/support/tickets/{ticket_id}/status")
+    async def internal_update_support_ticket_status(ticket_id: int, request: Request) -> dict:
+        _require_internal_admin_token(request)
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        status = str((payload or {}).get("status", "") or "").strip().lower()
+        if status not in {"open", "in_progress", "resolved", "closed"}:
+            raise HTTPException(status_code=400, detail="Invalid status")
+        ticket = await db.set_support_ticket_status(ticket_id, status)
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        return {
+            "status": "ok",
+            "ticket": {
+                "id": int(ticket.id),
+                "status": ticket.status,
+                "updated_at": ticket.updated_at.isoformat() if ticket.updated_at else None,
+                "resolved_at": ticket.resolved_at.isoformat() if ticket.resolved_at else None,
+            },
+        }
+
+    @app.get("/admin", response_class=HTMLResponse)
+    async def admin_dashboard(request: Request) -> HTMLResponse:
+        _require_internal_admin_token(request)
+        html_page = """<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FORMCHECK Admin</title>
+  <style>
+    :root {
+      --bg: #f5f0e8;
+      --surface: #fff;
+      --ink: #111;
+      --muted: #555;
+      --line: #ddd3c7;
+      --accent: #bf5a36;
+      --accent2: #2d5f7a;
+      --ok: #2d7a4f;
+      --warn: #c45a2d;
+      --err: #c4302d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+    .wrap {
+      width: min(1220px, calc(100% - 24px));
+      margin: 14px auto 32px;
+    }
+    .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--surface);
+    }
+    .title {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0.3px;
+    }
+    .hint {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    @media (min-width: 1060px) {
+      .grid {
+        grid-template-columns: 0.9fr 1.1fr;
+      }
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .card-hd {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .card-bd {
+      padding: 12px 14px;
+    }
+    .controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    input[type="text"], select, button {
+      height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0 10px;
+      font-size: 14px;
+      background: #fff;
+      color: var(--ink);
+    }
+    button {
+      background: #111;
+      color: #fff;
+      border-color: #111;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    button.alt {
+      background: #fff;
+      color: #111;
+      border-color: var(--line);
+      font-weight: 600;
+    }
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    @media (min-width: 740px) {
+      .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+    .kpi {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: #faf8f4;
+    }
+    .kpi .v {
+      font-size: 18px;
+      font-weight: 800;
+      line-height: 1.1;
+    }
+    .kpi .l {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 640px;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid #eee6dc;
+      text-align: left;
+      padding: 8px 10px;
+      vertical-align: top;
+    }
+    th {
+      background: #f7f3ec;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      font-size: 12px;
+      letter-spacing: 0.2px;
+      color: #333;
+    }
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .s-open { background: #fff1eb; border-color: #ffd4c6; color: #8a3417; }
+    .s-in_progress { background: #eef5ff; border-color: #cce0ff; color: #1f4b87; }
+    .s-resolved { background: #ebf9ef; border-color: #c9ebd5; color: #1b5c38; }
+    .s-closed { background: #f0f0f0; border-color: #dfdfdf; color: #555; }
+    .muted { color: var(--muted); }
+    .stack {
+      display: grid;
+      gap: 10px;
+    }
+    .ticket-thread {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: #faf8f4;
+    }
+    .thread-row {
+      margin-top: 7px;
+      padding-top: 7px;
+      border-top: 1px dashed #e2d8cb;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .thread-row:first-child {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: none;
+    }
+    .ok { color: var(--ok); }
+    .err { color: var(--err); }
+    .toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: #444;
+      background: #f7f3ec;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 4px 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div class="title">FORMCHECK Admin</div>
+        <div class="hint">SAV, commandes, historique client</div>
+      </div>
+      <div class="toolbar-right">
+        <span id="authState" class="mono">verification token...</span>
+        <button id="refreshAllBtn" class="alt">Rafraichir</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <section class="card">
+        <div class="card-hd">
+          <span>Tickets SAV ouverts</span>
+          <div class="controls">
+            <select id="ticketLimit">
+              <option value="20">20</option>
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+            </select>
+            <button id="refreshTicketsBtn" class="alt">Rafraichir</button>
+          </div>
+        </div>
+        <div class="card-bd">
+          <div class="table-wrap">
+            <table id="ticketsTable">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Phone</th>
+                  <th>Sujet</th>
+                  <th>Statut</th>
+                  <th>Priorite</th>
+                  <th>Maj</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="ticketsInfo" class="hint" style="margin-top:8px"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-hd">
+          <span>Recherche client</span>
+          <div class="controls">
+            <input id="phoneInput" type="text" placeholder="+33612345678" style="min-width:220px">
+            <button id="loadCustomerBtn">Charger</button>
+          </div>
+        </div>
+        <div class="card-bd">
+          <div class="kpis">
+            <div class="kpi"><div class="v" id="kpiCustomer">-</div><div class="l">Client</div></div>
+            <div class="kpi"><div class="v" id="kpiAnalyses">0</div><div class="l">Analyses</div></div>
+            <div class="kpi"><div class="v" id="kpiOrders">0</div><div class="l">Commandes</div></div>
+            <div class="kpi"><div class="v" id="kpiTickets">0</div><div class="l">Tickets SAV</div></div>
+          </div>
+
+          <div class="stack" id="customerPanels">
+            <div class="muted">Entre un numero WhatsApp pour afficher l'historique.</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const qs = new URLSearchParams(window.location.search);
+    const token = (qs.get("token") || "").trim();
+    const authState = document.getElementById("authState");
+    const ticketsInfo = document.getElementById("ticketsInfo");
+    const ticketsBody = document.querySelector("#ticketsTable tbody");
+    const phoneInput = document.getElementById("phoneInput");
+    const customerPanels = document.getElementById("customerPanels");
+    const kpiCustomer = document.getElementById("kpiCustomer");
+    const kpiAnalyses = document.getElementById("kpiAnalyses");
+    const kpiOrders = document.getElementById("kpiOrders");
+    const kpiTickets = document.getElementById("kpiTickets");
+
+    function esc(v) {
+      return String(v ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function shortDate(iso) {
+      if (!iso) return "-";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      return d.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+    }
+
+    async function apiFetch(path, options = {}) {
+      if (!token) {
+        throw new Error("token manquant dans URL");
+      }
+      const sep = path.includes("?") ? "&" : "?";
+      const url = `${path}${sep}token=${encodeURIComponent(token)}`;
+      const baseOpts = { headers: { "Content-Type": "application/json" } };
+      const res = await fetch(url, { ...baseOpts, ...options });
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const payload = await res.json();
+          detail = payload.detail || JSON.stringify(payload);
+        } catch (_) {}
+        throw new Error(`HTTP ${res.status}${detail ? " - " + detail : ""}`);
+      }
+      return res.json();
+    }
+
+    function statusBadge(status) {
+      const safe = (status || "open").toLowerCase();
+      return `<span class="badge s-${esc(safe)}">${esc(safe)}</span>`;
+    }
+
+    async function loadOpenTickets() {
+      const limit = document.getElementById("ticketLimit").value || "50";
+      ticketsInfo.textContent = "Chargement...";
+      try {
+        const data = await apiFetch(`/internal/support/tickets/open?limit=${encodeURIComponent(limit)}`);
+        const rows = Array.isArray(data.tickets) ? data.tickets : [];
+        ticketsBody.innerHTML = rows.map((t) => `
+          <tr>
+            <td>#${esc(t.id)}</td>
+            <td><button class="alt" data-phone="${esc(t.phone)}" style="height:30px;padding:0 8px">${esc(t.phone)}</button></td>
+            <td>${esc(t.subject || "")}<div class="muted">${esc(t.category || "")}</div></td>
+            <td>${statusBadge(t.status)}</td>
+            <td>${esc(t.priority || "-")}</td>
+            <td>${shortDate(t.updated_at)}</td>
+            <td>
+              <select data-ticket-status="${esc(t.id)}" style="height:30px">
+                <option value="open">open</option>
+                <option value="in_progress">in_progress</option>
+                <option value="resolved">resolved</option>
+                <option value="closed">closed</option>
+              </select>
+              <button data-ticket-save="${esc(t.id)}" style="height:30px;padding:0 8px">OK</button>
+            </td>
+          </tr>
+        `).join("");
+
+        for (const row of rows) {
+          const sel = document.querySelector(`select[data-ticket-status="${row.id}"]`);
+          if (sel) sel.value = row.status || "open";
+        }
+        ticketsInfo.textContent = `${rows.length} ticket(s) ouvert(s).`;
+      } catch (err) {
+        ticketsBody.innerHTML = "";
+        ticketsInfo.innerHTML = `<span class="err">Erreur: ${esc(err.message || err)}</span>`;
+      }
+    }
+
+    function renderTable(headers, rows) {
+      if (!rows.length) {
+        return `<div class="muted">Aucune donnee</div>`;
+      }
+      const th = headers.map((h) => `<th>${esc(h)}</th>`).join("");
+      const tr = rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
+      return `<div class="table-wrap"><table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></div>`;
+    }
+
+    function renderCustomerPanels(payload) {
+      const customer = payload.customer || {};
+      const analyses = Array.isArray(payload.analyses) ? payload.analyses : [];
+      const orders = Array.isArray(payload.orders) ? payload.orders : [];
+      const tickets = Array.isArray(payload.support_tickets) ? payload.support_tickets : [];
+      const messages = Array.isArray(payload.messages) ? payload.messages : [];
+      const ticketMessages = payload.support_ticket_messages || {};
+
+      kpiCustomer.textContent = customer.name || customer.phone || "-";
+      kpiAnalyses.textContent = String(analyses.length);
+      kpiOrders.textContent = String(orders.length);
+      kpiTickets.textContent = String(tickets.length);
+
+      const analysesHtml = renderTable(
+        ["ID", "Exercice", "Score", "Date"],
+        analyses.map((a) => [
+          `#${esc(a.id)}`,
+          esc(a.exercise || "-"),
+          esc((a.score ?? 0) + "/100"),
+          esc(shortDate(a.created_at)),
+        ]),
+      );
+
+      const ordersHtml = renderTable(
+        ["ID", "Plan", "Type", "Montant", "Statut", "Date"],
+        orders.map((o) => [
+          `#${esc(o.id)}`,
+          esc(o.plan_key || "-"),
+          esc(o.order_type || "-"),
+          esc((((o.amount || 0) / 100).toFixed(2)) + " " + String(o.currency || "eur").toUpperCase()),
+          statusBadge(o.status || "pending"),
+          esc(shortDate(o.created_at)),
+        ]),
+      );
+
+      const ticketCards = tickets.map((t) => {
+        const thread = Array.isArray(ticketMessages[String(t.id)]) ? ticketMessages[String(t.id)] : [];
+        const threadHtml = thread.length
+          ? thread.map((m) => `
+              <div class="thread-row">
+                <strong>${esc(m.author || "client")}</strong>
+                <span class="muted"> - ${esc(shortDate(m.created_at))}</span><br>
+                ${esc(m.content || "")}
+              </div>
+            `).join("")
+          : '<div class="muted">Pas de messages dans ce ticket.</div>';
+        return `
+          <div class="ticket-thread">
+            <div><strong>#${esc(t.id)} - ${esc(t.subject || "")}</strong></div>
+            <div class="muted">${statusBadge(t.status)} | ${esc(t.priority || "normal")} | ${esc(t.category || "general")}</div>
+            <div style="margin-top:8px">${threadHtml}</div>
+          </div>
+        `;
+      }).join("");
+
+      const messagesHtml = renderTable(
+        ["Date", "Sens", "Type", "Contenu"],
+        messages.slice(0, 25).map((m) => [
+          esc(shortDate(m.created_at)),
+          esc(m.direction || "-"),
+          esc(m.message_type || "-"),
+          esc(m.content || ""),
+        ]),
+      );
+
+      customerPanels.innerHTML = `
+        <section class="card">
+          <div class="card-hd">Profil client</div>
+          <div class="card-bd">
+            <div><strong>${esc(customer.name || "Sans nom")}</strong> <span class="muted">(${esc(customer.phone || "-")})</span></div>
+            <div class="muted" style="margin-top:6px">Credits: ${esc(customer.credits ?? 0)} | Illimite: ${esc(customer.is_unlimited ? "oui" : "non")}</div>
+            <div class="muted">Inscription: ${esc(shortDate(customer.created_at))}</div>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-hd">Commandes</div>
+          <div class="card-bd">${ordersHtml}</div>
+        </section>
+        <section class="card">
+          <div class="card-hd">Analyses</div>
+          <div class="card-bd">${analysesHtml}</div>
+        </section>
+        <section class="card">
+          <div class="card-hd">Tickets SAV</div>
+          <div class="card-bd">
+            ${ticketCards || '<div class="muted">Aucun ticket.</div>'}
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-hd">Derniers messages WhatsApp</div>
+          <div class="card-bd">${messagesHtml}</div>
+        </section>
+      `;
+    }
+
+    async function loadCustomer(phoneRaw) {
+      const phone = (phoneRaw || "").trim();
+      if (!phone) return;
+      customerPanels.innerHTML = '<div class="muted">Chargement client...</div>';
+      try {
+        const data = await apiFetch(`/internal/customers/${encodeURIComponent(phone)}/history`);
+        renderCustomerPanels(data);
+      } catch (err) {
+        customerPanels.innerHTML = `<div class="err">Erreur chargement client: ${esc(err.message || err)}</div>`;
+      }
+    }
+
+    async function updateTicketStatus(ticketId, status) {
+      await apiFetch(`/internal/support/tickets/${ticketId}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status }),
+      });
+    }
+
+    document.getElementById("refreshTicketsBtn").addEventListener("click", loadOpenTickets);
+    document.getElementById("refreshAllBtn").addEventListener("click", async () => {
+      await loadOpenTickets();
+      const phone = phoneInput.value.trim();
+      if (phone) await loadCustomer(phone);
+    });
+    document.getElementById("loadCustomerBtn").addEventListener("click", () => loadCustomer(phoneInput.value));
+    phoneInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") loadCustomer(phoneInput.value);
+    });
+
+    document.body.addEventListener("click", async (e) => {
+      const phoneBtn = e.target.closest("[data-phone]");
+      if (phoneBtn) {
+        const p = phoneBtn.getAttribute("data-phone") || "";
+        phoneInput.value = p;
+        await loadCustomer(p);
+        return;
+      }
+
+      const saveBtn = e.target.closest("[data-ticket-save]");
+      if (saveBtn) {
+        const ticketId = saveBtn.getAttribute("data-ticket-save");
+        const sel = document.querySelector(`select[data-ticket-status="${ticketId}"]`);
+        const status = sel ? sel.value : "";
+        if (!ticketId || !status) return;
+        saveBtn.disabled = true;
+        try {
+          await updateTicketStatus(ticketId, status);
+          await loadOpenTickets();
+          const currentPhone = phoneInput.value.trim();
+          if (currentPhone) await loadCustomer(currentPhone);
+        } catch (err) {
+          alert("Erreur update ticket: " + (err.message || err));
+        } finally {
+          saveBtn.disabled = false;
+        }
+      }
+    });
+
+    if (!token) {
+      authState.textContent = "token manquant";
+      authState.style.color = "#c4302d";
+    } else {
+      authState.textContent = "token ok";
+      authState.style.color = "#2d7a4f";
+      loadOpenTickets();
+    }
+  </script>
+</body>
+</html>
+"""
+        return HTMLResponse(html_page, headers={"Cache-Control": "no-store"})
+
     @app.get("/debug/errors")
     async def debug_errors(token: str = "") -> dict:
         if not settings.render_api_key:
