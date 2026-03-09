@@ -62,15 +62,10 @@ _REPORT_START_TAG = "<FORMCHECK_REPORT_MD>"
 _REPORT_END_TAG = "</FORMCHECK_REPORT_MD>"
 
 _DEFAULT_ANALYSIS_PROMPT = (
-    "Analyse cette video de musculation comme un coach expert en biomecanique de la musculation.\n"
-    "Ignore absolument tout l'historique du chat, toute ancienne video et toute consigne precedente.\n"
-    "Base-toi UNIQUEMENT sur la video jointe dans CE message.\n"
-    "Avant de nommer l'exercice, verifie visuellement le segment qui deplace la charge, le type d'appareil, la position du corps et la trajectoire.\n"
-    "Si l'exercice n'est pas certain, choisis l'option la plus probable sans inventer un autre mouvement.\n"
+    "Analyse uniquement la video jointe comme AI Motion Coach expert en biomecanique de la musculation.\n"
     "Reponds UNIQUEMENT en francais.\n"
-    "Pas de preambule, pas d'explication de workflow, pas de thinking process.\n"
+    "Pas de preambule. Pas de workflow. Pas de thinking process.\n"
     "Tu t'adresses directement au client, tu le tutoies, tu es critique, didactique, detaille, minutieux et precis.\n"
-    "N'arrondis jamais a la hausse et dis clairement quand la technique se degrade.\n"
     "Le score global doit etre coherent avec les 4 sous-scores.\n"
     "Le message final doit etre UNIQUEMENT un rapport Markdown place entre les balises exactes suivantes:\n"
     "{start}\n"
@@ -89,16 +84,11 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "- Intensite: 0/100 (tres elevee|elevee|moderee|faible|tres faible)\n"
     "- Repos inter-reps moyen: 0.00 s\n"
     "## RESUME\n"
-    "3 a 5 phrases critiques et pedagogiques en tutoiement.\n"
     "## POINTS POSITIFS\n"
-    "- point 1\n"
-    "- point 2\n"
     "## AMPLITUDE DE MOUVEMENT\n"
-    "3 a 5 phrases.\n"
     "## CORRECTIONS PRIORITAIRES\n"
     "1. titre | pourquoi | impact | cue\n"
     "## ANALYSE DU TEMPO ET DES PHASES\n"
-    "3 a 5 phrases.\n"
     "## ANALYSE REP PAR REP\n"
     "1. Rep 1 | 00:00 - 00:00 | commentaire bref, critique et concret\n"
     "Fais exactement une ligne numerotee par rep detectee, sans en sauter.\n"
@@ -106,22 +96,53 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "la fatigue, les pauses notables entre reps et toute degradation de trajectoire, d'amplitude ou d'alignement.\n"
     "Si une pause entre deux reps depasse environ 1.5 seconde, signale-la explicitement.\n"
     "## INTENSITE DE SERIE\n"
-    "3 a 5 phrases avec densite, repos inter-reps, ralentissement de fin de serie et perception d'effort.\n"
     "## COMPENSATIONS ET BIOMECANIQUE AVANCEE\n"
-    "3 a 5 phrases avec compensations observees, causes probables, zones qui prennent le relais et risque potentiel.\n"
     "## DECOMPOSITION DU SCORE\n"
     "- Securite: x/40\n"
     "- Efficacite technique: x/30\n"
     "- Controle et tempo: x/20\n"
     "- Symetrie: x/10\n"
     "## POINT BIOMECANIQUE\n"
-    "2 a 4 phrases tres concretes, biomecaniques et utiles pour progresser.\n"
     "## RECOMMANDATION POUR LA PROCHAINE VIDEO\n"
-    "1 a 3 phrases sur l'angle camera, le cadrage et ce qui doit etre visible pour affiner l'analyse.\n"
     "## PLAN ACTION\n"
     "- action 1\n"
     "- action 2\n"
     "- action 3\n"
+    "Si une information est invisible, ecris NON MESURABLE."
+).format(start=_REPORT_START_TAG, end=_REPORT_END_TAG)
+
+_FALLBACK_ANALYSIS_PROMPT = (
+    "Analyse uniquement la video jointe.\n"
+    "Reponds UNIQUEMENT en francais, en tutoyant.\n"
+    "Retourne UNIQUEMENT un rapport Markdown entre {start} et {end}.\n"
+    "Aucun thinking process. Aucun texte hors balises.\n"
+    "# FORMCHECK\n"
+    "- Exercice: nom exact en francais\n"
+    "- Exercice slug: slug court et stable\n"
+    "- Confiance exercice: 0.00 a 1.00\n"
+    "- Score global: 0/100\n"
+    "- Repetitions detectees: 0\n"
+    "- Repetitions completes: 0\n"
+    "- Repetitions partielles: 0\n"
+    "- Intensite: 0/100 (tres elevee|elevee|moderee|faible|tres faible)\n"
+    "- Repos inter-reps moyen: 0.00 s\n"
+    "## RESUME\n"
+    "## POINTS POSITIFS\n"
+    "## AMPLITUDE DE MOUVEMENT\n"
+    "## CORRECTIONS PRIORITAIRES\n"
+    "## ANALYSE DU TEMPO ET DES PHASES\n"
+    "## ANALYSE REP PAR REP\n"
+    "Une ligne numerotee par repetition avec plage temporelle, vitesse, technique, fatigue et pauses.\n"
+    "## INTENSITE DE SERIE\n"
+    "## COMPENSATIONS ET BIOMECANIQUE AVANCEE\n"
+    "## DECOMPOSITION DU SCORE\n"
+    "- Securite: x/40\n"
+    "- Efficacite technique: x/30\n"
+    "- Controle et tempo: x/20\n"
+    "- Symetrie: x/10\n"
+    "## POINT BIOMECANIQUE\n"
+    "## RECOMMANDATION POUR LA PROCHAINE VIDEO\n"
+    "## PLAN ACTION\n"
     "Si une information est invisible, ecris NON MESURABLE."
 ).format(start=_REPORT_START_TAG, end=_REPORT_END_TAG)
 
@@ -169,7 +190,9 @@ _PROCESS_MARKERS = (
     "invoke stickman-generation skill",
     "let me first",
     "let me check",
+    "the user is asking me to",
     "the user wants me to",
+    "they want me to",
     "i need to first",
     "script doesn't exist",
     "script path doesn't exist",
@@ -2000,7 +2023,9 @@ def _analysis_is_valid_final_output(analysis: MiniMaxAnalysis) -> bool:
     low_blob = _compact_text("\n".join(part for part in (raw, display, report) if part)).lower()
     invalid_markers = (
         "l'utilisateur me demande",
+        "the user is asking me to",
         "the user wants me to",
+        "they want me to",
         "regarder la video jointe",
         "analyser l'exercice en identifiant visuellement",
         "rapport markdown attendu",
@@ -2027,6 +2052,18 @@ def _analysis_is_valid_final_output(analysis: MiniMaxAnalysis) -> bool:
         )
     )
     return has_metrics or has_content
+
+
+def _should_retry_browser_analysis(exc: Exception) -> bool:
+    raw = _compact_text(str(exc or "")).lower()
+    if not raw:
+        return False
+    retry_markers = (
+        "process text instead of final analysis",
+        "returned non-analysis reply",
+        "response timeout (no assistant message)",
+    )
+    return any(marker in raw for marker in retry_markers)
 
 
 def _iter_dicts(obj: Any):
@@ -3394,6 +3431,45 @@ def _wait_for_page_condition(page: Any, predicate: Any, timeout_ms: int, step_ms
         return False
 
 
+def _page_is_motion_coach_chat(page: Any) -> bool:
+    current = str(getattr(page, "url", "") or "").strip()
+    if not current:
+        return False
+    current_base = current.split("#", 1)[0].split("?", 1)[0].rstrip("/")
+    target_base = _motion_coach_expert_url().split("#", 1)[0].split("?", 1)[0].rstrip("/")
+    return bool(current_base) and current_base == target_base
+
+
+def _goto_minimax_page(page: Any, url: str, timeout_ms: int, *, label: str, raise_on_error: bool = True) -> bool:
+    try:
+        page.goto(url, wait_until="commit", timeout=timeout_ms)
+    except Exception as exc:
+        state: dict[str, Any] = {"url": str(getattr(page, "url", "") or "")}
+        if "agent.minimax.io" in url:
+            try:
+                state = _motion_coach_page_state(page)
+            except Exception:
+                pass
+        logger.warning(
+            "MiniMax browser navigation failed (%s): %s | state=%s",
+            label,
+            exc,
+            json.dumps(state, ensure_ascii=True),
+        )
+        if raise_on_error:
+            raise
+        return False
+    try:
+        page.wait_for_load_state("domcontentloaded", timeout=min(timeout_ms, 4000))
+    except Exception:
+        pass
+    try:
+        page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
+    except Exception:
+        pass
+    return True
+
+
 def _motion_coach_page_state(page: Any) -> dict[str, Any]:
     state: dict[str, Any] = {
         "url": str(getattr(page, "url", "") or ""),
@@ -3730,11 +3806,23 @@ def _open_motion_coach_chat(page: Any, timeout_ms: int, *, email: str = "", pass
     for auth_cycle in range(2 if can_reauth else 1):
         restart_after_auth = False
         for attempt in range(2):
-            page.goto(_motion_coach_expert_url(), wait_until="domcontentloaded", timeout=timeout_ms)
-            try:
-                page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
-            except Exception:
-                pass
+            current_page_ready = False
+            if _page_is_motion_coach_chat(page):
+                current_page_ready = _wait_for_page_condition(
+                    page,
+                    lambda: _motion_coach_composer_ready(page) or _motion_coach_cta_present(page) or _login_modal_visible(page),
+                    timeout_ms=min(timeout_ms, 5000),
+                )
+            if not current_page_ready and not _goto_minimax_page(
+                page,
+                _motion_coach_expert_url(),
+                timeout_ms,
+                label="motion_coach_direct",
+                raise_on_error=False,
+            ):
+                if attempt == 0:
+                    continue
+                break
             if not _wait_for_bot_challenge_to_clear(page, timeout_ms=min(timeout_ms, 25000)):
                 state = json.dumps(_motion_coach_page_state(page), ensure_ascii=True)
                 logger.warning("MiniMax Motion Coach direct page blocked by anti-bot challenge: %s", state)
@@ -3780,11 +3868,16 @@ def _open_motion_coach_chat(page: Any, timeout_ms: int, *, email: str = "", pass
             "MiniMax Motion Coach direct expert page unavailable, falling back to experts index: %s",
             json.dumps(_motion_coach_page_state(page), ensure_ascii=True),
         )
-        page.goto("https://agent.minimax.io/experts", wait_until="domcontentloaded", timeout=timeout_ms)
-        try:
-            page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
-        except Exception:
-            pass
+        if not _goto_minimax_page(
+            page,
+            "https://agent.minimax.io/experts",
+            timeout_ms,
+            label="motion_coach_experts_index",
+            raise_on_error=False,
+        ):
+            if auth_cycle == 0:
+                continue
+            raise RuntimeError("MiniMax browser flow failed: experts index navigation unavailable")
         if not _wait_for_bot_challenge_to_clear(page, timeout_ms=min(timeout_ms, 25000)):
             state = json.dumps(_motion_coach_page_state(page), ensure_ascii=True)
             logger.warning("MiniMax Motion Coach experts page blocked by anti-bot challenge: %s", state)
@@ -4118,7 +4211,9 @@ def _is_analysis_candidate_text(text: str) -> bool:
     if _looks_like_process_text(normalized):
         process_only_markers = (
             "format de sortie obligatoire",
+            "the user is asking me to",
             "the user wants me to",
+            "they want me to",
             "let me",
             "je dois",
             "i must",
@@ -4508,10 +4603,10 @@ def _run_minimax_browser_only_once(
                 )
             except Exception:
                 pass
-            page = context.pages[0] if context.pages else context.new_page()
+            page = context.new_page() if hasattr(context, "new_page") else (context.pages[0] if context.pages else context.new_page())
             page.on("response", _on_response)
 
-            page.goto(_motion_coach_expert_url(), wait_until="domcontentloaded", timeout=timeout_ms)
+            _goto_minimax_page(page, _motion_coach_expert_url(), timeout_ms, label="motion_coach_bootstrap")
             _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
             _open_motion_coach_chat(page, timeout_ms=timeout_ms, email=email, password=password)
             state["motion_coach_opened"] = True
@@ -4534,11 +4629,7 @@ def _run_minimax_browser_only_once(
             if _wait_for_page_condition(page, lambda: bool(str(state.get("sent_chat_id", "")).strip()), timeout_ms=8000, step_ms=250):
                 sent_chat_id = str(state.get("sent_chat_id", "") or "").strip()
                 if sent_chat_id:
-                    page.goto(_chat_page_url(sent_chat_id), wait_until="domcontentloaded", timeout=timeout_ms)
-                    try:
-                        page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
-                    except Exception:
-                        pass
+                    _goto_minimax_page(page, _chat_page_url(sent_chat_id), timeout_ms, label="motion_coach_sent_chat")
                     state["dom_baseline"] = set(_collect_dom_analysis_candidates(page))
 
             deadline = time.monotonic() + timeout_s_effective
@@ -4827,26 +4918,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
     timeout_s = max(30, int(settings.minimax_timeout_s or 180))
     poll_interval = max(0.8, float(settings.minimax_poll_interval_s or 2.0))
 
-    prompt = (settings.minimax_prompt_template or _DEFAULT_ANALYSIS_PROMPT).strip()
     video_hash = _md5_file(Path(video_path))
-    prompt_hash = _md5_text(
-        "{}|{}|{}".format(
-            prompt,
-            int(getattr(settings, "minimax_model_option", 0) or 0),
-            "v7_minimax_reasoning_guard",
-        )
-    )
-    cached = _cache_get(video_hash, prompt_hash)
-    if cached is not None:
-        cached.metadata.update(
-            {
-                "video_hash": video_hash,
-                "prompt_hash": prompt_hash,
-                "cache_hit": True,
-            }
-        )
-        return cached
-
     prepared = _prepare_video_for_minimax(video_path)
     # Long/heavy videos can require significantly longer async processing on MiniMax.
     base_duration_s = max(
@@ -4856,26 +4928,74 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
     adaptive_timeout_s = int(180 + (base_duration_s * 5.0))
     timeout_s_effective = max(timeout_s, min(900, adaptive_timeout_s))
     analysis: MiniMaxAnalysis | None = None
+    prompt_variants = [
+        ("primary", (settings.minimax_prompt_template or _DEFAULT_ANALYSIS_PROMPT).strip()),
+        ("fallback", _FALLBACK_ANALYSIS_PROMPT.strip()),
+    ]
+    last_exc: Exception | None = None
 
     try:
         policy_browser_only = _browser_only_enabled()
         if not policy_browser_only:
             logger.warning("MINIMAX_BROWSER_ONLY=false ignored by policy: forcing browser UI transport.")
-        analysis = _run_minimax_browser_only_once(
-            prepared=prepared,
-            prompt=prompt,
-            poll_interval=poll_interval,
-            timeout_s_effective=timeout_s_effective,
-            video_hash=video_hash,
-            prompt_hash=prompt_hash,
-        )
-        analysis.metadata["policy_forced_browser_only"] = bool(not policy_browser_only)
+        for attempt_index, (variant_name, prompt) in enumerate(prompt_variants, start=1):
+            prompt_hash = _md5_text(
+                "{}|{}|{}".format(
+                    prompt,
+                    int(getattr(settings, "minimax_model_option", 0) or 0),
+                    "v8_minimax_prompt_retry_guard",
+                )
+            )
+            cached = _cache_get(video_hash, prompt_hash)
+            if cached is not None:
+                cached.metadata.update(
+                    {
+                        "video_hash": video_hash,
+                        "prompt_hash": prompt_hash,
+                        "cache_hit": True,
+                        "prompt_variant": variant_name,
+                        "attempt_index": attempt_index,
+                    }
+                )
+                return cached
 
-        if analysis is None:
-            raise RuntimeError("MiniMax analysis unavailable (unknown error)")
+            try:
+                analysis = _run_minimax_browser_only_once(
+                    prepared=prepared,
+                    prompt=prompt,
+                    poll_interval=poll_interval,
+                    timeout_s_effective=timeout_s_effective,
+                    video_hash=video_hash,
+                    prompt_hash=prompt_hash,
+                )
+            except Exception as exc:
+                last_exc = exc
+                if attempt_index < len(prompt_variants) and _should_retry_browser_analysis(exc):
+                    logger.warning(
+                        "MiniMax browser analysis retrying with %s prompt after semantic failure: %s",
+                        prompt_variants[attempt_index][0],
+                        exc,
+                    )
+                    continue
+                raise
 
-        _cache_put(video_hash, prompt_hash, analysis)
-        return analysis
+            analysis.metadata.update(
+                {
+                    "policy_forced_browser_only": bool(not policy_browser_only),
+                    "prompt_variant": variant_name,
+                    "attempt_index": attempt_index,
+                }
+            )
+
+            if analysis is None:
+                raise RuntimeError("MiniMax analysis unavailable (unknown error)")
+
+            _cache_put(video_hash, prompt_hash, analysis)
+            return analysis
+
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("MiniMax analysis unavailable (all attempts failed)")
     finally:
         if prepared.temporary:
             try:

@@ -669,6 +669,14 @@ class MiniMaxMessageExtractionTests(unittest.TestCase):
             )
         )
 
+    def test_analysis_candidate_filter_rejects_english_self_instruction_variant(self) -> None:
+        self.assertFalse(
+            mm._is_analysis_candidate_text(
+                "The user is asking me to analyze a weightlifting video as an expert biomechanics coach. "
+                "They want me to ignore previous conversation history and analyze only the attached video."
+            )
+        )
+
     def test_extract_agent_message_ignores_known_ids(self) -> None:
         payload = {
             "data": {
@@ -854,6 +862,13 @@ class MiniMaxFinalOutputValidationTests(unittest.TestCase):
         analysis = _parse_analysis_payload(
             "L'utilisateur me demande d'analyser une vidéo de musculation comme un coach expert en biomécanique. "
             "Je dois:\n1. Regarder la vidéo jointe\n2. Analyser l'exercice en identifiant visuellement le segment qui déplace la charge."
+        )
+        self.assertFalse(_analysis_is_valid_final_output(analysis))
+
+    def test_validation_rejects_english_reasoning_blob_variant(self) -> None:
+        analysis = _parse_analysis_payload(
+            "The user is asking me to analyze a weightlifting video as an expert biomechanics coach. "
+            "They want me to ignore any previous conversation history and only analyze the attached video."
         )
         self.assertFalse(_analysis_is_valid_final_output(analysis))
 
@@ -1212,9 +1227,14 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
             def __init__(self):
                 self.goto_calls: list[str] = []
                 self.waited_for_selector = False
+                self.url = ""
 
             def goto(self, url: str, **_kwargs) -> None:
                 self.goto_calls.append(url)
+                self.url = url
+
+            def wait_for_load_state(self, *_args, **_kwargs) -> None:
+                return None
 
             def wait_for_selector(self, selector: str, timeout=None) -> None:
                 if selector == ".tiptap-editor":
@@ -1241,6 +1261,44 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
             mm._wait_for_page_condition = original_wait_for_page_condition  # type: ignore[assignment]
 
         self.assertEqual(page.goto_calls, [mm._motion_coach_expert_url()])
+        self.assertTrue(page.waited_for_selector)
+
+    def test_open_motion_coach_chat_reuses_current_expert_page_without_redundant_goto(self) -> None:
+        class _FakePage:
+            def __init__(self):
+                self.goto_calls: list[str] = []
+                self.waited_for_selector = False
+                self.url = mm._motion_coach_expert_url()
+
+            def goto(self, url: str, **_kwargs) -> None:
+                self.goto_calls.append(url)
+                self.url = url
+
+            def wait_for_selector(self, selector: str, timeout=None) -> None:
+                if selector == ".tiptap-editor":
+                    self.waited_for_selector = True
+                    return None
+                raise AssertionError("unexpected selector")
+
+        page = _FakePage()
+        original_composer_ready = mm._motion_coach_composer_ready
+        original_cta_present = mm._motion_coach_cta_present
+        original_click_cta = mm._click_motion_coach_cta
+        original_wait_for_page_condition = mm._wait_for_page_condition
+        try:
+            mm._motion_coach_composer_ready = lambda *_args, **_kwargs: False  # type: ignore[assignment]
+            mm._motion_coach_cta_present = lambda *_args, **_kwargs: True  # type: ignore[assignment]
+            mm._click_motion_coach_cta = lambda *_args, **_kwargs: True  # type: ignore[assignment]
+            mm._wait_for_page_condition = lambda _page, predicate, timeout_ms, step_ms=350: bool(predicate())  # type: ignore[assignment]
+
+            mm._open_motion_coach_chat(page, timeout_ms=3000)
+        finally:
+            mm._motion_coach_composer_ready = original_composer_ready  # type: ignore[assignment]
+            mm._motion_coach_cta_present = original_cta_present  # type: ignore[assignment]
+            mm._click_motion_coach_cta = original_click_cta  # type: ignore[assignment]
+            mm._wait_for_page_condition = original_wait_for_page_condition  # type: ignore[assignment]
+
+        self.assertEqual(page.goto_calls, [])
         self.assertTrue(page.waited_for_selector)
 
     def test_click_motion_coach_cta_uses_accessible_button_role_fallback(self) -> None:
@@ -1727,7 +1785,8 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
 
     def test_run_browser_only_authenticates_before_opening_motion_coach_chat(self) -> None:
         class _FakePage:
-            def __init__(self):
+            def __init__(self, name: str):
+                self.name = name
                 self.handlers = {}
                 self.goto_calls: list[str] = []
 
@@ -1742,8 +1801,13 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
                 self.goto_calls.append(url)
 
         class _FakeContext:
-            def __init__(self, page):
+            def __init__(self, page, fresh_page):
                 self.pages = [page]
+                self._fresh_page = fresh_page
+
+            def new_page(self):
+                self.pages.append(self._fresh_page)
+                return self._fresh_page
 
             def close(self) -> None:
                 return None
@@ -1769,8 +1833,9 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
             def __exit__(self, exc_type, exc, tb):
                 return False
 
-        fake_page = _FakePage()
-        fake_context = _FakeContext(fake_page)
+        fake_page = _FakePage("restored")
+        fake_fresh_page = _FakePage("fresh")
+        fake_context = _FakeContext(fake_page, fake_fresh_page)
         fake_module = types.ModuleType("playwright.sync_api")
         fake_module.sync_playwright = lambda: _FakeManager(fake_context)  # type: ignore[attr-defined]
 
@@ -1785,10 +1850,15 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
             minimax_settings.minimax_browser_email = "coaching@achzodcoaching.com"
             minimax_settings.minimax_browser_password = "secret"
 
-            mm._ensure_browser_authenticated = lambda *_args, **_kwargs: order.append("auth")  # type: ignore[assignment]
+            def _fake_auth(current_page, *_args, **_kwargs):
+                order.append("auth")
+                self.assertIs(current_page, fake_fresh_page)
 
-            def _fake_open(*_args, **_kwargs):
+            mm._ensure_browser_authenticated = _fake_auth  # type: ignore[assignment]
+
+            def _fake_open(current_page, *_args, **_kwargs):
                 order.append("open")
+                self.assertIs(current_page, fake_fresh_page)
                 raise RuntimeError("stop after order check")
 
             mm._open_motion_coach_chat = _fake_open  # type: ignore[assignment]
@@ -1813,7 +1883,8 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
             mm._open_motion_coach_chat = original_open_motion  # type: ignore[assignment]
 
         self.assertEqual(order, ["auth", "open"])
-        self.assertEqual(fake_page.goto_calls, [mm._motion_coach_expert_url()])
+        self.assertEqual(fake_page.goto_calls, [])
+        self.assertEqual(fake_fresh_page.goto_calls, [mm._motion_coach_expert_url()])
 
 
 class MiniMaxBrowserFallbackStrategyTests(unittest.TestCase):
@@ -1871,8 +1942,56 @@ class MiniMaxBrowserFallbackStrategyTests(unittest.TestCase):
             self.assertEqual(calls["browser"], 1)
             self.assertEqual(calls["direct"], 0)
             self.assertEqual(calls["cache_put"], 1)
-            self.assertEqual(out.metadata.get("transport"), "browser_ui_only")
-            self.assertEqual(out.metadata.get("policy_forced_browser_only"), True)
+
+    def test_run_retries_with_fallback_prompt_after_process_text_failure(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".mp4") as tmp:
+            tmp.write(b"test-video")
+            tmp.flush()
+
+            old_enabled = minimax_settings.minimax_enable_cache
+            old_email = minimax_settings.minimax_browser_email
+            old_password = minimax_settings.minimax_browser_password
+            minimax_settings.minimax_enable_cache = False
+            minimax_settings.minimax_browser_email = "user@example.com"
+            minimax_settings.minimax_browser_password = "secret"
+
+            prompts: list[str] = []
+            original_prepare = mm._prepare_video_for_minimax
+            original_browser_only = mm._run_minimax_browser_only_once
+            try:
+                mm._prepare_video_for_minimax = lambda path: mm._PreparedVideo(path=path)  # type: ignore[assignment]
+
+                def _fake_browser_only(**kwargs):
+                    prompts.append(str(kwargs.get("prompt", "")))
+                    if len(prompts) == 1:
+                        raise RuntimeError("MiniMax returned process text instead of final analysis: Step 1: Identify Project Type")
+                    return mm.MiniMaxAnalysis(
+                        exercise_slug="machine_chest_press",
+                        exercise_display="Presse pectorale machine",
+                        score=82,
+                        reps_total=8,
+                        reps_complete=8,
+                        reps_partial=0,
+                        intensity_score=74,
+                        intensity_label="elevee",
+                        avg_inter_rep_rest_s=1.1,
+                        report_text="Rapport MiniMax",
+                    )
+
+                mm._run_minimax_browser_only_once = _fake_browser_only  # type: ignore[assignment]
+
+                out = mm.run_minimax_motion_coach(tmp.name)
+            finally:
+                mm._prepare_video_for_minimax = original_prepare  # type: ignore[assignment]
+                mm._run_minimax_browser_only_once = original_browser_only  # type: ignore[assignment]
+                minimax_settings.minimax_enable_cache = old_enabled
+                minimax_settings.minimax_browser_email = old_email
+                minimax_settings.minimax_browser_password = old_password
+
+            self.assertEqual(len(prompts), 2)
+            self.assertNotEqual(prompts[0], prompts[1])
+            self.assertEqual(out.metadata.get("prompt_variant"), "fallback")
+            self.assertEqual(out.metadata.get("attempt_index"), 2)
 
     def test_run_browser_only_mode_skips_direct_api_transport(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".mp4") as tmp:
