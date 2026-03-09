@@ -45,10 +45,10 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
 
         self.assertEqual(analysis_id, "abc123")
         self.assertTrue(token)
-        self.assertIn("Synthese Client", html)
+        self.assertIn("Lecture Coach", html)
         self.assertIn("Salut Achzod", html)
-        self.assertIn("INTENSITE DE SERIE (DENSITE)", html)
-        self.assertIn("PLAN D&#x27;ACTION", html)
+        self.assertIn("Intensite et Densite", html)
+        self.assertIn("Plan d&#x27;Action", html)
 
     def test_clamps_invalid_symetrie_line_in_report_text_and_gauge(self) -> None:
         report = Report(
@@ -97,9 +97,9 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
             client_name="Client",
         )
         self.assertIn("Execution correcte.", html)
-        self.assertIn("ANALYSE REP PAR REP", html)
+        self.assertIn("Analyse Rep par Rep", html)
         self.assertIn("Rep 1 | 00:09 - 00:13 | Execution fluide.", html)
-        self.assertNotIn("PLAN D&#x27;ACTION", html)
+        self.assertNotIn("Plan d&#x27;Action", html)
 
 
 if __name__ == "__main__":

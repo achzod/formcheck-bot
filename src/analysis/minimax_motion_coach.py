@@ -66,6 +66,7 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "Reponds UNIQUEMENT en francais.\n"
     "Pas de preambule. Pas de workflow. Pas de thinking process.\n"
     "Tu t'adresses directement au client, tu le tutoies, tu es critique, didactique, detaille, minutieux et precis.\n"
+    "Ecris comme un coach humain: phrases concretes, directes, sans formules scolaires ou meta ('dans cette analyse', 'il est important de noter').\n"
     "Le score global doit etre coherent avec les 4 sous-scores.\n"
     "Le message final doit etre UNIQUEMENT un rapport Markdown place entre les balises exactes suivantes:\n"
     "{start}\n"
@@ -114,6 +115,7 @@ _DEFAULT_ANALYSIS_PROMPT = (
 _FALLBACK_ANALYSIS_PROMPT = (
     "Analyse uniquement la video jointe.\n"
     "Reponds UNIQUEMENT en francais, en tutoyant.\n"
+    "Style coach humain direct, concret, sans meta-commentaire.\n"
     "Retourne UNIQUEMENT un rapport Markdown entre {start} et {end}.\n"
     "Aucun thinking process. Aucun texte hors balises.\n"
     "# FORMCHECK\n"

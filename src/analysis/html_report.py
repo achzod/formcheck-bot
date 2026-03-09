@@ -145,6 +145,42 @@ _SECTION_ICONS: dict[str, str] = {
     "PLAN D'ACTION": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.4 0 2.73.32 3.9.89"/></svg>',
 }
 
+_SECTION_DISPLAY_TITLES: dict[str, str] = {
+    "ANALYSE BIOMECANIQUE": "Analyse Biomecanique",
+    "RESUME": "Resume Coach",
+    "AMPLITUDE DE MOUVEMENT": "Amplitude de Mouvement",
+    "POINTS POSITIFS": "Points Forts",
+    "CORRECTIONS PRIORITAIRES": "Corrections Prioritaires",
+    "ANALYSE DU TEMPO ET DES PHASES": "Tempo et Phases",
+    "ANALYSE DU TEMPO ET DES REPETITIONS": "Tempo et Repetitions",
+    "ANALYSE REP PAR REP": "Analyse Rep par Rep",
+    "ANALYSE REPETITION PAR REPETITION": "Analyse Rep par Rep",
+    "INTENSITE DE SERIE": "Intensite de Serie",
+    "INTENSITE DE SERIE (DENSITE)": "Intensite et Densite",
+    "COMPENSATIONS ET BIOMECANIQUE AVANCEE": "Compensations et Biomecanique Avancee",
+    "PROFIL MORPHOLOGIQUE": "Profil Morphologique",
+    "EXERCICES CORRECTIFS": "Exercices Correctifs",
+    "DECOMPOSITION DU SCORE": "Decomposition du Score",
+    "ANALYSE AVANCEE": "Analyse Avancee",
+    "POINT BIOMECANIQUE": "Point Biomecanique",
+    "RECOMMANDATION POUR LA PROCHAINE VIDEO": "Recommandation Prochaine Video",
+    "RECOMMANDATION": "Recommandation",
+    "PLAN ACTION": "Plan d'Action",
+    "PLAN D'ACTION": "Plan d'Action",
+}
+
+_REPORT_NOISE_MARKERS = (
+    "format de sortie obligatoire",
+    "rapport markdown attendu",
+    "ne mets rien avant",
+    "pas de preambule",
+    "pas de thinking process",
+    "tu t'adresses directement au client",
+    "the user wants me to",
+    "the user is asking me to",
+    "l'utilisateur me demande",
+)
+
 
 def _get_section_icon(title: str) -> str:
     upper = title.upper()
@@ -174,16 +210,37 @@ def _md_inline_to_html(text: str) -> str:
     return text
 
 
+def _normalize_section_title(raw_title: str) -> str:
+    upper = raw_title.strip().upper()
+    for canonical, display in _SECTION_DISPLAY_TITLES.items():
+        if upper.startswith(canonical):
+            return display
+    return raw_title.strip()
+
+
+def _clean_report_text_for_rendering(report_text: str) -> str:
+    out_lines: list[str] = []
+    for raw_line in str(report_text or "").splitlines():
+        line = raw_line.strip()
+        low = line.lower()
+        if any(marker in low for marker in _REPORT_NOISE_MARKERS):
+            continue
+        if re.match(r"^[\-\*]\s*(point|action)\s+\d+\s*$", low):
+            continue
+        if low in {"x/40", "x/30", "x/20", "x/10"}:
+            continue
+        # Keep semantic value while avoiding a raw placeholder.
+        line = re.sub(r"\bNON\s+MESURABLE\b", "Non mesurable sur cette prise", line, flags=re.IGNORECASE)
+        out_lines.append(line)
+    return "\n".join(out_lines).strip()
+
+
 def _format_report_html(report_text: str) -> str:
     """Convertit le texte du rapport LLM en HTML propre, parse par sections."""
-    text = html.escape(report_text)
+    text = html.escape(_clean_report_text_for_rendering(report_text))
     # Strip ALL markdown artifacts aggressively
     text = re.sub(r'^[\-\*•]\s+', '', text, flags=re.MULTILINE)     # bullet lists
     text = re.sub(r'^#{1,4}\s+', '', text, flags=re.MULTILINE)      # headers
-    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)                     # **bold** → plain
-    text = re.sub(r'__(.+?)__', r'\1', text)                         # __bold__ → plain
-    text = re.sub(r'(?<!\w)\*(.+?)\*(?!\w)', r'\1', text)           # *italic* → plain
-    text = re.sub(r'`(.+?)`', r'\1', text)                           # `code` → plain
     lines = text.split("\n")
     html_parts: list[str] = []
     in_section = False
@@ -219,6 +276,7 @@ def _format_report_html(report_text: str) -> str:
                 html_parts.append("</div></div>")
             section_count += 1
             icon = _get_section_icon(stripped)
+            display_title = _normalize_section_title(stripped)
             icon_html = f'<span style="margin-right:8px;vertical-align:middle;opacity:0.8">{icon}</span>' if icon else ""
             # Section accent class
             section_cls = "report-section fade-in"
@@ -230,7 +288,7 @@ def _format_report_html(report_text: str) -> str:
                 section_cls += " section-positive"
             html_parts.append(
                 f'<div class="{section_cls}" style="animation-delay:{section_count * 0.05}s">'
-                f'<div class="section-header">{icon_html}{stripped}</div>'
+                f'<div class="section-header">{icon_html}{display_title}</div>'
                 f'<div class="section-body">'
             )
             in_section = True
@@ -343,15 +401,14 @@ def _build_client_intro_card(
 ) -> str:
     first_name = _extract_first_name(client_name)
     if first_name:
-        intro = "Salut {}, voici ton rapport personnalise, section par section.".format(html.escape(first_name))
+        intro = "Salut {}, voici ce que je vois sur ta serie.".format(html.escape(first_name))
     else:
-        intro = "Salut, voici ton rapport personnalise, section par section."
+        intro = "Salut, voici ce que je vois sur ta serie."
 
     reps_total = 0
     intensity_score = 0
     intensity_label = "indeterminee"
     avg_rest = 0.0
-    confidence_score = 0
     detection_conf = 0.0
 
     if pipeline_result and getattr(pipeline_result, "reps", None):
@@ -360,8 +417,6 @@ def _build_client_intro_card(
         intensity_score = int(getattr(reps, "intensity_score", 0) or 0)
         intensity_label = str(getattr(reps, "intensity_label", "indeterminee") or "indeterminee")
         avg_rest = float(getattr(reps, "avg_inter_rep_rest_s", 0.0) or 0.0)
-    if pipeline_result and getattr(pipeline_result, "confidence", None):
-        confidence_score = int(getattr(pipeline_result.confidence, "overall_score", 0) or 0)
     if pipeline_result and getattr(pipeline_result, "detection", None):
         detection_conf = float(getattr(pipeline_result.detection, "confidence", 0.0) or 0.0)
 
@@ -374,16 +429,14 @@ def _build_client_intro_card(
         metrics.append("Intensite limitee sur cette prise")
     if avg_rest > 0:
         metrics.append("Repos inter-reps moyen {:.2f}s".format(avg_rest))
-    if confidence_score > 0:
-        metrics.append("Confiance analyse {} /100".format(confidence_score))
     if detection_conf > 0:
-        metrics.append("Confiance detection {:.0f}%".format(detection_conf * 100.0))
+        metrics.append("Confiance exo {:.0f}%".format(detection_conf * 100.0))
 
-    key_metrics = " | ".join(metrics) if metrics else "Analyse complete generee a partir de ta video."
+    key_metrics = " | ".join(metrics) if metrics else "Points cles extraits proprement sur cette video."
 
     return """
     <div class="card fade-in client-intro" style="animation-delay:0.18s">
-        <div class="card-header">Synthese Client</div>
+        <div class="card-header">Lecture Coach</div>
         <p class="report-p" style="margin-top:4px">{intro}</p>
         <p class="report-p">{exercise} — score global <strong>{score}/100</strong>.</p>
         <p class="report-p" style="color:#5a4a3a">{key_metrics}</p>
