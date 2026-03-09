@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from typing import Sequence
 
 from sqlalchemy import ForeignKey, String, Text, case, func, or_, select, update
@@ -134,6 +135,76 @@ class Payment(Base):
     created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="payments")
+
+
+class CustomerOrder(Base):
+    __tablename__ = "customer_orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, default=None)
+    phone: Mapped[str] = mapped_column(String(20), index=True)
+    source: Mapped[str] = mapped_column(String(40), default="stripe", index=True)
+    external_id: Mapped[str] = mapped_column(String(255), index=True)
+    order_type: Mapped[str] = mapped_column(String(40), default="one_time")
+    plan_key: Mapped[str | None] = mapped_column(String(80), default=None)
+    amount: Mapped[int] = mapped_column(default=0)  # cents
+    currency: Mapped[str] = mapped_column(String(8), default="eur")
+    status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
+    metadata_json: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class SupportTicket(Base):
+    __tablename__ = "support_tickets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, default=None)
+    phone: Mapped[str] = mapped_column(String(20), index=True)
+    subject: Mapped[str] = mapped_column(String(180), default="Demande SAV")
+    description: Mapped[str] = mapped_column(Text, default="")
+    category: Mapped[str] = mapped_column(String(40), default="general", index=True)
+    priority: Mapped[str] = mapped_column(String(20), default="normal", index=True)
+    status: Mapped[str] = mapped_column(String(20), default="open", index=True)
+    analysis_id: Mapped[int | None] = mapped_column(index=True, default=None)
+    order_id: Mapped[int | None] = mapped_column(index=True, default=None)
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    resolved_at: Mapped[dt.datetime | None] = mapped_column(default=None)
+    last_client_message_at: Mapped[dt.datetime | None] = mapped_column(default=None)
+    last_agent_message_at: Mapped[dt.datetime | None] = mapped_column(default=None)
+
+
+class SupportTicketMessage(Base):
+    __tablename__ = "support_ticket_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("support_tickets.id"), index=True)
+    author: Mapped[str] = mapped_column(String(20), default="client", index=True)
+    content: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+
+class WhatsAppMessageLog(Base):
+    __tablename__ = "whatsapp_message_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, default=None)
+    phone: Mapped[str] = mapped_column(String(20), index=True)
+    direction: Mapped[str] = mapped_column(String(20), index=True)  # inbound | outbound
+    message_type: Mapped[str] = mapped_column(String(20), default="text", index=True)
+    content: Mapped[str | None] = mapped_column(Text, default=None)
+    provider_message_id: Mapped[str | None] = mapped_column(String(120), default=None, index=True)
+    provider_status: Mapped[str | None] = mapped_column(String(40), default=None)
+    error_code: Mapped[str | None] = mapped_column(String(40), default=None)
+    raw_payload: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now(), index=True)
 
 
 # ── Init ────────────────────────────────────────────────────────────────
@@ -438,6 +509,90 @@ async def create_payment(
         return payment
 
 
+async def upsert_customer_order(
+    *,
+    phone: str,
+    source: str,
+    external_id: str,
+    order_type: str,
+    plan_key: str | None,
+    amount: int,
+    currency: str,
+    status: str,
+    metadata: dict | None = None,
+) -> CustomerOrder | None:
+    phone_norm = (phone or "").strip()
+    external_norm = (external_id or "").strip()
+    if not phone_norm or not external_norm:
+        return None
+    async with async_session() as session:
+        user = (
+            await session.execute(select(User).where(User.phone == phone_norm))
+        ).scalar_one_or_none()
+        existing = (
+            await session.execute(
+                select(CustomerOrder).where(
+                    (CustomerOrder.source == (source or "stripe"))
+                    & (CustomerOrder.external_id == external_norm)
+                )
+            )
+        ).scalar_one_or_none()
+
+        metadata_json = None
+        if isinstance(metadata, dict) and metadata:
+            metadata_json = json.dumps(metadata, ensure_ascii=False)[:20000]
+
+        if existing:
+            existing.phone = phone_norm
+            existing.user_id = user.id if user else existing.user_id
+            existing.order_type = (order_type or existing.order_type or "one_time")[:40]
+            existing.plan_key = (plan_key or existing.plan_key or None)
+            existing.amount = max(0, int(amount or 0))
+            existing.currency = (currency or existing.currency or "eur").lower()[:8]
+            existing.status = (status or existing.status or "pending")[:30]
+            if metadata_json:
+                existing.metadata_json = metadata_json
+            await session.commit()
+            await session.refresh(existing)
+            return existing
+
+        order = CustomerOrder(
+            user_id=(user.id if user else None),
+            phone=phone_norm,
+            source=(source or "stripe")[:40],
+            external_id=external_norm,
+            order_type=(order_type or "one_time")[:40],
+            plan_key=(plan_key or None),
+            amount=max(0, int(amount or 0)),
+            currency=(currency or "eur").lower()[:8],
+            status=(status or "pending")[:30],
+            metadata_json=metadata_json,
+        )
+        session.add(order)
+        await session.commit()
+        await session.refresh(order)
+        return order
+
+
+async def get_recent_customer_orders(phone: str, limit: int = 5) -> Sequence[CustomerOrder]:
+    phone_norm = (phone or "").strip()
+    if not phone_norm:
+        return []
+    async with async_session() as session:
+        result = await session.execute(
+            select(CustomerOrder)
+            .where(CustomerOrder.phone == phone_norm)
+            .order_by(CustomerOrder.created_at.desc(), CustomerOrder.id.desc())
+            .limit(max(1, min(int(limit or 5), 20)))
+        )
+        return result.scalars().all()
+
+
+async def get_latest_customer_order(phone: str) -> CustomerOrder | None:
+    rows = await get_recent_customer_orders(phone, limit=1)
+    return rows[0] if rows else None
+
+
 async def get_payment_by_session_id(session_id: str) -> Payment | None:
     """Check if a Stripe session was already processed (idempotency)."""
     async with async_session() as session:
@@ -501,6 +656,231 @@ async def record_payment_and_apply_plan(
             return phone, True
 
 
+async def create_support_ticket(
+    *,
+    phone: str,
+    subject: str,
+    description: str,
+    category: str = "general",
+    priority: str = "normal",
+    user_id: int | None = None,
+    analysis_id: int | None = None,
+    order_id: int | None = None,
+) -> SupportTicket | None:
+    phone_norm = (phone or "").strip()
+    if not phone_norm:
+        return None
+    async with async_session() as session:
+        resolved_user_id = user_id
+        if resolved_user_id is None:
+            user = (
+                await session.execute(select(User).where(User.phone == phone_norm))
+            ).scalar_one_or_none()
+            resolved_user_id = user.id if user else None
+
+        now = dt.datetime.utcnow()
+        ticket = SupportTicket(
+            user_id=resolved_user_id,
+            phone=phone_norm,
+            subject=(subject or "Demande SAV").strip()[:180] or "Demande SAV",
+            description=(description or "").strip()[:8000],
+            category=(category or "general")[:40],
+            priority=(priority or "normal")[:20],
+            status="open",
+            analysis_id=analysis_id,
+            order_id=order_id,
+            last_client_message_at=now,
+        )
+        session.add(ticket)
+        await session.flush()
+
+        first_message = SupportTicketMessage(
+            ticket_id=ticket.id,
+            author="client",
+            content=(description or "").strip()[:8000],
+        )
+        session.add(first_message)
+        await session.commit()
+        await session.refresh(ticket)
+        return ticket
+
+
+async def get_open_support_ticket_for_phone(phone: str) -> SupportTicket | None:
+    phone_norm = (phone or "").strip()
+    if not phone_norm:
+        return None
+    async with async_session() as session:
+        result = await session.execute(
+            select(SupportTicket)
+            .where(
+                (SupportTicket.phone == phone_norm)
+                & (SupportTicket.status.in_(("open", "in_progress")))
+            )
+            .order_by(SupportTicket.updated_at.desc(), SupportTicket.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
+async def add_support_ticket_message(
+    ticket_id: int,
+    *,
+    author: str,
+    content: str,
+) -> SupportTicketMessage | None:
+    text = (content or "").strip()
+    if not text:
+        return None
+    async with async_session() as session:
+        ticket = await session.get(SupportTicket, ticket_id)
+        if not ticket:
+            return None
+        role = (author or "client").strip().lower()
+        if role not in {"client", "agent", "system"}:
+            role = "client"
+        now = dt.datetime.utcnow()
+        msg_row = SupportTicketMessage(
+            ticket_id=ticket.id,
+            author=role,
+            content=text[:8000],
+        )
+        session.add(msg_row)
+
+        ticket.updated_at = now
+        if role == "client":
+            ticket.last_client_message_at = now
+            if ticket.status in {"resolved", "closed"}:
+                ticket.status = "open"
+                ticket.resolved_at = None
+        elif role == "agent":
+            ticket.last_agent_message_at = now
+            if ticket.status == "open":
+                ticket.status = "in_progress"
+        await session.commit()
+        await session.refresh(msg_row)
+        return msg_row
+
+
+async def set_support_ticket_status(ticket_id: int, status: str) -> SupportTicket | None:
+    state = (status or "").strip().lower()
+    if state not in {"open", "in_progress", "resolved", "closed"}:
+        return None
+    async with async_session() as session:
+        ticket = await session.get(SupportTicket, ticket_id)
+        if not ticket:
+            return None
+        ticket.status = state
+        if state in {"resolved", "closed"}:
+            ticket.resolved_at = dt.datetime.utcnow()
+        await session.commit()
+        await session.refresh(ticket)
+        return ticket
+
+
+async def get_recent_support_tickets(phone: str, limit: int = 3) -> Sequence[SupportTicket]:
+    phone_norm = (phone or "").strip()
+    if not phone_norm:
+        return []
+    async with async_session() as session:
+        result = await session.execute(
+            select(SupportTicket)
+            .where(SupportTicket.phone == phone_norm)
+            .order_by(SupportTicket.updated_at.desc(), SupportTicket.id.desc())
+            .limit(max(1, min(int(limit or 3), 20)))
+        )
+        return result.scalars().all()
+
+
+async def get_support_ticket_messages(ticket_id: int, limit: int = 50) -> Sequence[SupportTicketMessage]:
+    async with async_session() as session:
+        result = await session.execute(
+            select(SupportTicketMessage)
+            .where(SupportTicketMessage.ticket_id == int(ticket_id))
+            .order_by(SupportTicketMessage.created_at.desc(), SupportTicketMessage.id.desc())
+            .limit(max(1, min(int(limit or 50), 200)))
+        )
+        rows = list(result.scalars().all())
+        rows.reverse()
+        return rows
+
+
+async def list_open_support_tickets(limit: int = 50) -> Sequence[SupportTicket]:
+    async with async_session() as session:
+        result = await session.execute(
+            select(SupportTicket)
+            .where(SupportTicket.status.in_(("open", "in_progress")))
+            .order_by(SupportTicket.updated_at.desc(), SupportTicket.id.desc())
+            .limit(max(1, min(int(limit or 50), 200)))
+        )
+        return result.scalars().all()
+
+
+async def log_whatsapp_message(
+    *,
+    phone: str,
+    direction: str,
+    message_type: str = "text",
+    content: str = "",
+    provider_message_id: str = "",
+    provider_status: str = "",
+    error_code: str = "",
+    raw_payload: dict | None = None,
+    user_id: int | None = None,
+) -> WhatsAppMessageLog | None:
+    phone_norm = (phone or "").strip()
+    if not phone_norm:
+        return None
+    async with async_session() as session:
+        resolved_user_id = user_id
+        if resolved_user_id is None:
+            user = (
+                await session.execute(select(User).where(User.phone == phone_norm))
+            ).scalar_one_or_none()
+            resolved_user_id = user.id if user else None
+
+        raw_payload_text = None
+        if isinstance(raw_payload, dict) and raw_payload:
+            raw_payload_text = json.dumps(raw_payload, ensure_ascii=False)[:20000]
+
+        row = WhatsAppMessageLog(
+            user_id=resolved_user_id,
+            phone=phone_norm,
+            direction=(direction or "inbound")[:20],
+            message_type=(message_type or "text")[:20],
+            content=(content or "").strip()[:8000] or None,
+            provider_message_id=(provider_message_id or "").strip()[:120] or None,
+            provider_status=(provider_status or "").strip()[:40] or None,
+            error_code=(error_code or "").strip()[:40] or None,
+            raw_payload=raw_payload_text,
+        )
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+        return row
+
+
+async def get_recent_whatsapp_messages(phone: str, limit: int = 20) -> Sequence[WhatsAppMessageLog]:
+    phone_norm = (phone or "").strip()
+    if not phone_norm:
+        return []
+    async with async_session() as session:
+        result = await session.execute(
+            select(WhatsAppMessageLog)
+            .where(WhatsAppMessageLog.phone == phone_norm)
+            .order_by(WhatsAppMessageLog.created_at.desc(), WhatsAppMessageLog.id.desc())
+            .limit(max(1, min(int(limit or 20), 100)))
+        )
+        return result.scalars().all()
+
+
+async def count_user_analyses(user_id: int) -> int:
+    async with async_session() as session:
+        result = await session.execute(
+            select(func.count(Analysis.id)).where(Analysis.user_id == user_id)
+        )
+        return int(result.scalar_one() or 0)
+
+
 async def get_user_analyses(user_id: int) -> Sequence[Analysis]:
     async with async_session() as session:
         result = await session.execute(
@@ -514,8 +894,6 @@ async def get_user_analyses(user_id: int) -> Sequence[Analysis]:
 
 async def save_morpho_profile(user_id: int, morpho_data: dict) -> MorphoProfileDB:
     """Sauvegarde un profil morphologique. Remplace le precedent si existant."""
-    import json
-
     async with async_session() as session:
         # Supprimer l'ancien profil s'il existe
         existing = await session.execute(
@@ -576,8 +954,6 @@ async def has_morpho_profile(user_id: int) -> bool:
 
 async def get_morpho_profile_dict(user_id: int) -> dict | None:
     """Recupere le profil morpho sous forme de dict complet (depuis full_json)."""
-    import json
-
     profile = await get_morpho_profile(user_id)
     if not profile:
         return None

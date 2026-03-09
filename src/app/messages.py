@@ -276,7 +276,8 @@ HELP_TEXT = (
     "Envoie-moi une *video* de ton exercice (max 16 MB).\n"
     "Tape *menu* pour les options et *guide* pour les conseils de tournage.\n"
     "Si ta video est lourde, coupe-la en clips 1/3, 2/3, 3/3.\n"
-    "Tape *clips* pour le mode multi-clips."
+    "Tape *clips* pour le mode multi-clips.\n"
+    "Tape *sav* pour le support ou *historique* pour ton resume client."
 )
 
 MENU_TEXT = (
@@ -287,7 +288,10 @@ MENU_TEXT = (
     "*upload* — Rappel des regles pour videos lourdes sur WhatsApp\n"
     "*credits* — Analyses restantes\n"
     "*forfaits* — Recharger\n"
-    "*morpho* — Profil morphologique"
+    "*morpho* — Profil morphologique\n"
+    "*commandes* — Etat de tes commandes\n"
+    "*historique* — Resume analyses/commandes/SAV\n"
+    "*sav* — Ouvrir ou suivre un ticket support"
 )
 
 UPLOAD_INSTRUCTIONS = (
@@ -356,6 +360,18 @@ RATE_LIMIT = (
     "Une analyse est deja en cours. Attends le resultat avant d'envoyer une autre video."
 )
 
+SUPPORT_HELP = (
+    "Support client:\n"
+    "1. Ecris *sav ton message* pour ouvrir une demande\n"
+    "2. Si un ticket est deja ouvert, ton message est ajoute dessus\n"
+    "3. Ecris *sav close* quand ton sujet est regle"
+)
+
+SUPPORT_NO_OPEN_TICKET = (
+    "Aucun ticket SAV ouvert pour le moment.\n"
+    "Ecris *sav ton message* pour creer une demande."
+)
+
 
 def remote_queue_status(position: int, eta_minutes=None) -> str:
     pos = max(1, int(position or 1))
@@ -379,6 +395,33 @@ def remote_queue_saturated(max_jobs: int) -> str:
         "Capacite actuelle: {max_jobs} analyses en attente.\n"
         "Reessaie dans quelques minutes."
     ).format(max_jobs=max(1, int(max_jobs)))
+
+
+def support_ticket_created(ticket_id: int) -> str:
+    return (
+        "Ticket SAV cree: #{ticket_id}\n"
+        "Ton message a ete enregistre.\n"
+        "Ecris a nouveau *sav ...* pour ajouter des details."
+    ).format(ticket_id=max(1, int(ticket_id)))
+
+
+def support_ticket_updated(ticket_id: int, status: str) -> str:
+    state = (status or "open").strip().lower()
+    return (
+        "Ticket SAV mis a jour: #{ticket_id}\n"
+        "Statut actuel: {state}\n"
+        "Je garde tout l'historique dans le meme ticket."
+    ).format(
+        ticket_id=max(1, int(ticket_id)),
+        state=state,
+    )
+
+
+def support_ticket_closed(ticket_id: int) -> str:
+    return (
+        "Ticket SAV clos: #{ticket_id}\n"
+        "Parfait. Si besoin, tu peux reouvrir un nouveau ticket avec *sav ...*."
+    ).format(ticket_id=max(1, int(ticket_id)))
 
 # ── HELPERS POUR GENERER LES MESSAGES DE SUIVI ──────────────────────────────
 

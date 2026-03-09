@@ -73,6 +73,12 @@ async def send_text(to: str, body: str) -> dict[str, Any]:
                 "Body": chunk,
             })
             result = resp.json()
+            await _best_effort_log_outbound(
+                to=to,
+                message_type="text",
+                content=chunk,
+                twilio_payload=result if isinstance(result, dict) else {},
+            )
     return result
 
 
@@ -109,7 +115,16 @@ async def send_image(to: str, image_url: str, caption: str | None = None) -> dic
         data["Body"] = caption
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await _send_with_retry(client, data)
-        return resp.json()
+        result = resp.json()
+        payload = result if isinstance(result, dict) else {}
+        text = caption or "[image]"
+        await _best_effort_log_outbound(
+            to=to,
+            message_type="image",
+            content=text,
+            twilio_payload=payload,
+        )
+        return payload
 
 
 async def send_plan_buttons(to: str, body: str, checkout_urls: dict[str, str]) -> dict[str, Any]:
@@ -127,6 +142,30 @@ async def send_plan_buttons(to: str, body: str, checkout_urls: dict[str, str]) -
         checkout_urls.get("elite", ""),
     ]
     return await send_text(to, "\n".join(lines))
+
+
+async def _best_effort_log_outbound(
+    *,
+    to: str,
+    message_type: str,
+    content: str,
+    twilio_payload: dict[str, Any],
+) -> None:
+    try:
+        from app import database as db
+
+        await db.log_whatsapp_message(
+            phone=str(to or "").replace("whatsapp:", "").strip(),
+            direction="outbound",
+            message_type=message_type,
+            content=content or "",
+            provider_message_id=str(twilio_payload.get("sid", "") or ""),
+            provider_status=str(twilio_payload.get("status", "") or ""),
+            error_code=str(twilio_payload.get("error_code", "") or ""),
+            raw_payload=twilio_payload,
+        )
+    except Exception:
+        logger.debug("Outbound WhatsApp log write failed", exc_info=True)
 
 
 async def download_media(media_url: str) -> bytes:

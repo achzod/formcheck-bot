@@ -131,6 +131,7 @@ async def handle_checkout_completed(session: dict) -> str | None:
         return None
 
     plan = PLANS[plan_key]
+    order_type = "subscription" if plan["unlimited"] else "one_time"
     unlimited_until: dt.datetime | None = None
     if plan["unlimited"]:
         # Elite is monthly recurring: set entitlement to current billing period end.
@@ -157,6 +158,41 @@ async def handle_checkout_completed(session: dict) -> str | None:
     if duplicate:
         logger.warning("Duplicate webhook for session %s — skipping", session_id)
         return None
+
+    await db.upsert_customer_order(
+        phone=phone,
+        source="stripe",
+        external_id=session_id,
+        order_type=order_type,
+        plan_key=plan_key,
+        amount=amount,
+        currency=str(session.get("currency", "eur") or "eur"),
+        status="paid",
+        metadata={
+            "checkout_session_id": session_id,
+            "subscription_id": _extract_subscription_id(session),
+            "mode": session.get("mode"),
+            "payment_status": session.get("payment_status"),
+        },
+    )
+
+    subscription_id = _extract_subscription_id(session)
+    if subscription_id:
+        await db.upsert_customer_order(
+            phone=phone,
+            source="stripe",
+            external_id=subscription_id,
+            order_type="subscription",
+            plan_key=plan_key,
+            amount=amount,
+            currency=str(session.get("currency", "eur") or "eur"),
+            status="active",
+            metadata={
+                "checkout_session_id": session_id,
+                "subscription_id": subscription_id,
+                "payment_status": session.get("payment_status"),
+            },
+        )
     return processed_phone
 
 
@@ -197,6 +233,18 @@ async def handle_subscription_event(event_type: str, subscription: dict[str, Any
 
     if event_type == "customer.subscription.deleted":
         await db.disable_unlimited(user.id)
+        if isinstance(subscription_id, str) and subscription_id.strip():
+            await db.upsert_customer_order(
+                phone=phone,
+                source="stripe",
+                external_id=subscription_id,
+                order_type="subscription",
+                plan_key=plan_key,
+                amount=int(subscription.get("plan", {}).get("amount") or 0),
+                currency=str(subscription.get("currency", "eur") or "eur"),
+                status="canceled",
+                metadata={"event_type": event_type},
+            )
         logger.info("Unlimited disabled for phone %s (subscription %s)", phone, subscription_id)
         return phone
 
@@ -210,6 +258,21 @@ async def handle_subscription_event(event_type: str, subscription: dict[str, Any
         )
 
     await db.set_unlimited_until(user.id, period_end)
+    if isinstance(subscription_id, str) and subscription_id.strip():
+        await db.upsert_customer_order(
+            phone=phone,
+            source="stripe",
+            external_id=subscription_id,
+            order_type="subscription",
+            plan_key=plan_key,
+            amount=int(subscription.get("plan", {}).get("amount") or 0),
+            currency=str(subscription.get("currency", "eur") or "eur"),
+            status="active",
+            metadata={
+                "event_type": event_type,
+                "current_period_end": int(subscription.get("current_period_end") or 0),
+            },
+        )
     logger.info(
         "Unlimited updated for phone %s until %s (subscription %s, event %s)",
         phone,

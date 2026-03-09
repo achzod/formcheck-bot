@@ -112,6 +112,164 @@ def _acquire_analysis_lock(phone: str) -> bool:
     return True
 
 
+def _ticket_message_from_text(raw_text: str) -> str:
+    text = (raw_text or "").strip()
+    lowered = text.lower()
+    prefixes = ("sav ", "support ", "ticket ")
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            return text[len(prefix):].strip()
+    return text.strip()
+
+
+def _ticket_subject_from_message(message: str) -> str:
+    clean = " ".join((message or "").split())
+    if not clean:
+        return "Demande SAV"
+    first_chunk = clean.split(".")[0].strip()
+    if len(first_chunk) > 90:
+        first_chunk = first_chunk[:90].rstrip()
+    return first_chunk or "Demande SAV"
+
+
+def _ticket_meta_from_message(message: str) -> tuple[str, str]:
+    low = (message or "").lower()
+    if any(k in low for k in ("paiement", "facture", "commande", "abonnement", "stripe")):
+        return "billing", "high"
+    if any(k in low for k in ("bug", "erreur", "crash", "rapport", "video")):
+        return "technical", "high"
+    if any(k in low for k in ("conseil", "analyse", "exo", "biomecanique")):
+        return "coaching", "normal"
+    return "general", "normal"
+
+
+async def _send_orders_status(user: db.User) -> None:
+    orders = await db.get_recent_customer_orders(user.phone, limit=3)
+    if not orders:
+        await wa.send_text(
+            user.phone,
+            "Aucune commande enregistree pour le moment.\n"
+            "Tape *forfaits* pour voir les plans.",
+        )
+        return
+
+    lines = ["*Etat commandes*"]
+    for idx, order in enumerate(orders, start=1):
+        amount_eur = (float(order.amount or 0) / 100.0) if order.amount else 0.0
+        plan_label = (order.plan_key or "plan_inconnu").replace("_", " ")
+        created = order.created_at.strftime("%d/%m %H:%M") if order.created_at else "date inconnue"
+        lines.append(
+            "{idx}. {plan} | {status} | {amount:.2f} {currency} | {date}".format(
+                idx=idx,
+                plan=plan_label,
+                status=(order.status or "pending"),
+                amount=amount_eur,
+                currency=(order.currency or "eur").upper(),
+                date=created,
+            )
+        )
+    await wa.send_text(user.phone, "\n".join(lines))
+
+
+async def _send_customer_history(user: db.User) -> None:
+    analyses = await db.get_user_analyses(user.id)
+    total_analyses = await db.count_user_analyses(user.id)
+    orders = await db.get_recent_customer_orders(user.phone, limit=2)
+    tickets = await db.get_recent_support_tickets(user.phone, limit=2)
+
+    lines = ["*Historique client*"]
+    lines.append("Analyses total: {}".format(total_analyses))
+    if analyses:
+        top = analyses[:3]
+        lines.append("Dernieres analyses:")
+        for idx, row in enumerate(top, start=1):
+            created = row.created_at.strftime("%d/%m %H:%M") if row.created_at else "date inconnue"
+            lines.append(
+                "{}. {} | {}/100 | {}".format(
+                    idx,
+                    row.exercise or "exercice inconnu",
+                    int(row.score or 0),
+                    created,
+                )
+            )
+    else:
+        lines.append("Dernieres analyses: aucune")
+
+    if orders:
+        lines.append("Dernieres commandes:")
+        for idx, order in enumerate(orders, start=1):
+            amount_eur = (float(order.amount or 0) / 100.0) if order.amount else 0.0
+            lines.append(
+                "{}. {} | {} | {:.2f} {}".format(
+                    idx,
+                    (order.plan_key or "plan_inconnu").replace("_", " "),
+                    order.status or "pending",
+                    amount_eur,
+                    (order.currency or "eur").upper(),
+                )
+            )
+    else:
+        lines.append("Dernieres commandes: aucune")
+
+    if tickets:
+        lines.append("SAV:")
+        for ticket in tickets:
+            lines.append(
+                "#{} | {} | {}".format(
+                    ticket.id,
+                    ticket.status,
+                    ticket.subject,
+                )
+            )
+    else:
+        lines.append("SAV: aucun ticket")
+
+    await wa.send_text(user.phone, "\n".join(lines))
+
+
+async def _open_or_append_support_ticket(user: db.User, raw_text: str) -> None:
+    body = _ticket_message_from_text(raw_text)
+    if not body:
+        await wa.send_text(user.phone, msg.SUPPORT_HELP)
+        return
+
+    open_ticket = await db.get_open_support_ticket_for_phone(user.phone)
+    if open_ticket:
+        await db.add_support_ticket_message(
+            open_ticket.id,
+            author="client",
+            content=body,
+        )
+        await wa.send_text(
+            user.phone,
+            msg.support_ticket_updated(open_ticket.id, open_ticket.status or "open"),
+        )
+        return
+
+    category, priority = _ticket_meta_from_message(body)
+    ticket = await db.create_support_ticket(
+        phone=user.phone,
+        user_id=user.id,
+        subject=_ticket_subject_from_message(body),
+        description=body,
+        category=category,
+        priority=priority,
+    )
+    if not ticket:
+        await wa.send_text(user.phone, msg.ERROR_GENERIC)
+        return
+    await wa.send_text(user.phone, msg.support_ticket_created(ticket.id))
+
+
+async def _close_open_support_ticket(user: db.User) -> None:
+    open_ticket = await db.get_open_support_ticket_for_phone(user.phone)
+    if not open_ticket:
+        await wa.send_text(user.phone, msg.SUPPORT_NO_OPEN_TICKET)
+        return
+    await db.set_support_ticket_status(open_ticket.id, "resolved")
+    await wa.send_text(user.phone, msg.support_ticket_closed(open_ticket.id))
+
+
 def _parse_clip_hint(text: str) -> tuple[int, int] | None:
     cleaned = (text or "").strip().lower()
     if not cleaned:
@@ -271,11 +429,28 @@ async def handle_incoming_message(data: dict) -> None:
         await wa.send_text(phone, msg.ERROR_GENERIC)
         return
 
+    msg_type: str = str(data.get("type", "text") or "text")
+    inbound_text = str(data.get("text", "") or "")
+    if msg_type in {"video", "image"} and not inbound_text.strip():
+        inbound_text = "[{}]".format(msg_type)
+    try:
+        await db.log_whatsapp_message(
+            phone=phone,
+            direction="inbound",
+            message_type=msg_type,
+            content=inbound_text,
+            provider_message_id=str(data.get("message_id", "") or ""),
+            raw_payload=data,
+            user_id=user.id,
+        )
+    except Exception:
+        logger.debug("Inbound WhatsApp log write failed", exc_info=True)
+
     if is_new:
         await wa.send_text(phone, msg.WELCOME)
         return
 
-    msg_type: str = data["type"]
+    msg_type = str(data.get("type", "") or "text")
 
     # Si le client est dans le flow morpho (persisté en DB)
     morpho_flow = await db.get_morpho_flow_state(phone)
@@ -348,6 +523,16 @@ async def handle_text(user: db.User, data: dict) -> None:
 
     if text in ("aide", "help", "?", "menu"):
         await wa.send_text(phone, msg.MENU_TEXT)
+    elif text in ("sav", "support", "ticket", "aide sav", "help sav"):
+        await wa.send_text(phone, msg.SUPPORT_HELP)
+    elif text in ("sav close", "sav clos", "ticket close", "ticket resolu", "ticket résolu"):
+        await _close_open_support_ticket(user)
+    elif text.startswith(("sav ", "support ", "ticket ")):
+        await _open_or_append_support_ticket(user, data.get("text", ""))
+    elif text in ("commande", "commandes", "order", "orders"):
+        await _send_orders_status(user)
+    elif text in ("historique", "history", "mon historique"):
+        await _send_customer_history(user)
     elif text in ("guide", "tournage", "filmer", "comment filmer"):
         await wa.send_text(phone, msg.FILMING_GUIDE)
     elif text in ("clips", "clip", "multi clips", "multiclips", "multi-clip"):

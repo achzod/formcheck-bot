@@ -719,6 +719,17 @@ try:
         if provided != expected:
             raise HTTPException(status_code=403, detail="Invalid internal token")
 
+    def _require_internal_admin_token(request: Request) -> None:
+        expected = str(settings.render_api_key or _internal_worker_token() or "").strip()
+        if not expected:
+            raise HTTPException(status_code=503, detail="Internal admin token missing")
+        provided = (
+            request.headers.get("X-Formcheck-Internal-Token", "")
+            or request.query_params.get("token", "")
+        ).strip()
+        if provided != expected:
+            raise HTTPException(status_code=403, detail="Invalid internal token")
+
     @app.post("/internal/minimax/jobs/claim")
     async def claim_minimax_remote_job(request: Request) -> dict:
         _require_internal_worker_token(request)
@@ -778,6 +789,118 @@ try:
         if not ok:
             raise HTTPException(status_code=404, detail="Job not found")
         return {"status": "ok"}
+
+    @app.get("/internal/support/tickets/open")
+    async def internal_open_support_tickets(request: Request, limit: int = 50) -> dict:
+        _require_internal_admin_token(request)
+        rows = await db.list_open_support_tickets(limit=limit)
+        tickets = []
+        for row in rows:
+            tickets.append(
+                {
+                    "id": int(row.id),
+                    "phone": row.phone,
+                    "status": row.status,
+                    "priority": row.priority,
+                    "category": row.category,
+                    "subject": row.subject,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                    "resolved_at": row.resolved_at.isoformat() if row.resolved_at else None,
+                }
+            )
+        return {"tickets": tickets}
+
+    @app.get("/internal/customers/{phone}/history")
+    async def internal_customer_history(phone: str, request: Request) -> dict:
+        _require_internal_admin_token(request)
+        user = await db.get_user_by_phone(phone)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        analyses = await db.get_user_analyses(user.id)
+        orders = await db.get_recent_customer_orders(phone, limit=10)
+        tickets = await db.get_recent_support_tickets(phone, limit=10)
+        messages = await db.get_recent_whatsapp_messages(phone, limit=40)
+        ticket_messages: dict[str, list[dict[str, str | int | None]]] = {}
+        for ticket in tickets:
+            history = await db.get_support_ticket_messages(ticket.id, limit=20)
+            ticket_messages[str(ticket.id)] = [
+                {
+                    "id": int(item.id),
+                    "author": item.author,
+                    "content": item.content,
+                    "created_at": item.created_at.isoformat() if item.created_at else None,
+                }
+                for item in history
+            ]
+
+        return {
+            "customer": {
+                "id": int(user.id),
+                "phone": user.phone,
+                "name": user.name,
+                "credits": int(user.credits or 0),
+                "is_unlimited": bool(user.is_unlimited),
+                "unlimited_expires_at": (
+                    user.unlimited_expires_at.isoformat()
+                    if user.unlimited_expires_at
+                    else None
+                ),
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+            },
+            "analyses": [
+                {
+                    "id": int(row.id),
+                    "exercise": row.exercise,
+                    "score": row.score,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                }
+                for row in analyses[:30]
+            ],
+            "orders": [
+                {
+                    "id": int(row.id),
+                    "source": row.source,
+                    "external_id": row.external_id,
+                    "order_type": row.order_type,
+                    "plan_key": row.plan_key,
+                    "amount": int(row.amount or 0),
+                    "currency": row.currency,
+                    "status": row.status,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                }
+                for row in orders
+            ],
+            "support_tickets": [
+                {
+                    "id": int(row.id),
+                    "status": row.status,
+                    "priority": row.priority,
+                    "category": row.category,
+                    "subject": row.subject,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                    "resolved_at": row.resolved_at.isoformat() if row.resolved_at else None,
+                }
+                for row in tickets
+            ],
+            "support_ticket_messages": ticket_messages,
+            "messages": [
+                {
+                    "id": int(row.id),
+                    "direction": row.direction,
+                    "message_type": row.message_type,
+                    "content": row.content,
+                    "provider_message_id": row.provider_message_id,
+                    "provider_status": row.provider_status,
+                    "error_code": row.error_code,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                }
+                for row in messages
+            ],
+        }
 
     @app.get("/debug/errors")
     async def debug_errors(token: str = "") -> dict:
