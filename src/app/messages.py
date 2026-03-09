@@ -7,6 +7,8 @@ Regles :
 4. Pas de tirets comme puces (numeros ou phrases)
 """
 
+from __future__ import annotations
+
 # ── MESSAGE DE BIENVENUE ────────────────────────────────────────────────────
 # Inclut directement les instructions essentielles de tournage
 # pour que le client filme correctement DES le premier envoi.
@@ -353,6 +355,30 @@ ERROR_VIDEO_TOO_SHORT = (
 RATE_LIMIT = (
     "Une analyse est deja en cours. Attends le resultat avant d'envoyer une autre video."
 )
+
+
+def remote_queue_status(position: int, eta_minutes=None) -> str:
+    pos = max(1, int(position or 1))
+    if eta_minutes is None or eta_minutes <= 0:
+        return (
+            "Ta video est bien en file d'attente.\n"
+            "Position actuelle: #{pos}.\n"
+            "Je te renvoie le rapport des que ton tour passe."
+        ).format(pos=pos)
+    return (
+        "Ta video est bien en file d'attente.\n"
+        "Position actuelle: #{pos}.\n"
+        "Delai estime: ~{eta} min.\n"
+        "Je te renvoie le rapport des que ton tour passe."
+    ).format(pos=pos, eta=max(1, int(eta_minutes)))
+
+
+def remote_queue_saturated(max_jobs: int) -> str:
+    return (
+        "Le bot est temporairement surcharge (file pleine).\n"
+        "Capacite actuelle: {max_jobs} analyses en attente.\n"
+        "Reessaie dans quelques minutes."
+    ).format(max_jobs=max(1, int(max_jobs)))
 
 # ── HELPERS POUR GENERER LES MESSAGES DE SUIVI ──────────────────────────────
 

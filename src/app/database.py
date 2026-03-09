@@ -345,6 +345,53 @@ async def get_minimax_remote_job(job_id: int) -> MiniMaxRemoteJob | None:
         return await session.get(MiniMaxRemoteJob, job_id)
 
 
+async def get_open_minimax_remote_job_for_phone(phone: str) -> MiniMaxRemoteJob | None:
+    phone_norm = (phone or "").strip()
+    if not phone_norm:
+        return None
+    async with async_session() as session:
+        result = await session.execute(
+            select(MiniMaxRemoteJob)
+            .where(
+                (MiniMaxRemoteJob.phone == phone_norm)
+                & (MiniMaxRemoteJob.status.in_(("queued", "processing")))
+            )
+            .order_by(MiniMaxRemoteJob.created_at.asc(), MiniMaxRemoteJob.id.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
+async def count_pending_minimax_remote_jobs() -> int:
+    async with async_session() as session:
+        result = await session.execute(
+            select(func.count(MiniMaxRemoteJob.id)).where(
+                MiniMaxRemoteJob.status.in_(("queued", "processing"))
+            )
+        )
+        return int(result.scalar_one() or 0)
+
+
+async def get_minimax_remote_job_position(job_id: int) -> int:
+    async with async_session() as session:
+        job = await session.get(MiniMaxRemoteJob, job_id)
+        if not job:
+            return 0
+        result = await session.execute(
+            select(func.count(MiniMaxRemoteJob.id)).where(
+                MiniMaxRemoteJob.status.in_(("queued", "processing"))
+                & (
+                    (MiniMaxRemoteJob.created_at < job.created_at)
+                    | (
+                        (MiniMaxRemoteJob.created_at == job.created_at)
+                        & (MiniMaxRemoteJob.id <= job.id)
+                    )
+                )
+            )
+        )
+        return int(result.scalar_one() or 0)
+
+
 async def complete_minimax_remote_job(job_id: int, result_payload: str) -> MiniMaxRemoteJob | None:
     async with async_session() as session:
         job = await session.get(MiniMaxRemoteJob, job_id)

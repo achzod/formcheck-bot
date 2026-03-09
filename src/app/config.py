@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     minimax_remote_worker_token: str = ""
     minimax_remote_worker_poll_interval_s: int = 5
     minimax_remote_job_stale_after_s: int = 600
+    minimax_remote_max_pending_jobs: int = 40
+    minimax_remote_avg_job_seconds: int = 150
     minimax_enable_cache: bool = True
     minimax_cache_ttl_hours: int = 168
     minimax_cache_path: str = "media/minimax_cache.sqlite"

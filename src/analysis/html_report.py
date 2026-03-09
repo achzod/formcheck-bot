@@ -179,6 +179,21 @@ _REPORT_NOISE_MARKERS = (
     "the user wants me to",
     "the user is asking me to",
     "l'utilisateur me demande",
+    "fais exactement une ligne numerotee",
+    "une ligne numerotee par repetition",
+    "si une information est invisible",
+    "si une donnee n'est pas mesurable",
+    "titre | pourquoi | impact | cue",
+    "action 1",
+    "action 2",
+    "action 3",
+)
+
+_AI_STYLE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bdans cette analyse[, ]*", re.IGNORECASE), ""),
+    (re.compile(r"\bil est important de noter que\s*", re.IGNORECASE), ""),
+    (re.compile(r"\bde maniere generale[, ]*", re.IGNORECASE), ""),
+    (re.compile(r"\bglobalement[, ]*", re.IGNORECASE), ""),
 )
 
 
@@ -227,10 +242,17 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
             continue
         if re.match(r"^[\-\*]\s*(point|action)\s+\d+\s*$", low):
             continue
+        if re.match(r"^#\s*formcheck$", low):
+            continue
         if low in {"x/40", "x/30", "x/20", "x/10"}:
             continue
         # Keep semantic value while avoiding a raw placeholder.
         line = re.sub(r"\bNON\s+MESURABLE\b", "Non mesurable sur cette prise", line, flags=re.IGNORECASE)
+        for pattern, replacement in _AI_STYLE_REWRITES:
+            line = pattern.sub(replacement, line)
+        line = re.sub(r"\s{2,}", " ", line).strip(" -")
+        if not line:
+            continue
         out_lines.append(line)
     return "\n".join(out_lines).strip()
 
@@ -320,7 +342,34 @@ def _format_report_html(report_text: str) -> str:
         num_match = re.match(r"^(\d+)\.\s*(.*)", stripped)
         if num_match:
             num = num_match.group(1)
-            rest = _md_inline_to_html(num_match.group(2))
+            rest_raw = num_match.group(2).strip()
+            if "|" in rest_raw:
+                segments = [seg.strip() for seg in rest_raw.split("|") if seg.strip()]
+                if len(segments) >= 2:
+                    lead = segments[0]
+                    timing = segments[1]
+                    comment = " | ".join(segments[2:]).strip() if len(segments) > 2 else ""
+                    if re.search(r"\brep", lead, re.IGNORECASE) or re.search(r"\d{2}:\d{2}", timing):
+                        rep_title = _md_inline_to_html(lead)
+                        rep_timing = _md_inline_to_html(timing)
+                        rep_comment = _md_inline_to_html(comment)
+                        rep_comment_html = (
+                            f'<div class="rep-comment">{rep_comment}</div>'
+                            if rep_comment
+                            else ""
+                        )
+                        html_parts.append(
+                            f'<div class="numbered-item rep-item">'
+                            f'<span class="item-num">{num}</span>'
+                            f'<div class="rep-main">'
+                            f'<div class="rep-title">{rep_title}</div>'
+                            f'<div class="rep-time">{rep_timing}</div>'
+                            f"{rep_comment_html}"
+                            f"</div>"
+                            f"</div>"
+                        )
+                        continue
+            rest = _md_inline_to_html(rest_raw)
             html_parts.append(
                 f'<div class="numbered-item">'
                 f'<span class="item-num">{num}</span>'
@@ -1212,6 +1261,11 @@ body{{
     margin-top:1px
 }}
 .item-text{{font-weight:700;color:#1a1a1a;font-size:0.95em;line-height:1.5}}
+.rep-item{{align-items:flex-start;margin:12px 0}}
+.rep-main{{display:flex;flex-direction:column;gap:2px;min-width:0}}
+.rep-title{{font-weight:700;color:#1a1a1a;font-size:0.95em;line-height:1.4}}
+.rep-time{{font-size:0.83em;color:#5a4a3a;font-weight:600;letter-spacing:0.2px}}
+.rep-comment{{font-size:0.93em;color:#1a1a1a;line-height:1.65;margin-top:2px}}
 
 /* ── Reps timeline ────────────────────────────────────────── */
 .reps-bar{{

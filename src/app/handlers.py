@@ -66,6 +66,40 @@ _pending_clip_batches: dict[str, ClipBatch] = {}
 _pending_clip_hints: dict[str, tuple[int, int, float]] = {}
 
 
+def _is_remote_worker_mode_enabled() -> bool:
+    strict_minimax_source = bool(
+        app_settings.minimax_enabled and app_settings.minimax_strict_source
+    )
+    fallback_local_enabled = bool(
+        app_settings.minimax_enabled and app_settings.minimax_fallback_to_local
+    )
+    return bool(
+        app_settings.minimax_enabled
+        and app_settings.minimax_remote_worker_enabled
+        and strict_minimax_source
+        and not fallback_local_enabled
+    )
+
+
+def _queue_eta_minutes(position: int) -> int | None:
+    avg_job_s = max(30, int(app_settings.minimax_remote_avg_job_seconds or 150))
+    if position <= 1:
+        return 1
+    return int(round(((position - 1) * avg_job_s) / 60.0))
+
+
+async def _send_existing_queue_status(phone: str) -> None:
+    open_job = await db.get_open_minimax_remote_job_for_phone(phone)
+    if not open_job:
+        await wa.send_text(phone, msg.RATE_LIMIT)
+        return
+    position = await db.get_minimax_remote_job_position(open_job.id)
+    await wa.send_text(
+        phone,
+        msg.remote_queue_status(position=max(1, position), eta_minutes=_queue_eta_minutes(position)),
+    )
+
+
 def _is_analysis_locked(phone: str) -> bool:
     active_since = _active_analyses.get(phone, 0.0)
     return bool(active_since and (time.time() - active_since) < _ANALYSIS_TIMEOUT)
@@ -361,6 +395,12 @@ async def handle_video(user: db.User, data: dict) -> None:
             await handle_no_credits(user)
             return
 
+        if _is_remote_worker_mode_enabled():
+            existing_job = await db.get_open_minimax_remote_job_for_phone(phone)
+            if existing_job:
+                await _send_existing_queue_status(phone)
+                return
+
         # Download video from Twilio (media_url from webhook)
         media_url: str = data.get("media_url", "")
         if not media_url:
@@ -502,6 +542,12 @@ async def enqueue_uploaded_video(phone: str, video_path: str) -> tuple[bool, str
         if not app_settings.test_mode and not app_settings.test_mode_free and not await db.has_credits(user):
             await handle_no_credits(user)
             return False, "no_credits"
+
+        if _is_remote_worker_mode_enabled():
+            existing_job = await db.get_open_minimax_remote_job_for_phone(phone)
+            if existing_job:
+                await _send_existing_queue_status(phone)
+                return False, "already_queued"
 
         has_morpho = await db.has_morpho_profile(user.id)
         if not has_morpho:
@@ -796,19 +842,38 @@ async def _run_analysis(
         fallback_local_enabled = bool(
             app_settings.minimax_enabled and app_settings.minimax_fallback_to_local
         )
-        remote_worker_enabled = bool(
-            app_settings.minimax_enabled
-            and app_settings.minimax_remote_worker_enabled
-            and strict_minimax_source
-            and not fallback_local_enabled
-        )
+        remote_worker_enabled = _is_remote_worker_mode_enabled()
 
         if remote_worker_enabled:
+            pending_jobs = await db.count_pending_minimax_remote_jobs()
+            max_pending_jobs = max(5, int(app_settings.minimax_remote_max_pending_jobs or 40))
+            if pending_jobs >= max_pending_jobs:
+                await wa.send_text(phone, msg.remote_queue_saturated(max_pending_jobs))
+                cleanup_video(video_path)
+                if preview_frame_path:
+                    try:
+                        Path(preview_frame_path).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                _active_analyses.pop(phone, None)
+                return
+
             await db.create_minimax_remote_job(
                 analysis_id=analysis_id,
                 user_id=user_id,
                 phone=phone,
                 video_path=video_path,
+            )
+            queued_job = await db.get_open_minimax_remote_job_for_phone(phone)
+            queue_position = 1
+            if queued_job:
+                queue_position = max(1, await db.get_minimax_remote_job_position(queued_job.id))
+            await wa.send_text(
+                phone,
+                msg.remote_queue_status(
+                    position=queue_position,
+                    eta_minutes=_queue_eta_minutes(queue_position),
+                ),
             )
             keep_lock_after_return = True
             if preview_frame_path:
