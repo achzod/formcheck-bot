@@ -155,7 +155,7 @@ _SECTION_DISPLAY_TITLES: dict[str, str] = {
     "ANALYSE DU TEMPO ET DES REPETITIONS": "Tempo et Repetitions",
     "ANALYSE REP PAR REP": "Analyse Rep par Rep",
     "ANALYSE REPETITION PAR REPETITION": "Analyse Rep par Rep",
-    "INTENSITE DE SERIE": "Intensite de Serie",
+    "INTENSITE DE SERIE": "Intensite et Densite",
     "INTENSITE DE SERIE (DENSITE)": "Intensite et Densite",
     "COMPENSATIONS ET BIOMECANIQUE AVANCEE": "Compensations et Biomecanique Avancee",
     "PROFIL MORPHOLOGIQUE": "Profil Morphologique",
@@ -279,7 +279,8 @@ def _format_report_html(report_text: str) -> str:
             continue
 
         # Check if this is a section header
-        upper = stripped.upper()
+        header_candidate = html.unescape(stripped).strip()
+        upper = header_candidate.upper()
         is_header = False
         for title in _SECTION_TITLES:
             if upper.startswith(title):
@@ -297,8 +298,8 @@ def _format_report_html(report_text: str) -> str:
             if in_section:
                 html_parts.append("</div></div>")
             section_count += 1
-            icon = _get_section_icon(stripped)
-            display_title = _normalize_section_title(stripped)
+            icon = _get_section_icon(header_candidate)
+            display_title = html.escape(_normalize_section_title(header_candidate))
             icon_html = f'<span style="margin-right:8px;vertical-align:middle;opacity:0.8">{icon}</span>' if icon else ""
             # Section accent class
             section_cls = "report-section fade-in"
@@ -353,6 +354,11 @@ def _format_report_html(report_text: str) -> str:
                         rep_title = _md_inline_to_html(lead)
                         rep_timing = _md_inline_to_html(timing)
                         rep_comment = _md_inline_to_html(comment)
+                        rep_raw_line = "{} | {}{}".format(
+                            lead,
+                            timing,
+                            (" | " + comment) if comment else "",
+                        )
                         rep_comment_html = (
                             f'<div class="rep-comment">{rep_comment}</div>'
                             if rep_comment
@@ -365,6 +371,7 @@ def _format_report_html(report_text: str) -> str:
                             f'<div class="rep-title">{rep_title}</div>'
                             f'<div class="rep-time">{rep_timing}</div>'
                             f"{rep_comment_html}"
+                            f'<span style="display:none">{html.escape(rep_raw_line)}</span>'
                             f"</div>"
                             f"</div>"
                         )

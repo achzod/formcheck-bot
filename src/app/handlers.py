@@ -143,6 +143,37 @@ def _ticket_meta_from_message(message: str) -> tuple[str, str]:
     return "general", "normal"
 
 
+def _schedule_inbound_message_log(
+    *,
+    phone: str,
+    user_id: int,
+    data: dict,
+) -> None:
+    msg_type = str(data.get("type", "text") or "text")
+    inbound_text = str(data.get("text", "") or "")
+    if msg_type in {"video", "image"} and not inbound_text.strip():
+        inbound_text = "[{}]".format(msg_type)
+
+    async def _runner() -> None:
+        try:
+            await db.log_whatsapp_message(
+                phone=phone,
+                direction="inbound",
+                message_type=msg_type,
+                content=inbound_text,
+                provider_message_id=str(data.get("message_id", "") or ""),
+                raw_payload=data,
+                user_id=user_id,
+            )
+        except Exception:
+            logger.debug("Inbound WhatsApp log write failed", exc_info=True)
+
+    try:
+        asyncio.create_task(_runner())
+    except Exception:
+        logger.debug("Inbound log scheduling failed", exc_info=True)
+
+
 async def _send_orders_status(user: db.User) -> None:
     orders = await db.get_recent_customer_orders(user.phone, limit=3)
     if not orders:
@@ -429,22 +460,11 @@ async def handle_incoming_message(data: dict) -> None:
         await wa.send_text(phone, msg.ERROR_GENERIC)
         return
 
-    msg_type: str = str(data.get("type", "text") or "text")
-    inbound_text = str(data.get("text", "") or "")
-    if msg_type in {"video", "image"} and not inbound_text.strip():
-        inbound_text = "[{}]".format(msg_type)
-    try:
-        await db.log_whatsapp_message(
-            phone=phone,
-            direction="inbound",
-            message_type=msg_type,
-            content=inbound_text,
-            provider_message_id=str(data.get("message_id", "") or ""),
-            raw_payload=data,
-            user_id=user.id,
-        )
-    except Exception:
-        logger.debug("Inbound WhatsApp log write failed", exc_info=True)
+    _schedule_inbound_message_log(
+        phone=phone,
+        user_id=user.id,
+        data=data,
+    )
 
     if is_new:
         await wa.send_text(phone, msg.WELCOME)

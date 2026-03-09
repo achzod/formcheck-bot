@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from typing import Sequence
+from typing import Any, Sequence
 
-from sqlalchemy import ForeignKey, String, Text, case, func, or_, select, update
+from sqlalchemy import ForeignKey, String, Text, UniqueConstraint, case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -139,6 +139,9 @@ class Payment(Base):
 
 class CustomerOrder(Base):
     __tablename__ = "customer_orders"
+    __table_args__ = (
+        UniqueConstraint("source", "external_id", name="uq_customer_orders_source_external"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, default=None)
@@ -526,52 +529,100 @@ async def upsert_customer_order(
     if not phone_norm or not external_norm:
         return None
     async with async_session() as session:
+        normalized_source = (source or "stripe")[:40]
+        metadata_json = None
+        if isinstance(metadata, dict) and metadata:
+            metadata_json = json.dumps(metadata, ensure_ascii=False)[:20000]
+
         user = (
             await session.execute(select(User).where(User.phone == phone_norm))
         ).scalar_one_or_none()
+
         existing = (
             await session.execute(
                 select(CustomerOrder).where(
-                    (CustomerOrder.source == (source or "stripe"))
+                    (CustomerOrder.source == normalized_source)
                     & (CustomerOrder.external_id == external_norm)
                 )
             )
         ).scalar_one_or_none()
 
-        metadata_json = None
-        if isinstance(metadata, dict) and metadata:
-            metadata_json = json.dumps(metadata, ensure_ascii=False)[:20000]
-
+        target: CustomerOrder
         if existing:
-            existing.phone = phone_norm
-            existing.user_id = user.id if user else existing.user_id
-            existing.order_type = (order_type or existing.order_type or "one_time")[:40]
-            existing.plan_key = (plan_key or existing.plan_key or None)
-            existing.amount = max(0, int(amount or 0))
-            existing.currency = (currency or existing.currency or "eur").lower()[:8]
-            existing.status = (status or existing.status or "pending")[:30]
+            target = existing
+            target.phone = phone_norm
+            target.user_id = user.id if user else target.user_id
+            target.order_type = (order_type or target.order_type or "one_time")[:40]
+            target.plan_key = (plan_key or target.plan_key or None)
+            target.amount = max(0, int(amount or 0))
+            target.currency = (currency or target.currency or "eur").lower()[:8]
+            target.status = (status or target.status or "pending")[:30]
             if metadata_json:
-                existing.metadata_json = metadata_json
+                target.metadata_json = metadata_json
             await session.commit()
-            await session.refresh(existing)
-            return existing
+        else:
+            target = CustomerOrder(
+                user_id=(user.id if user else None),
+                phone=phone_norm,
+                source=normalized_source,
+                external_id=external_norm,
+                order_type=(order_type or "one_time")[:40],
+                plan_key=(plan_key or None),
+                amount=max(0, int(amount or 0)),
+                currency=(currency or "eur").lower()[:8],
+                status=(status or "pending")[:30],
+                metadata_json=metadata_json,
+            )
+            session.add(target)
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                # Idempotency race: re-load the canonical row and apply latest status fields.
+                target = (
+                    await session.execute(
+                        select(CustomerOrder).where(
+                            (CustomerOrder.source == normalized_source)
+                            & (CustomerOrder.external_id == external_norm)
+                        )
+                    )
+                ).scalar_one_or_none() or target
+                if target.id is not None:
+                    target.phone = phone_norm
+                    target.user_id = user.id if user else target.user_id
+                    target.order_type = (order_type or target.order_type or "one_time")[:40]
+                    target.plan_key = (plan_key or target.plan_key or None)
+                    target.amount = max(0, int(amount or 0))
+                    target.currency = (currency or target.currency or "eur").lower()[:8]
+                    target.status = (status or target.status or "pending")[:30]
+                    if metadata_json:
+                        target.metadata_json = metadata_json
+                    await session.commit()
 
-        order = CustomerOrder(
-            user_id=(user.id if user else None),
-            phone=phone_norm,
-            source=(source or "stripe")[:40],
-            external_id=external_norm,
-            order_type=(order_type or "one_time")[:40],
-            plan_key=(plan_key or None),
-            amount=max(0, int(amount or 0)),
-            currency=(currency or "eur").lower()[:8],
-            status=(status or "pending")[:30],
-            metadata_json=metadata_json,
-        )
-        session.add(order)
-        await session.commit()
-        await session.refresh(order)
-        return order
+        # Extra safety for legacy DBs without unique constraint: keep only the newest row.
+        duplicate_rows = (
+            await session.execute(
+                select(CustomerOrder)
+                .where(
+                    (CustomerOrder.source == normalized_source)
+                    & (CustomerOrder.external_id == external_norm)
+                )
+                .order_by(CustomerOrder.id.desc())
+            )
+        ).scalars().all()
+        if len(duplicate_rows) > 1:
+            canonical = duplicate_rows[0]
+            for row in duplicate_rows[1:]:
+                await session.delete(row)
+            await session.commit()
+            await session.refresh(canonical)
+            return canonical
+
+        if getattr(target, "id", None) is None:
+            session.add(target)
+            await session.commit()
+        await session.refresh(target)
+        return target
 
 
 async def get_recent_customer_orders(phone: str, limit: int = 5) -> Sequence[CustomerOrder]:
@@ -591,6 +642,52 @@ async def get_recent_customer_orders(phone: str, limit: int = 5) -> Sequence[Cus
 async def get_latest_customer_order(phone: str) -> CustomerOrder | None:
     rows = await get_recent_customer_orders(phone, limit=1)
     return rows[0] if rows else None
+
+
+async def get_orders_summary_by_plan() -> list[dict[str, Any]]:
+    """Aggregate orders by plan key with status counters and paid revenue."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(
+                CustomerOrder.plan_key,
+                CustomerOrder.status,
+                func.count(CustomerOrder.id),
+                func.coalesce(func.sum(CustomerOrder.amount), 0),
+            ).group_by(CustomerOrder.plan_key, CustomerOrder.status)
+        )
+        rows = result.all()
+
+    by_plan: dict[str, dict[str, Any]] = {}
+    for plan_key, status, count_val, sum_amount in rows:
+        key = str(plan_key or "unknown")
+        current = by_plan.get(key)
+        if current is None:
+            current = {
+                "plan_key": key,
+                "orders_total": 0,
+                "revenue_cents_paid": 0,
+                "status_counts": {
+                    "pending": 0,
+                    "paid": 0,
+                    "active": 0,
+                    "canceled": 0,
+                    "other": 0,
+                },
+            }
+            by_plan[key] = current
+
+        status_norm = str(status or "pending").lower()
+        count_int = int(count_val or 0)
+        sum_int = int(sum_amount or 0)
+        current["orders_total"] += count_int
+        if status_norm in current["status_counts"]:
+            current["status_counts"][status_norm] += count_int
+        else:
+            current["status_counts"]["other"] += count_int
+        if status_norm in {"paid", "active"}:
+            current["revenue_cents_paid"] += sum_int
+
+    return sorted(by_plan.values(), key=lambda item: str(item.get("plan_key", "")))
 
 
 async def get_payment_by_session_id(session_id: str) -> Payment | None:
@@ -772,6 +869,8 @@ async def set_support_ticket_status(ticket_id: int, status: str) -> SupportTicke
         ticket.status = state
         if state in {"resolved", "closed"}:
             ticket.resolved_at = dt.datetime.utcnow()
+        else:
+            ticket.resolved_at = None
         await session.commit()
         await session.refresh(ticket)
         return ticket
@@ -881,11 +980,16 @@ async def count_user_analyses(user_id: int) -> int:
         return int(result.scalar_one() or 0)
 
 
-async def get_user_analyses(user_id: int) -> Sequence[Analysis]:
+async def get_user_analyses(user_id: int, limit: int | None = None) -> Sequence[Analysis]:
     async with async_session() as session:
-        result = await session.execute(
-            select(Analysis).where(Analysis.user_id == user_id).order_by(Analysis.created_at.desc())
+        query = (
+            select(Analysis)
+            .where(Analysis.user_id == user_id)
+            .order_by(Analysis.created_at.desc())
         )
+        if isinstance(limit, int) and limit > 0:
+            query = query.limit(max(1, min(limit, 200)))
+        result = await session.execute(query)
         return result.scalars().all()
 
 

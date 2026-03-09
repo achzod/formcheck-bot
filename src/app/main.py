@@ -719,16 +719,18 @@ try:
         if provided != expected:
             raise HTTPException(status_code=403, detail="Invalid internal token")
 
-    def _require_internal_admin_token(request: Request) -> None:
+    def _require_internal_admin_token(request: Request) -> str:
         expected = str(settings.render_api_key or _internal_worker_token() or "").strip()
         if not expected:
             raise HTTPException(status_code=503, detail="Internal admin token missing")
         provided = (
             request.headers.get("X-Formcheck-Internal-Token", "")
             or request.query_params.get("token", "")
+            or request.cookies.get("formcheck_admin_token", "")
         ).strip()
         if provided != expected:
             raise HTTPException(status_code=403, detail="Invalid internal token")
+        return expected
 
     @app.post("/internal/minimax/jobs/claim")
     async def claim_minimax_remote_job(request: Request) -> dict:
@@ -811,20 +813,62 @@ try:
             )
         return {"tickets": tickets}
 
+    @app.get("/internal/orders/summary")
+    async def internal_orders_summary(request: Request) -> dict:
+        _require_internal_admin_token(request)
+        plans = await db.get_orders_summary_by_plan()
+        totals = {
+            "orders_total": 0,
+            "revenue_cents_paid": 0,
+            "status_counts": {
+                "pending": 0,
+                "paid": 0,
+                "active": 0,
+                "canceled": 0,
+                "other": 0,
+            },
+        }
+        for row in plans:
+            totals["orders_total"] += int(row.get("orders_total", 0) or 0)
+            totals["revenue_cents_paid"] += int(row.get("revenue_cents_paid", 0) or 0)
+            status_counts = row.get("status_counts", {})
+            if isinstance(status_counts, dict):
+                for key in ("pending", "paid", "active", "canceled", "other"):
+                    totals["status_counts"][key] += int(status_counts.get(key, 0) or 0)
+        return {
+            "plans": plans,
+            "totals": totals,
+        }
+
     @app.get("/internal/customers/{phone}/history")
-    async def internal_customer_history(phone: str, request: Request) -> dict:
+    async def internal_customer_history(
+        phone: str,
+        request: Request,
+        analyses_limit: int = 30,
+        orders_limit: int = 10,
+        tickets_limit: int = 10,
+        messages_limit: int = 40,
+        ticket_messages_limit: int = 20,
+    ) -> dict:
         _require_internal_admin_token(request)
         user = await db.get_user_by_phone(phone)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        analyses = await db.get_user_analyses(user.id)
-        orders = await db.get_recent_customer_orders(phone, limit=10)
-        tickets = await db.get_recent_support_tickets(phone, limit=10)
-        messages = await db.get_recent_whatsapp_messages(phone, limit=40)
+        analyses_cap = max(1, min(int(analyses_limit or 30), 50))
+        orders_cap = max(1, min(int(orders_limit or 10), 30))
+        tickets_cap = max(1, min(int(tickets_limit or 10), 30))
+        messages_cap = max(1, min(int(messages_limit or 40), 80))
+        ticket_messages_cap = max(1, min(int(ticket_messages_limit or 20), 40))
+
+        analyses_total = await db.count_user_analyses(user.id)
+        analyses = await db.get_user_analyses(user.id, limit=analyses_cap)
+        orders = await db.get_recent_customer_orders(phone, limit=orders_cap)
+        tickets = await db.get_recent_support_tickets(phone, limit=tickets_cap)
+        messages = await db.get_recent_whatsapp_messages(phone, limit=messages_cap)
         ticket_messages: dict[str, list[dict[str, str | int | None]]] = {}
         for ticket in tickets:
-            history = await db.get_support_ticket_messages(ticket.id, limit=20)
+            history = await db.get_support_ticket_messages(ticket.id, limit=ticket_messages_cap)
             ticket_messages[str(ticket.id)] = [
                 {
                     "id": int(item.id),
@@ -849,6 +893,14 @@ try:
                 ),
                 "created_at": user.created_at.isoformat() if user.created_at else None,
             },
+            "counts": {
+                "analyses_total": int(analyses_total),
+                "analyses_returned": len(analyses),
+                "orders_returned": len(orders),
+                "tickets_returned": len(tickets),
+                "messages_returned": len(messages),
+                "ticket_messages_per_ticket": ticket_messages_cap,
+            },
             "analyses": [
                 {
                     "id": int(row.id),
@@ -856,7 +908,7 @@ try:
                     "score": row.score,
                     "created_at": row.created_at.isoformat() if row.created_at else None,
                 }
-                for row in analyses[:30]
+                for row in analyses
             ],
             "orders": [
                 {
@@ -927,7 +979,7 @@ try:
 
     @app.get("/admin", response_class=HTMLResponse)
     async def admin_dashboard(request: Request) -> HTMLResponse:
-        _require_internal_admin_token(request)
+        expected_token = _require_internal_admin_token(request)
         html_page = """<!doctype html>
 <html lang="fr">
 <head>
@@ -1136,6 +1188,11 @@ try:
       border-radius: 8px;
       padding: 4px 8px;
     }
+    .status-line {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
   </style>
 </head>
 <body>
@@ -1150,6 +1207,40 @@ try:
         <button id="refreshAllBtn" class="alt">Rafraichir</button>
       </div>
     </div>
+
+    <section class="card" style="margin-bottom:12px">
+      <div class="card-hd">
+        <span>Produits Stripe (A a Z)</span>
+        <div class="controls">
+          <button id="refreshProductsBtn" class="alt">Rafraichir produits</button>
+        </div>
+      </div>
+      <div class="card-bd">
+        <div class="kpis" style="margin-bottom:12px">
+          <div class="kpi"><div class="v" id="kpiOrdersTotal">0</div><div class="l">Commandes total</div></div>
+          <div class="kpi"><div class="v" id="kpiRevenueTotal">0.00 EUR</div><div class="l">CA paid/active</div></div>
+          <div class="kpi"><div class="v" id="kpiActiveTotal">0</div><div class="l">Actives</div></div>
+          <div class="kpi"><div class="v" id="kpiCanceledTotal">0</div><div class="l">Annulees</div></div>
+        </div>
+        <div class="table-wrap">
+          <table id="productsTable">
+            <thead>
+              <tr>
+                <th>Plan</th>
+                <th>Orders</th>
+                <th>Paid</th>
+                <th>Active</th>
+                <th>Pending</th>
+                <th>Canceled</th>
+                <th>CA paid/active</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="productsInfo" class="status-line"></div>
+      </div>
+    </section>
 
     <div class="grid">
       <section class="card">
@@ -1196,9 +1287,9 @@ try:
         <div class="card-bd">
           <div class="kpis">
             <div class="kpi"><div class="v" id="kpiCustomer">-</div><div class="l">Client</div></div>
-            <div class="kpi"><div class="v" id="kpiAnalyses">0</div><div class="l">Analyses</div></div>
-            <div class="kpi"><div class="v" id="kpiOrders">0</div><div class="l">Commandes</div></div>
-            <div class="kpi"><div class="v" id="kpiTickets">0</div><div class="l">Tickets SAV</div></div>
+            <div class="kpi"><div class="v" id="kpiAnalyses">0</div><div class="l">Analyses total</div></div>
+            <div class="kpi"><div class="v" id="kpiOrders">0</div><div class="l">Commandes recentes</div></div>
+            <div class="kpi"><div class="v" id="kpiTickets">0</div><div class="l">Tickets SAV recents</div></div>
           </div>
 
           <div class="stack" id="customerPanels">
@@ -1211,16 +1302,30 @@ try:
 
   <script>
     const qs = new URLSearchParams(window.location.search);
-    const token = (qs.get("token") || "").trim();
+    const STORAGE_KEY = "formcheck_admin_token";
+    const queryToken = (qs.get("token") || "").trim();
+    let token = (queryToken || sessionStorage.getItem(STORAGE_KEY) || "").trim();
+    if (queryToken) {
+      sessionStorage.setItem(STORAGE_KEY, queryToken);
+      qs.delete("token");
+      const clean = `${window.location.pathname}${qs.toString() ? "?" + qs.toString() : ""}`;
+      window.history.replaceState({}, "", clean);
+    }
     const authState = document.getElementById("authState");
     const ticketsInfo = document.getElementById("ticketsInfo");
     const ticketsBody = document.querySelector("#ticketsTable tbody");
+    const productsInfo = document.getElementById("productsInfo");
+    const productsBody = document.querySelector("#productsTable tbody");
     const phoneInput = document.getElementById("phoneInput");
     const customerPanels = document.getElementById("customerPanels");
     const kpiCustomer = document.getElementById("kpiCustomer");
     const kpiAnalyses = document.getElementById("kpiAnalyses");
     const kpiOrders = document.getElementById("kpiOrders");
     const kpiTickets = document.getElementById("kpiTickets");
+    const kpiOrdersTotal = document.getElementById("kpiOrdersTotal");
+    const kpiRevenueTotal = document.getElementById("kpiRevenueTotal");
+    const kpiActiveTotal = document.getElementById("kpiActiveTotal");
+    const kpiCanceledTotal = document.getElementById("kpiCanceledTotal");
 
     function esc(v) {
       return String(v ?? "")
@@ -1238,14 +1343,23 @@ try:
       return d.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
     }
 
+    function eur(cents) {
+      return `${(Number(cents || 0) / 100).toFixed(2)} EUR`;
+    }
+
     async function apiFetch(path, options = {}) {
-      if (!token) {
-        throw new Error("token manquant dans URL");
+      const headers = new Headers(options.headers || {});
+      if (!headers.has("Content-Type")) {
+        headers.set("Content-Type", "application/json");
       }
-      const sep = path.includes("?") ? "&" : "?";
-      const url = `${path}${sep}token=${encodeURIComponent(token)}`;
-      const baseOpts = { headers: { "Content-Type": "application/json" } };
-      const res = await fetch(url, { ...baseOpts, ...options });
+      if (token) {
+        headers.set("X-Formcheck-Internal-Token", token);
+      }
+      const res = await fetch(path, {
+        credentials: "same-origin",
+        ...options,
+        headers,
+      });
       if (!res.ok) {
         let detail = "";
         try {
@@ -1260,6 +1374,40 @@ try:
     function statusBadge(status) {
       const safe = (status || "open").toLowerCase();
       return `<span class="badge s-${esc(safe)}">${esc(safe)}</span>`;
+    }
+
+    async function loadOrdersSummary() {
+      productsInfo.textContent = "Chargement produits...";
+      try {
+        const data = await apiFetch("/internal/orders/summary");
+        const plans = Array.isArray(data.plans) ? data.plans : [];
+        const totals = data.totals || {};
+        const totalStatuses = totals.status_counts || {};
+
+        productsBody.innerHTML = plans.map((p) => {
+          const statuses = p.status_counts || {};
+          return `
+            <tr>
+              <td>${esc(p.plan_key || "unknown")}</td>
+              <td>${esc(p.orders_total || 0)}</td>
+              <td>${esc(statuses.paid || 0)}</td>
+              <td>${esc(statuses.active || 0)}</td>
+              <td>${esc(statuses.pending || 0)}</td>
+              <td>${esc(statuses.canceled || 0)}</td>
+              <td>${esc(eur(p.revenue_cents_paid || 0))}</td>
+            </tr>
+          `;
+        }).join("");
+
+        kpiOrdersTotal.textContent = String(totals.orders_total || 0);
+        kpiRevenueTotal.textContent = eur(totals.revenue_cents_paid || 0);
+        kpiActiveTotal.textContent = String(totalStatuses.active || 0);
+        kpiCanceledTotal.textContent = String(totalStatuses.canceled || 0);
+        productsInfo.textContent = `Plans charges: ${plans.length}`;
+      } catch (err) {
+        productsBody.innerHTML = "";
+        productsInfo.innerHTML = `<span class="err">Erreur produits: ${esc(err.message || err)}</span>`;
+      }
     }
 
     async function loadOpenTickets() {
@@ -1310,6 +1458,7 @@ try:
 
     function renderCustomerPanels(payload) {
       const customer = payload.customer || {};
+      const counts = payload.counts || {};
       const analyses = Array.isArray(payload.analyses) ? payload.analyses : [];
       const orders = Array.isArray(payload.orders) ? payload.orders : [];
       const tickets = Array.isArray(payload.support_tickets) ? payload.support_tickets : [];
@@ -1317,9 +1466,9 @@ try:
       const ticketMessages = payload.support_ticket_messages || {};
 
       kpiCustomer.textContent = customer.name || customer.phone || "-";
-      kpiAnalyses.textContent = String(analyses.length);
-      kpiOrders.textContent = String(orders.length);
-      kpiTickets.textContent = String(tickets.length);
+      kpiAnalyses.textContent = String(counts.analyses_total ?? analyses.length);
+      kpiOrders.textContent = String(counts.orders_returned ?? orders.length);
+      kpiTickets.textContent = String(counts.tickets_returned ?? tickets.length);
 
       const analysesHtml = renderTable(
         ["ID", "Exercice", "Score", "Date"],
@@ -1408,7 +1557,14 @@ try:
       if (!phone) return;
       customerPanels.innerHTML = '<div class="muted">Chargement client...</div>';
       try {
-        const data = await apiFetch(`/internal/customers/${encodeURIComponent(phone)}/history`);
+        const limits = new URLSearchParams({
+          analyses_limit: "30",
+          orders_limit: "15",
+          tickets_limit: "15",
+          messages_limit: "30",
+          ticket_messages_limit: "12",
+        });
+        const data = await apiFetch(`/internal/customers/${encodeURIComponent(phone)}/history?${limits.toString()}`);
         renderCustomerPanels(data);
       } catch (err) {
         customerPanels.innerHTML = `<div class="err">Erreur chargement client: ${esc(err.message || err)}</div>`;
@@ -1423,7 +1579,9 @@ try:
     }
 
     document.getElementById("refreshTicketsBtn").addEventListener("click", loadOpenTickets);
+    document.getElementById("refreshProductsBtn").addEventListener("click", loadOrdersSummary);
     document.getElementById("refreshAllBtn").addEventListener("click", async () => {
+      await loadOrdersSummary();
       await loadOpenTickets();
       const phone = phoneInput.value.trim();
       if (phone) await loadCustomer(phone);
@@ -1452,6 +1610,7 @@ try:
         try {
           await updateTicketStatus(ticketId, status);
           await loadOpenTickets();
+          await loadOrdersSummary();
           const currentPhone = phoneInput.value.trim();
           if (currentPhone) await loadCustomer(currentPhone);
         } catch (err) {
@@ -1462,19 +1621,28 @@ try:
       }
     });
 
-    if (!token) {
-      authState.textContent = "token manquant";
-      authState.style.color = "#c4302d";
-    } else {
-      authState.textContent = "token ok";
-      authState.style.color = "#2d7a4f";
-      loadOpenTickets();
-    }
+    authState.textContent = token ? "session admin active" : "session via cookie";
+    authState.style.color = "#2d7a4f";
+
+    loadOrdersSummary();
+    loadOpenTickets();
   </script>
 </body>
 </html>
 """
-        return HTMLResponse(html_page, headers={"Cache-Control": "no-store"})
+        response = HTMLResponse(html_page, headers={"Cache-Control": "no-store"})
+        provided_query_token = str(request.query_params.get("token", "") or "").strip()
+        if provided_query_token and provided_query_token == expected_token:
+            response.set_cookie(
+                key="formcheck_admin_token",
+                value=expected_token,
+                max_age=12 * 60 * 60,
+                httponly=True,
+                secure=(request.url.scheme == "https"),
+                samesite="strict",
+                path="/",
+            )
+        return response
 
     @app.get("/debug/errors")
     async def debug_errors(token: str = "") -> dict:

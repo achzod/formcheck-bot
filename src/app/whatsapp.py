@@ -73,7 +73,7 @@ async def send_text(to: str, body: str) -> dict[str, Any]:
                 "Body": chunk,
             })
             result = resp.json()
-            await _best_effort_log_outbound(
+            _schedule_outbound_log(
                 to=to,
                 message_type="text",
                 content=chunk,
@@ -118,7 +118,7 @@ async def send_image(to: str, image_url: str, caption: str | None = None) -> dic
         result = resp.json()
         payload = result if isinstance(result, dict) else {}
         text = caption or "[image]"
-        await _best_effort_log_outbound(
+        _schedule_outbound_log(
             to=to,
             message_type="image",
             content=text,
@@ -166,6 +166,27 @@ async def _best_effort_log_outbound(
         )
     except Exception:
         logger.debug("Outbound WhatsApp log write failed", exc_info=True)
+
+
+def _schedule_outbound_log(
+    *,
+    to: str,
+    message_type: str,
+    content: str,
+    twilio_payload: dict[str, Any],
+) -> None:
+    async def _runner() -> None:
+        await _best_effort_log_outbound(
+            to=to,
+            message_type=message_type,
+            content=content,
+            twilio_payload=twilio_payload,
+        )
+
+    try:
+        asyncio.create_task(_runner())
+    except Exception:
+        logger.debug("Outbound WhatsApp log scheduling failed", exc_info=True)
 
 
 async def download_media(media_url: str) -> bytes:
