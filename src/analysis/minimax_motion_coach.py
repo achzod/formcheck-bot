@@ -1612,6 +1612,11 @@ def _cache_get(video_hash: str, prompt_hash: str) -> MiniMaxAnalysis | None:
         analysis = _analysis_from_payload(str(row[0]))
         if analysis is None:
             return None
+        # Keep cache-compatible with parser fixes: recompute rep coherence on read.
+        _harmonize_rep_counts(
+            analysis,
+            raw_text=str(getattr(analysis, "raw_response", "") or getattr(analysis, "report_text", "") or ""),
+        )
         if not _analysis_is_valid_final_output(analysis):
             logger.warning(
                 "MiniMax cache entry ignored: invalid final output (video_hash=%s prompt_hash=%s)",
@@ -5055,7 +5060,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
                 "{}|{}|{}".format(
                     prompt,
                     int(getattr(settings, "minimax_model_option", 0) or 0),
-                    "v8_minimax_prompt_retry_guard",
+                    "v9_minimax_prompt_retry_guard_rep_coherence",
                 )
             )
             cached = _cache_get(video_hash, prompt_hash)
