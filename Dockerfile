@@ -18,4 +18,4 @@ RUN mkdir -p media/videos media/annotated media/reports
 ENV PYTHONPATH=/app
 EXPOSE 10000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000"]
+CMD ["sh", "/app/bin/service_entrypoint.sh"]

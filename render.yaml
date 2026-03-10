@@ -10,6 +10,8 @@ services:
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: FORMCHECK_SERVICE_MODE
+        value: web
       - key: TWILIO_ACCOUNT_SID
         sync: false
       - key: TWILIO_AUTH_TOKEN
@@ -70,10 +72,11 @@ services:
     autoDeploy: true
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    startCommand: xvfb-run -a -s "-screen 0 1920x1080x24" python -m app.minimax_remote_worker
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: FORMCHECK_SERVICE_MODE
+        value: worker
       - key: FORMCHECK_BASE_URL
         value: https://formcheck-bot.onrender.com
       - key: MINIMAX_REMOTE_WORKER_TOKEN

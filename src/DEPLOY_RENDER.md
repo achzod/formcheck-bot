@@ -36,6 +36,9 @@ Configurer ces secrets sur Render:
 - section `Queue MiniMax (worker)` doit bouger pendant un test video
 
 ## Notes importantes
-- Le worker demarre via `xvfb-run` pour permettre le mode navigateur headed sur Render.
+- L'image Docker utilise `FORMCHECK_SERVICE_MODE`:
+  - `web` -> FastAPI
+  - `worker` -> `app.minimax_remote_worker` via `xvfb-run`
+- Le worker passe par `xvfb-run` pour permettre le mode navigateur headed sur Render.
 - L'analyse reste source MiniMax stricte (`MINIMAX_STRICT_SOURCE=true`, fallback local desactive).
 - Si le worker est down, les jobs restent en queue puis sont repris quand il remonte.
