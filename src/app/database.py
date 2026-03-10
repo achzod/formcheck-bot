@@ -466,6 +466,49 @@ async def get_minimax_remote_job_position(job_id: int) -> int:
         return int(result.scalar_one() or 0)
 
 
+async def get_minimax_remote_queue_stats(
+    *,
+    stale_after_s: int,
+) -> dict[str, int]:
+    stale_seconds = max(60, int(stale_after_s or 600))
+    stale_before = dt.datetime.utcnow() - dt.timedelta(seconds=stale_seconds)
+    async with async_session() as session:
+        queued_result = await session.execute(
+            select(func.count(MiniMaxRemoteJob.id)).where(
+                MiniMaxRemoteJob.status == "queued"
+            )
+        )
+        processing_result = await session.execute(
+            select(func.count(MiniMaxRemoteJob.id)).where(
+                MiniMaxRemoteJob.status == "processing"
+            )
+        )
+        stale_processing_result = await session.execute(
+            select(func.count(MiniMaxRemoteJob.id)).where(
+                (MiniMaxRemoteJob.status == "processing")
+                & (MiniMaxRemoteJob.updated_at < stale_before)
+            )
+        )
+        failed_result = await session.execute(
+            select(func.count(MiniMaxRemoteJob.id)).where(
+                MiniMaxRemoteJob.status == "failed"
+            )
+        )
+        completed_result = await session.execute(
+            select(func.count(MiniMaxRemoteJob.id)).where(
+                MiniMaxRemoteJob.status == "completed"
+            )
+        )
+
+        return {
+            "queued": int(queued_result.scalar_one() or 0),
+            "processing": int(processing_result.scalar_one() or 0),
+            "stale_processing": int(stale_processing_result.scalar_one() or 0),
+            "failed": int(failed_result.scalar_one() or 0),
+            "completed": int(completed_result.scalar_one() or 0),
+        }
+
+
 async def complete_minimax_remote_job(job_id: int, result_payload: str) -> MiniMaxRemoteJob | None:
     async with async_session() as session:
         job = await session.get(MiniMaxRemoteJob, job_id)

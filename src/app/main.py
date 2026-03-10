@@ -792,6 +792,25 @@ try:
             raise HTTPException(status_code=404, detail="Job not found")
         return {"status": "ok"}
 
+    @app.get("/internal/minimax/queue/stats")
+    async def minimax_queue_stats(request: Request) -> dict:
+        _require_internal_admin_token(request)
+        stale_after_s = max(60, int(settings.minimax_remote_job_stale_after_s or 600))
+        counts = await db.get_minimax_remote_queue_stats(stale_after_s=stale_after_s)
+        return {
+            "remote_worker_enabled": bool(settings.minimax_remote_worker_enabled),
+            "browser_only": bool(settings.minimax_browser_only),
+            "strict_source": bool(settings.minimax_strict_source),
+            "fallback_to_local": bool(settings.minimax_fallback_to_local),
+            "queue": {
+                **counts,
+                "pending": int(counts.get("queued", 0) + counts.get("processing", 0)),
+                "max_pending": max(5, int(settings.minimax_remote_max_pending_jobs or 40)),
+                "stale_after_s": stale_after_s,
+                "avg_job_seconds": max(30, int(settings.minimax_remote_avg_job_seconds or 150)),
+            },
+        }
+
     @app.get("/internal/support/tickets/open")
     async def internal_open_support_tickets(request: Request, limit: int = 50) -> dict:
         _require_internal_admin_token(request)
@@ -1242,6 +1261,24 @@ try:
       </div>
     </section>
 
+    <section class="card" style="margin-bottom:12px">
+      <div class="card-hd">
+        <span>Queue MiniMax (worker)</span>
+        <div class="controls">
+          <button id="refreshQueueBtn" class="alt">Rafraichir queue</button>
+        </div>
+      </div>
+      <div class="card-bd">
+        <div class="kpis" style="margin-bottom:12px">
+          <div class="kpi"><div class="v" id="kpiQueuePending">0</div><div class="l">Pending</div></div>
+          <div class="kpi"><div class="v" id="kpiQueueQueued">0</div><div class="l">Queued</div></div>
+          <div class="kpi"><div class="v" id="kpiQueueProcessing">0</div><div class="l">Processing</div></div>
+          <div class="kpi"><div class="v" id="kpiQueueStale">0</div><div class="l">Stale processing</div></div>
+        </div>
+        <div id="queueInfo" class="status-line"></div>
+      </div>
+    </section>
+
     <div class="grid">
       <section class="card">
         <div class="card-hd">
@@ -1316,6 +1353,7 @@ try:
     const ticketsBody = document.querySelector("#ticketsTable tbody");
     const productsInfo = document.getElementById("productsInfo");
     const productsBody = document.querySelector("#productsTable tbody");
+    const queueInfo = document.getElementById("queueInfo");
     const phoneInput = document.getElementById("phoneInput");
     const customerPanels = document.getElementById("customerPanels");
     const kpiCustomer = document.getElementById("kpiCustomer");
@@ -1326,6 +1364,10 @@ try:
     const kpiRevenueTotal = document.getElementById("kpiRevenueTotal");
     const kpiActiveTotal = document.getElementById("kpiActiveTotal");
     const kpiCanceledTotal = document.getElementById("kpiCanceledTotal");
+    const kpiQueuePending = document.getElementById("kpiQueuePending");
+    const kpiQueueQueued = document.getElementById("kpiQueueQueued");
+    const kpiQueueProcessing = document.getElementById("kpiQueueProcessing");
+    const kpiQueueStale = document.getElementById("kpiQueueStale");
 
     function esc(v) {
       return String(v ?? "")
@@ -1444,6 +1486,25 @@ try:
       } catch (err) {
         ticketsBody.innerHTML = "";
         ticketsInfo.innerHTML = `<span class="err">Erreur: ${esc(err.message || err)}</span>`;
+      }
+    }
+
+    async function loadQueueStats() {
+      queueInfo.textContent = "Chargement queue...";
+      try {
+        const data = await apiFetch("/internal/minimax/queue/stats");
+        const q = data.queue || {};
+        kpiQueuePending.textContent = String(q.pending || 0);
+        kpiQueueQueued.textContent = String(q.queued || 0);
+        kpiQueueProcessing.textContent = String(q.processing || 0);
+        kpiQueueStale.textContent = String(q.stale_processing || 0);
+        queueInfo.textContent = `pending max ${q.max_pending || 0} | stale>${q.stale_after_s || 0}s | avg job ${q.avg_job_seconds || 0}s`;
+      } catch (err) {
+        kpiQueuePending.textContent = "0";
+        kpiQueueQueued.textContent = "0";
+        kpiQueueProcessing.textContent = "0";
+        kpiQueueStale.textContent = "0";
+        queueInfo.innerHTML = `<span class="err">Erreur queue: ${esc(err.message || err)}</span>`;
       }
     }
 
@@ -1580,8 +1641,10 @@ try:
 
     document.getElementById("refreshTicketsBtn").addEventListener("click", loadOpenTickets);
     document.getElementById("refreshProductsBtn").addEventListener("click", loadOrdersSummary);
+    document.getElementById("refreshQueueBtn").addEventListener("click", loadQueueStats);
     document.getElementById("refreshAllBtn").addEventListener("click", async () => {
       await loadOrdersSummary();
+      await loadQueueStats();
       await loadOpenTickets();
       const phone = phoneInput.value.trim();
       if (phone) await loadCustomer(phone);
@@ -1625,6 +1688,7 @@ try:
     authState.style.color = "#2d7a4f";
 
     loadOrdersSummary();
+    loadQueueStats();
     loadOpenTickets();
   </script>
 </body>

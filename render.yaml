@@ -2,30 +2,113 @@ services:
   - type: web
     name: formcheck-bot
     runtime: docker
-    plan: free
+    plan: standard
+    autoDeploy: true
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /health
     envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
       - key: TWILIO_ACCOUNT_SID
         sync: false
       - key: TWILIO_AUTH_TOKEN
         sync: false
       - key: TWILIO_WHATSAPP_NUMBER
-        value: "+14155238886"
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: OPENAI_API_KEY
         sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
       - key: STRIPE_SUCCESS_URL
-        value: "https://formcheck.achzodcoaching.com/success"
+        sync: false
       - key: STRIPE_CANCEL_URL
-        value: "https://formcheck.achzodcoaching.com/cancel"
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
       - key: DEBUG
         value: "false"
-      - key: DATABASE_URL
-        value: "sqlite+aiosqlite:///./formcheck.db"
+      - key: BASE_URL
+        value: https://formcheck-bot.onrender.com
+      - key: TEST_MODE_FREE
+        value: "true"
+      - key: VERIFY_TWILIO_SIGNATURE
+        value: "true"
+      - key: MINIMAX_ENABLED
+        value: "true"
+      - key: MINIMAX_BROWSER_ONLY
+        value: "true"
+      - key: MINIMAX_STRICT_SOURCE
+        value: "true"
+      - key: MINIMAX_FALLBACK_TO_LOCAL
+        value: "false"
+      - key: MINIMAX_REMOTE_WORKER_ENABLED
+        value: "true"
+      - key: MINIMAX_REMOTE_WORKER_TOKEN
+        sync: false
       - key: RENDER_API_KEY
         sync: false
+      - key: MINIMAX_MOTION_COACH_EXPERT_URL
+        value: https://agent.minimax.io/expert/chat/362683345551702
+      - key: DATABASE_URL
+        value: sqlite+aiosqlite:////app/state/formcheck.db
+      - key: MINIMAX_CACHE_PATH
+        value: /app/state/minimax_cache.sqlite
+    disk:
+      name: formcheck-web-state
+      mountPath: /app/state
+      sizeGB: 20
+
+  - type: worker
+    name: formcheck-minimax-worker
+    runtime: docker
+    plan: standard
+    autoDeploy: true
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    startCommand: xvfb-run -a -s "-screen 0 1920x1080x24" python -m app.minimax_remote_worker
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: FORMCHECK_BASE_URL
+        value: https://formcheck-bot.onrender.com
+      - key: MINIMAX_REMOTE_WORKER_TOKEN
+        sync: false
+      - key: MINIMAX_REMOTE_WORKER_POLL_INTERVAL_S
+        value: "5"
+      - key: MINIMAX_BROWSER_ONLY
+        value: "true"
+      - key: MINIMAX_BROWSER_HEADLESS
+        value: "false"
+      - key: MINIMAX_BROWSER_TIMEOUT_S
+        value: "180"
+      - key: MINIMAX_BROWSER_EMAIL
+        sync: false
+      - key: MINIMAX_BROWSER_PASSWORD
+        sync: false
+      - key: MINIMAX_COOKIE
+        sync: false
+      - key: MINIMAX_BROWSER_LOCAL_STORAGE_JSON
+        sync: false
+      - key: MINIMAX_BROWSER_SESSION_STORAGE_JSON
+        sync: false
+      - key: MINIMAX_MOTION_COACH_EXPERT_URL
+        value: https://agent.minimax.io/expert/chat/362683345551702
+      - key: MINIMAX_OPTIMIZE_VIDEO
+        value: "true"
+      - key: MINIMAX_PRESERVE_FULL_VIDEO_UP_TO_S
+        value: "180"
+      - key: MINIMAX_ENABLE_CACHE
+        value: "true"
+      - key: MINIMAX_CACHE_PATH
+        value: /app/worker-state/minimax_cache.sqlite
+      - key: MINIMAX_BROWSER_PROFILE_DIR
+        value: /app/worker-state/minimax_browser_profile
+    disk:
+      name: formcheck-worker-state
+      mountPath: /app/worker-state
+      sizeGB: 15

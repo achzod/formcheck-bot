@@ -124,10 +124,13 @@ async def _process_job(client: httpx.AsyncClient, job: dict) -> None:
 
 async def run_worker() -> None:
     os.environ["MINIMAX_BROWSER_ONLY"] = "true"
-    # MiniMax/Cloudflare blocks AI Motion Coach reliably in headless mode on this setup.
-    # Force a headed Chrome session for the production browser worker.
+    # MiniMax/Cloudflare blocks AI Motion Coach reliably in headless mode.
+    # Keep browser headed; Render worker should run through xvfb-run.
     os.environ["MINIMAX_BROWSER_HEADLESS"] = "false"
-    os.environ.setdefault("MINIMAX_BROWSER_CHANNEL", "chrome")
+    # Do not force a specific browser channel here:
+    # - local machines can set MINIMAX_BROWSER_CHANNEL=chrome
+    # - Render workers can rely on bundled Chromium (empty channel)
+    channel = str(os.getenv("MINIMAX_BROWSER_CHANNEL", "") or "").strip()
 
     worker_id = _worker_id()
     poll_s = _poll_interval_s()
@@ -137,7 +140,7 @@ async def run_worker() -> None:
         "MiniMax remote worker bootstrap (worker_id=%s headless=%s channel=%s base_url=%s)",
         worker_id,
         os.getenv("MINIMAX_BROWSER_HEADLESS", ""),
-        os.getenv("MINIMAX_BROWSER_CHANNEL", ""),
+        channel,
         _base_url(),
     )
 

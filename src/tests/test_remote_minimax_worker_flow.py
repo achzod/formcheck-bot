@@ -193,7 +193,7 @@ class RemoteMiniMaxJobClaimTests(unittest.TestCase):
 
 @unittest.skipIf(minimax_remote_worker is None, "app deps unavailable: {}".format(_HANDLERS_IMPORT_ERROR))
 class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
-    def test_run_worker_forces_headed_chrome(self) -> None:
+    def test_run_worker_forces_headed_browser_without_forcing_channel(self) -> None:
         original_headless = os.environ.get("MINIMAX_BROWSER_HEADLESS")
         original_channel = os.environ.get("MINIMAX_BROWSER_CHANNEL")
         original_claim = minimax_remote_worker._claim_job
@@ -222,7 +222,7 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
                 os.environ["MINIMAX_BROWSER_CHANNEL"] = original_channel
 
         self.assertEqual(observed["headless"], "false")
-        self.assertEqual(observed["channel"], "chrome")
+        self.assertEqual(observed["channel"], "")
 
 
 if __name__ == "__main__":
