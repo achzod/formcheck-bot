@@ -265,11 +265,6 @@ def _normalize_section_title(raw_title: str) -> str:
 
 def _clean_report_text_for_rendering(report_text: str) -> str:
     raw_lines = [str(line or "") for line in str(report_text or "").splitlines()]
-    has_section_headers = any(
-        any(line.strip().upper().startswith(title) for title in _SECTION_TITLES)
-        for line in raw_lines
-    )
-
     out_lines: list[str] = []
     for raw_line in raw_lines:
         if any(pattern.match(raw_line) for pattern in _MINIMAX_WRAPPER_LINE_PATTERNS):
@@ -277,12 +272,13 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
 
         line = raw_line.strip()
         low = line.lower()
+        low_normalized = re.sub(r"^[\-\*•#\s]+", "", low).strip()
         # Remove raw JSON debris or orphan braces from bad generations.
         if line in {"{", "}", "[", "]"}:
             continue
-        if has_section_headers and low in {"formcheck", "# formcheck"}:
+        if low_normalized in {"formcheck", "# formcheck"}:
             continue
-        if has_section_headers and any(low.startswith(prefix) for prefix in _MINIMAX_FRONTMATTER_PREFIXES):
+        if any(low_normalized.startswith(prefix) for prefix in _MINIMAX_FRONTMATTER_PREFIXES):
             continue
         if any(marker in low for marker in _REPORT_NOISE_MARKERS):
             continue
