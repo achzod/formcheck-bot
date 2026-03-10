@@ -5068,10 +5068,13 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
             logger.warning("MINIMAX_BROWSER_ONLY=false ignored by policy: forcing browser UI transport.")
         for attempt_index, (variant_name, prompt) in enumerate(prompt_variants, start=1):
             prompt_hash = _md5_text(
-                "{}|{}|{}".format(
+                "{}|{}|{}|clip:{}|preserve_full:{}|optimize:{}".format(
                     prompt,
                     int(getattr(settings, "minimax_model_option", 0) or 0),
-                    "v9_minimax_prompt_retry_guard_rep_coherence",
+                    "v10_minimax_fullvideo_prep_cache_key",
+                    int(getattr(settings, "minimax_max_clip_s", 45) or 45),
+                    int(getattr(settings, "minimax_preserve_full_video_up_to_s", 180) or 180),
+                    1 if _as_bool(getattr(settings, "minimax_optimize_video", True), True) else 0,
                 )
             )
             cached = _cache_get(video_hash, prompt_hash)
