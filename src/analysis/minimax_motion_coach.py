@@ -323,6 +323,7 @@ def _load_settings():
             minimax_cache_path = os.getenv("MINIMAX_CACHE_PATH", "media/minimax_cache.sqlite")
             minimax_optimize_video = _as_bool(os.getenv("MINIMAX_OPTIMIZE_VIDEO"), True)
             minimax_max_clip_s = int(os.getenv("MINIMAX_MAX_CLIP_S", "45"))
+            minimax_preserve_full_video_up_to_s = int(os.getenv("MINIMAX_PRESERVE_FULL_VIDEO_UP_TO_S", "180"))
             minimax_target_height = int(os.getenv("MINIMAX_TARGET_HEIGHT", "720"))
             minimax_target_fps = int(os.getenv("MINIMAX_TARGET_FPS", "24"))
             minimax_target_video_bitrate_kbps = int(os.getenv("MINIMAX_TARGET_VIDEO_BITRATE_KBPS", "1400"))
@@ -1866,12 +1867,17 @@ def _prepare_video_for_minimax(video_path: str) -> _PreparedVideo:
         return prepared
 
     max_clip_s = max(8, int(getattr(settings, "minimax_max_clip_s", 45) or 45))
+    preserve_full_up_to_s = max(
+        max_clip_s,
+        int(getattr(settings, "minimax_preserve_full_video_up_to_s", 180) or 180),
+    )
     target_height = max(360, int(getattr(settings, "minimax_target_height", 720) or 720))
     target_fps = max(12, int(getattr(settings, "minimax_target_fps", 24) or 24))
     target_bitrate = max(700, int(getattr(settings, "minimax_target_video_bitrate_kbps", 1400) or 1400))
     keep_audio = _as_bool(getattr(settings, "minimax_keep_audio", False), False)
 
-    need_duration_opt = src_duration > (max_clip_s + 2)
+    need_duration_trim = src_duration > (preserve_full_up_to_s + 2)
+    need_duration_opt = need_duration_trim
     need_resolution_opt = src_height > (target_height + 2)
     need_fps_opt = src_fps > (target_fps + 1)
     need_size_opt = src_size > (10 * 1024 * 1024)
@@ -1880,24 +1886,30 @@ def _prepare_video_for_minimax(video_path: str) -> _PreparedVideo:
 
     start_s = 0.0
     end_s = src_duration if src_duration > 0 else 0.0
-    active_window = _detect_active_window(video_path)
-    if active_window:
-        start_s, end_s = active_window
     window_duration = max(0.0, end_s - start_s)
 
-    if window_duration <= 0 and src_duration > 0:
-        start_s = 0.0
-        end_s = min(float(max_clip_s), src_duration)
+    if need_duration_trim:
+        active_window = _detect_active_window(video_path)
+        if active_window:
+            start_s, end_s = active_window
         window_duration = max(0.0, end_s - start_s)
 
-    if window_duration > max_clip_s and src_duration > 0:
-        center_s = (start_s + end_s) / 2.0
-        half = max_clip_s / 2.0
-        start_s = max(0.0, center_s - half)
-        end_s = min(src_duration, start_s + max_clip_s)
-        if (end_s - start_s) < max_clip_s:
-            start_s = max(0.0, end_s - max_clip_s)
-        window_duration = max(0.0, end_s - start_s)
+        if window_duration <= 0 and src_duration > 0:
+            start_s = 0.0
+            end_s = min(float(max_clip_s), src_duration)
+            window_duration = max(0.0, end_s - start_s)
+
+        if window_duration > max_clip_s and src_duration > 0:
+            center_s = (start_s + end_s) / 2.0
+            half = max_clip_s / 2.0
+            start_s = max(0.0, center_s - half)
+            end_s = min(src_duration, start_s + max_clip_s)
+            if (end_s - start_s) < max_clip_s:
+                start_s = max(0.0, end_s - max_clip_s)
+            window_duration = max(0.0, end_s - start_s)
+    elif src_duration <= 0:
+        # If duration is unknown, keep the original file to avoid accidental truncation.
+        return prepared
 
     if window_duration <= 0.1:
         return prepared
@@ -1912,12 +1924,8 @@ def _prepare_video_for_minimax(video_path: str) -> _PreparedVideo:
         "-hide_banner",
         "-loglevel",
         "error",
-        "-ss",
-        "{:.3f}".format(start_s),
         "-i",
         str(src),
-        "-t",
-        "{:.3f}".format(window_duration),
         "-vf",
         "scale=-2:{}:force_original_aspect_ratio=decrease,fps={}".format(target_height, target_fps),
         "-c:v",
@@ -1935,6 +1943,10 @@ def _prepare_video_for_minimax(video_path: str) -> _PreparedVideo:
         "-movflags",
         "+faststart",
     ]
+    if start_s > 0.01:
+        cmd[5:5] = ["-ss", "{:.3f}".format(start_s)]
+    if window_duration > 0.1:
+        cmd.extend(["-t", "{:.3f}".format(window_duration)])
     if keep_audio:
         cmd.extend(["-c:a", "aac", "-b:a", "96k"])
     else:
@@ -1956,7 +1968,7 @@ def _prepare_video_for_minimax(video_path: str) -> _PreparedVideo:
         prepared.prepared_duration_s = window_duration
         prepared.was_trimmed = (start_s > 0.01) or ((src_duration - end_s) > 0.01)
         prepared.was_transcoded = True
-        prepared.strategy = "trim_transcode"
+        prepared.strategy = "trim_transcode" if prepared.was_trimmed else "full_transcode"
         return prepared
     except Exception as exc:
         logger.warning("MiniMax preprocess exception, using original: %s", exc)

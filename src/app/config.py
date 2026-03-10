@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     minimax_cache_path: str = "media/minimax_cache.sqlite"
     minimax_optimize_video: bool = True
     minimax_max_clip_s: int = 45
+    minimax_preserve_full_video_up_to_s: int = 180
     minimax_target_height: int = 720
     minimax_target_fps: int = 24
     minimax_target_video_bitrate_kbps: int = 1400

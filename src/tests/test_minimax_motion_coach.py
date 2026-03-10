@@ -578,6 +578,112 @@ class MiniMaxVideoStatsTests(unittest.TestCase):
         self.assertEqual(stats["height"], 480)
 
 
+class MiniMaxVideoPreparationTests(unittest.TestCase):
+    def test_prepare_video_preserves_full_duration_under_threshold(self) -> None:
+        original_video_stats = mm._video_stats
+        original_detect_active_window = mm._detect_active_window
+        original_subprocess_run = mm.subprocess.run
+        original_max_clip = getattr(minimax_settings, "minimax_max_clip_s", 45)
+        original_preserve = getattr(minimax_settings, "minimax_preserve_full_video_up_to_s", 180)
+        original_optimize = getattr(minimax_settings, "minimax_optimize_video", True)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "video.mp4"
+            src.write_bytes(b"video")
+
+            try:
+                minimax_settings.minimax_optimize_video = True
+                minimax_settings.minimax_max_clip_s = 45
+                minimax_settings.minimax_preserve_full_video_up_to_s = 180
+                mm._video_stats = lambda _path: {"duration_s": 114.47, "height": 1920, "fps": 60.0}  # type: ignore[assignment]
+
+                def _fail_detect(_path: str):
+                    raise AssertionError("active window should not be used when full video is preserved")
+
+                mm._detect_active_window = _fail_detect  # type: ignore[assignment]
+
+                calls: dict[str, list[str]] = {}
+
+                def _fake_run(cmd, capture_output=False, text=False, timeout=0):
+                    calls["cmd"] = list(cmd)
+                    out = Path(cmd[-1])
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    out.write_bytes(b"prepared")
+                    return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+                mm.subprocess.run = _fake_run  # type: ignore[assignment]
+
+                prepared = mm._prepare_video_for_minimax(str(src))
+            finally:
+                mm._video_stats = original_video_stats  # type: ignore[assignment]
+                mm._detect_active_window = original_detect_active_window  # type: ignore[assignment]
+                mm.subprocess.run = original_subprocess_run  # type: ignore[assignment]
+                minimax_settings.minimax_max_clip_s = original_max_clip
+                minimax_settings.minimax_preserve_full_video_up_to_s = original_preserve
+                minimax_settings.minimax_optimize_video = original_optimize
+
+        cmd = calls.get("cmd")
+        self.assertIsNotNone(cmd)
+        self.assertIn("-t", cmd)
+        t_value = float(cmd[cmd.index("-t") + 1])
+        self.assertAlmostEqual(t_value, 114.47, places=2)
+        self.assertFalse(prepared.was_trimmed)
+        self.assertTrue(prepared.was_transcoded)
+        self.assertEqual(prepared.strategy, "full_transcode")
+        self.assertAlmostEqual(prepared.prepared_duration_s, 114.47, places=2)
+
+    def test_prepare_video_trims_when_duration_exceeds_preserve_threshold(self) -> None:
+        original_video_stats = mm._video_stats
+        original_detect_active_window = mm._detect_active_window
+        original_subprocess_run = mm.subprocess.run
+        original_max_clip = getattr(minimax_settings, "minimax_max_clip_s", 45)
+        original_preserve = getattr(minimax_settings, "minimax_preserve_full_video_up_to_s", 180)
+        original_optimize = getattr(minimax_settings, "minimax_optimize_video", True)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "video.mp4"
+            src.write_bytes(b"video")
+
+            try:
+                minimax_settings.minimax_optimize_video = True
+                minimax_settings.minimax_max_clip_s = 45
+                minimax_settings.minimax_preserve_full_video_up_to_s = 180
+                mm._video_stats = lambda _path: {"duration_s": 260.0, "height": 720, "fps": 24.0}  # type: ignore[assignment]
+                mm._detect_active_window = lambda _path: (100.0, 190.0)  # type: ignore[assignment]
+
+                calls: dict[str, list[str]] = {}
+
+                def _fake_run(cmd, capture_output=False, text=False, timeout=0):
+                    calls["cmd"] = list(cmd)
+                    out = Path(cmd[-1])
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    out.write_bytes(b"prepared")
+                    return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+                mm.subprocess.run = _fake_run  # type: ignore[assignment]
+
+                prepared = mm._prepare_video_for_minimax(str(src))
+            finally:
+                mm._video_stats = original_video_stats  # type: ignore[assignment]
+                mm._detect_active_window = original_detect_active_window  # type: ignore[assignment]
+                mm.subprocess.run = original_subprocess_run  # type: ignore[assignment]
+                minimax_settings.minimax_max_clip_s = original_max_clip
+                minimax_settings.minimax_preserve_full_video_up_to_s = original_preserve
+                minimax_settings.minimax_optimize_video = original_optimize
+
+        cmd = calls.get("cmd")
+        self.assertIsNotNone(cmd)
+        self.assertIn("-ss", cmd)
+        self.assertIn("-t", cmd)
+        start_value = float(cmd[cmd.index("-ss") + 1])
+        t_value = float(cmd[cmd.index("-t") + 1])
+        self.assertGreater(start_value, 0.0)
+        self.assertLessEqual(t_value, 45.0)
+        self.assertTrue(prepared.was_trimmed)
+        self.assertEqual(prepared.strategy, "trim_transcode")
+        self.assertLessEqual(prepared.prepared_duration_s, 45.0)
+
+
 class MiniMaxBrowserConfigValidationTests(unittest.TestCase):
     def test_validate_settings_allows_seeded_browser_profile_without_password(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
