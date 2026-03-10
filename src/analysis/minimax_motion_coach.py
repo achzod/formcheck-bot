@@ -623,42 +623,41 @@ def _count_rep_entries(text: str) -> int:
     if not raw.strip():
         return 0
 
-    time_range_pattern = r"\b\d{1,2}:\d{2}(?::\d{2})?\s*[-–—]\s*\d{1,2}:\d{2}(?::\d{2})?\b"
+    # Accept common separators seen in Motion Coach outputs: '-', '–', '—', 'à', 'to', '->', '→'
+    time_range_pattern = (
+        r"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:[-–—]|a|à|to|->|→)\s*\d{1,2}:\d{2}(?::\d{2})?\b"
+    )
 
-    rep_numbers = {
-        int(match.group(1))
-        for match in re.finditer(r"\brep(?:etition)?\s*(\d{1,3})\b", raw, flags=re.IGNORECASE)
-    }
-    timestamp_ranges = {
-        match.group(0)
-        for match in re.finditer(time_range_pattern, raw, flags=re.IGNORECASE)
-    }
-
-    line_entries = 0
+    explicit_rep_ids: set[int] = set()
+    timed_rep_lines = 0
     for raw_line in raw.splitlines():
         line = raw_line.strip()
         if not line:
             continue
-        core = re.sub(r"^(?:[-*•]|\d+[.)])\s*", "", line).strip()
+        core = re.sub(r"^(?:[-*•]|\d+[.)])\s*", "", line, flags=re.IGNORECASE).strip()
         if not core:
             continue
-        has_rep_token = bool(re.search(r"\brep(?:etition)?\b", core, flags=re.IGNORECASE))
-        has_time_range = bool(re.search(time_range_pattern, core, flags=re.IGNORECASE))
-        if has_time_range and (has_rep_token or "|" in core or ":" in core):
-            line_entries += 1
+        normalized = _normalize_label_text(core)
 
-    inline_pattern = rf"(?:^|\s)(\d{{1,3}})[.)]\s*(?:rep(?:etition)?\b|{time_range_pattern})"
-    inline_numbered_reps = {
-        int(match.group(1))
-        for match in re.finditer(inline_pattern, raw, flags=re.IGNORECASE)
-    }
+        has_time_range = bool(re.search(time_range_pattern, normalized, flags=re.IGNORECASE))
+        has_pause_marker = any(
+            marker in normalized
+            for marker in ("pause", "repos", "recuperation", "transition")
+        )
+        has_rep_range = bool(
+            re.search(r"\brep(?:etition)?\s*\d{1,3}\s*[-–—]\s*\d{1,3}\b", normalized, flags=re.IGNORECASE)
+        )
 
-    return max(
-        len(rep_numbers),
-        len(timestamp_ranges),
-        line_entries,
-        len(inline_numbered_reps),
-    )
+        rep_match = re.search(r"\brep(?:etition)?\s*(\d{1,3})\b", normalized, flags=re.IGNORECASE)
+        if rep_match and not has_rep_range and not (has_pause_marker and not has_time_range):
+            explicit_rep_ids.add(int(rep_match.group(1)))
+
+        # Primary counting rule: one timed movement line = one measured rep line.
+        # Ignore pause/transition commentary lines without explicit timing windows.
+        if has_time_range and (rep_match or "|" in normalized or ":" in normalized):
+            timed_rep_lines += 1
+
+    return max(len(explicit_rep_ids), timed_rep_lines)
 
 
 def _harmonize_rep_counts(analysis: MiniMaxAnalysis, raw_text: str = "") -> None:

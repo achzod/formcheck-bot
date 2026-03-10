@@ -336,6 +336,52 @@ PLAN_ACTION:
         out = _parse_analysis_payload(text)
         self.assertEqual(out.reps_total, 11)
 
+    def test_rep_count_ignores_pause_bridge_lines(self) -> None:
+        text = """
+<FORMCHECK_REPORT_MD>
+# FORMCHECK
+- Exercice: Developpe poitrine machine
+- Exercice slug: machine_chest_press
+- Score global: 82/100
+- Repetitions detectees: 8
+
+## ANALYSE REP PAR REP
+1. Rep 1 | 00:00 - 00:04 | Correcte.
+2. Rep 2 | 00:04 - 00:08 | Correcte.
+3. Rep 3 | 00:08 - 00:12 | Correcte.
+4. Rep 4 | 00:12 - 00:16 | Correcte.
+5. Rep 5 | 00:16 - 00:20 | Correcte.
+6. Rep 5-7 | Pause notable de 2.1s entre rep 5 et 6 (recuperation)
+7. Rep 6 | 00:22 - 00:26 | Correcte.
+8. Rep 7 | 00:26 - 00:30 | Correcte.
+9. Rep 8 | 00:30 - 00:34 | Correcte.
+</FORMCHECK_REPORT_MD>
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.reps_total, 8)
+        self.assertEqual(out.reps_complete, 8)
+        self.assertEqual(out.reps_partial, 0)
+
+    def test_rep_count_supports_french_a_time_separator(self) -> None:
+        text = """
+<FORMCHECK_REPORT_MD>
+# FORMCHECK
+- Exercice: Tirage vertical
+- Exercice slug: lat_pulldown
+- Score global: 75/100
+- Repetitions detectees: 2
+
+## ANALYSE REP PAR REP
+1. Répétition 1 : 00:09 à 00:13. Exécution fluide.
+2. Répétition 2 : 00:14 à 00:18. Technique propre.
+3. Répétition 3 : 00:18 à 00:23. Légère fatigue.
+</FORMCHECK_REPORT_MD>
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.reps_total, 3)
+        self.assertEqual(out.reps_complete, 3)
+        self.assertEqual(out.reps_partial, 0)
+
     def test_parse_unstructured_report_preserves_raw_report_text(self) -> None:
         text = """
 Machine Chest Press
