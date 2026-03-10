@@ -101,6 +101,42 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
         self.assertIn("Rep 1 | 00:09 - 00:13 | Execution fluide.", html)
         self.assertNotIn("Plan d&#x27;Action", html)
 
+    def test_minimax_wrapper_and_frontmatter_are_not_rendered(self) -> None:
+        report = Report(
+            exercise="machine_chest_press",
+            exercise_display="Presse Pectorale Machine",
+            score=86,
+            model_used="minimax_motion_coach",
+            report_text=(
+                "<FORMCHECK_REPORT_MD>\n"
+                "FORMCHECK\n"
+                "Exercice: Presse Pectorale Machine\n"
+                "Exercice slug: machine_chest_press\n"
+                "Confiance exercice: 0.95\n"
+                "Score global: 86/100\n"
+                "Repetitions detectees: 11\n"
+                "Intensite: 85/100 (elevee)\n"
+                "Repos inter-reps moyen: 0.00 s\n"
+                "RESUME\n"
+                "Execution propre et stable.\n"
+                "ANALYSE REP PAR REP\n"
+                "1. Rep 1 | 00:09 - 00:13 | Fluide.\n"
+                "</FORMCHECK_REPORT_MD>\n"
+            ),
+        )
+        html, _, _ = generate_html_report(
+            report=report,
+            annotated_frames={},
+            analysis_id="minimaxclean",
+            pipeline_result=None,
+            client_name="Client",
+        )
+        self.assertNotIn("&lt;FORMCHECK_REPORT_MD&gt;", html)
+        self.assertNotIn("Exercice slug: machine_chest_press", html)
+        self.assertNotIn("Confiance exercice: 0.95", html)
+        self.assertIn("Execution propre et stable.", html)
+        self.assertIn("Analyse Rep par Rep", html)
+
 
 if __name__ == "__main__":
     unittest.main()

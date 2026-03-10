@@ -189,6 +189,36 @@ _REPORT_NOISE_MARKERS = (
     "action 3",
 )
 
+_MINIMAX_WRAPPER_LINE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^\s*<\s*/?\s*formcheck_report_md\s*>\s*$", re.IGNORECASE),
+    re.compile(r"^\s*```(?:markdown|md|json)?\s*$", re.IGNORECASE),
+)
+
+_MINIMAX_FRONTMATTER_PREFIXES = (
+    "formcheck",
+    "exercice:",
+    "exercise:",
+    "exercice slug:",
+    "display_name_fr:",
+    "display_name:",
+    "confiance exercice:",
+    "confidence:",
+    "score global:",
+    "score:",
+    "repetitions detectees:",
+    "repetitions completes:",
+    "repetitions partielles:",
+    "reps_total:",
+    "reps_complete:",
+    "reps_partial:",
+    "intensite:",
+    "intensity_score:",
+    "intensity_label:",
+    "repos inter-reps moyen:",
+    "repos inter reps moyen:",
+    "avg_inter_rep_rest_s:",
+)
+
 _AI_STYLE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bdans cette analyse[, ]*", re.IGNORECASE), ""),
     (re.compile(r"\bil est important de noter que\s*", re.IGNORECASE), ""),
@@ -234,10 +264,26 @@ def _normalize_section_title(raw_title: str) -> str:
 
 
 def _clean_report_text_for_rendering(report_text: str) -> str:
+    raw_lines = [str(line or "") for line in str(report_text or "").splitlines()]
+    has_section_headers = any(
+        any(line.strip().upper().startswith(title) for title in _SECTION_TITLES)
+        for line in raw_lines
+    )
+
     out_lines: list[str] = []
-    for raw_line in str(report_text or "").splitlines():
+    for raw_line in raw_lines:
+        if any(pattern.match(raw_line) for pattern in _MINIMAX_WRAPPER_LINE_PATTERNS):
+            continue
+
         line = raw_line.strip()
         low = line.lower()
+        # Remove raw JSON debris or orphan braces from bad generations.
+        if line in {"{", "}", "[", "]"}:
+            continue
+        if has_section_headers and low in {"formcheck", "# formcheck"}:
+            continue
+        if has_section_headers and any(low.startswith(prefix) for prefix in _MINIMAX_FRONTMATTER_PREFIXES):
+            continue
         if any(marker in low for marker in _REPORT_NOISE_MARKERS):
             continue
         if re.match(r"^[\-\*]\s*(point|action)\s+\d+\s*$", low):
