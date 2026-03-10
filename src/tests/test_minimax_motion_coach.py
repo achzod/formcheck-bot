@@ -302,6 +302,40 @@ PLAN_ACTION:
         self.assertEqual(out.intensity_label, "elevee")
         self.assertAlmostEqual(out.avg_inter_rep_rest_s, 0.92, places=2)
 
+    def test_reps_total_is_harmonized_from_rep_by_rep_section(self) -> None:
+        text = """
+<FORMCHECK_REPORT_MD>
+# FORMCHECK
+- Exercice: Machine Chest Press
+- Exercice slug: machine_chest_press
+- Score global: 78/100
+- Repetitions detectees: 3
+
+## ANALYSE REP PAR REP
+1. Rep 1 | 00:09 - 00:13 | Fluide.
+2. Rep 2 | 00:14 - 00:18 | Propre.
+3. Rep 3 | 00:18 - 00:23 | Legere baisse de vitesse.
+4. Rep 4 | 00:23 - 00:27 | Controlee.
+5. Rep 5 | 00:27 - 00:33 | Plus lente.
+6. Rep 6 | 00:40 - 00:45 | Difficile mais complete.
+7. Rep 7 | 00:45 - 00:49 | Derniere tres lente.
+</FORMCHECK_REPORT_MD>
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.reps_total, 7)
+        self.assertEqual(out.reps_complete, 7)
+        self.assertEqual(out.reps_partial, 0)
+        self.assertEqual(out.metadata.get("rep_count_source"), "rep_par_rep_inference")
+
+    def test_reps_extraction_accepts_french_repetitions_label(self) -> None:
+        text = (
+            "Analyse Biomecanique\n"
+            "Repetitions detectees: 11\n"
+            "Intensite: 73/100 (elevee)\n"
+        )
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.reps_total, 11)
+
     def test_parse_unstructured_report_preserves_raw_report_text(self) -> None:
         text = """
 Machine Chest Press

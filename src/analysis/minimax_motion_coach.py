@@ -605,10 +605,114 @@ def _looks_like_unstructured_report_text(text: str) -> bool:
 
 
 def _extract_reps_from_text(text: str) -> int:
-    match = re.search(r"\b(\d{1,3})\s*reps?\b", text, flags=re.IGNORECASE)
-    if not match:
+    raw = str(text or "")
+    patterns = (
+        r"\b(?:reps?_total|r[eé]p[eé]titions?\s+d[eé]tect[eé]e?s?|repetitions?\s+detecte(?:e|es)?|nombre\s+de\s+reps?)\s*[:=\-]?\s*(\d{1,3})\b",
+        r"\b(\d{1,3})\s*(?:reps?|r[eé]p[eé]titions?|repetitions?)\b",
+        r"\b(?:reps?|r[eé]p[eé]titions?|repetitions?)\s*[:=\-]?\s*(\d{1,3})\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, raw, flags=re.IGNORECASE)
+        if match:
+            return max(0, int(match.group(1)))
+    return 0
+
+
+def _count_rep_entries(text: str) -> int:
+    raw = str(text or "").replace("\r", "\n")
+    if not raw.strip():
         return 0
-    return max(0, int(match.group(1)))
+
+    time_range_pattern = r"\b\d{1,2}:\d{2}(?::\d{2})?\s*[-–—]\s*\d{1,2}:\d{2}(?::\d{2})?\b"
+
+    rep_numbers = {
+        int(match.group(1))
+        for match in re.finditer(r"\brep(?:etition)?\s*(\d{1,3})\b", raw, flags=re.IGNORECASE)
+    }
+    timestamp_ranges = {
+        match.group(0)
+        for match in re.finditer(time_range_pattern, raw, flags=re.IGNORECASE)
+    }
+
+    line_entries = 0
+    for raw_line in raw.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        core = re.sub(r"^(?:[-*•]|\d+[.)])\s*", "", line).strip()
+        if not core:
+            continue
+        has_rep_token = bool(re.search(r"\brep(?:etition)?\b", core, flags=re.IGNORECASE))
+        has_time_range = bool(re.search(time_range_pattern, core, flags=re.IGNORECASE))
+        if has_time_range and (has_rep_token or "|" in core or ":" in core):
+            line_entries += 1
+
+    inline_pattern = rf"(?:^|\s)(\d{{1,3}})[.)]\s*(?:rep(?:etition)?\b|{time_range_pattern})"
+    inline_numbered_reps = {
+        int(match.group(1))
+        for match in re.finditer(inline_pattern, raw, flags=re.IGNORECASE)
+    }
+
+    return max(
+        len(rep_numbers),
+        len(timestamp_ranges),
+        line_entries,
+        len(inline_numbered_reps),
+    )
+
+
+def _harmonize_rep_counts(analysis: MiniMaxAnalysis, raw_text: str = "") -> None:
+    """Reconcile parsed rep fields with rep-by-rep evidence when available."""
+    parsed_total = max(0, int(getattr(analysis, "reps_total", 0) or 0))
+    parsed_complete = max(0, int(getattr(analysis, "reps_complete", 0) or 0))
+    parsed_partial = max(0, int(getattr(analysis, "reps_partial", 0) or 0))
+
+    inferred_candidates = [
+        _count_rep_entries(str((analysis.sections or {}).get("rep_par_rep", "") or "")),
+        _count_rep_entries(str(getattr(analysis, "report_text", "") or "")),
+        _extract_reps_from_text(raw_text),
+    ]
+    inferred = max(inferred_candidates) if inferred_candidates else 0
+
+    canonical_total = max(parsed_total, parsed_complete + parsed_partial)
+    inferred_upgraded_total = False
+    if inferred > canonical_total:
+        canonical_total = inferred
+        inferred_upgraded_total = True
+        analysis.metadata["rep_count_source"] = "rep_par_rep_inference"
+        analysis.metadata["rep_count_inferred"] = inferred
+
+    if canonical_total <= 0:
+        analysis.reps_total = 0
+        analysis.reps_complete = 0
+        analysis.reps_partial = 0
+        return
+
+    if parsed_complete <= 0 and parsed_partial <= 0:
+        parsed_complete = canonical_total
+    elif (
+        inferred_upgraded_total
+        and parsed_partial <= 0
+        and parsed_total > 0
+        and parsed_complete == parsed_total
+    ):
+        # Common MiniMax inconsistency: header count under-reported while rep-by-rep
+        # section clearly lists more complete reps.
+        parsed_complete = canonical_total
+    elif parsed_complete <= 0 and parsed_partial > 0:
+        parsed_complete = max(0, canonical_total - parsed_partial)
+    elif parsed_partial <= 0:
+        parsed_partial = max(0, canonical_total - parsed_complete)
+
+    if parsed_complete + parsed_partial > canonical_total:
+        canonical_total = parsed_complete + parsed_partial
+    if parsed_complete > canonical_total:
+        parsed_complete = canonical_total
+    parsed_partial = max(0, canonical_total - parsed_complete)
+
+    analysis.reps_total = canonical_total
+    analysis.reps_complete = parsed_complete
+    analysis.reps_partial = parsed_partial
 
 
 def _extract_intensity_from_text(text: str) -> tuple[int, float]:
@@ -1063,6 +1167,7 @@ def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
             analysis.score = derived_total
     analysis.plan_action = _extract_bullets(plan_block)[:6]
     analysis.report_text = _build_structured_report_text(analysis)
+    _harmonize_rep_counts(analysis, raw_text=(text or ""))
     return analysis
 
 
@@ -1145,6 +1250,7 @@ def _parse_markdown_analysis_payload(text: str) -> MiniMaxAnalysis | None:
         analysis.exercise_slug = _slugify(analysis.exercise_display)
     if not analysis.exercise_display:
         analysis.exercise_display = "Exercice non identifie"
+    _harmonize_rep_counts(analysis, raw_text=(text or ""))
     return analysis
 
 
@@ -1994,6 +2100,7 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
             analysis.score = _extract_score_from_text(raw_text)
         if not analysis.report_text:
             analysis.report_text = _build_structured_report_text(analysis)
+        _harmonize_rep_counts(analysis, raw_text=raw_text)
         return analysis
 
     labeled = _parse_labeled_analysis_payload(raw_text)
@@ -2017,6 +2124,7 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
         analysis.report_text = _build_structured_report_text(analysis)
     if raw_text:
         analysis.raw_response = raw_text
+    _harmonize_rep_counts(analysis, raw_text=raw_text)
     return analysis
 
 
