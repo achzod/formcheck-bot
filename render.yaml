@@ -81,6 +81,8 @@ services:
         value: https://formcheck-bot.onrender.com
       - key: MINIMAX_REMOTE_WORKER_TOKEN
         sync: false
+      - key: RENDER_API_KEY
+        sync: false
       - key: MINIMAX_REMOTE_WORKER_POLL_INTERVAL_S
         value: "5"
       - key: MINIMAX_BROWSER_ONLY

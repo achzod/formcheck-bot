@@ -17,11 +17,16 @@ Le blueprint versionne est dans [`render.yaml`](/Users/achzod/clawd/render.yaml)
 ## Variables critiques (obligatoires)
 Configurer ces secrets sur Render:
 - `MINIMAX_REMOTE_WORKER_TOKEN` (meme valeur sur web et worker)
-- `RENDER_API_KEY` (web, pour admin/debug interne)
+- `RENDER_API_KEY` (web + worker, fallback token interne + admin/debug)
 - `MINIMAX_BROWSER_EMAIL` (worker)
 - Une source d'auth navigateur MiniMax sur le worker:
   - soit `MINIMAX_BROWSER_PASSWORD`
   - soit `MINIMAX_COOKIE` (+ idealement `MINIMAX_BROWSER_LOCAL_STORAGE_JSON`)
+
+Robustesse anti-desync:
+- Le web envoie aussi un `browser_context` au worker a chaque `claim` (email/auth/url/prompt/timeouts).
+- Le worker applique ce contexte en runtime avant l'analyse.
+- Ainsi, meme si une variable worker est manquante, le job peut rester operable tant que le web est correctement configure.
 
 ## Verification production
 1. Web alive:
