@@ -6,12 +6,43 @@ import os
 import socket
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import httpx
 
+import analysis.minimax_motion_coach as minimax_motion_coach
 from analysis.minimax_motion_coach import _analysis_to_payload, run_minimax_motion_coach
 
 logger = logging.getLogger("formcheck.minimax_remote_worker")
+
+_JOB_BROWSER_SETTING_TYPES: dict[str, type] = {
+    "minimax_browser_email": str,
+    "minimax_browser_password": str,
+    "minimax_cookie": str,
+    "minimax_browser_local_storage_json": str,
+    "minimax_browser_session_storage_json": str,
+    "minimax_motion_coach_expert_url": str,
+    "minimax_prompt_template": str,
+    "minimax_browser_timeout_s": int,
+    "minimax_timeout_s": int,
+    "minimax_poll_interval_s": float,
+    "minimax_browser_only": bool,
+    "minimax_browser_headless": bool,
+}
+_SETTING_TO_ENV: dict[str, str] = {
+    "minimax_browser_email": "MINIMAX_BROWSER_EMAIL",
+    "minimax_browser_password": "MINIMAX_BROWSER_PASSWORD",
+    "minimax_cookie": "MINIMAX_COOKIE",
+    "minimax_browser_local_storage_json": "MINIMAX_BROWSER_LOCAL_STORAGE_JSON",
+    "minimax_browser_session_storage_json": "MINIMAX_BROWSER_SESSION_STORAGE_JSON",
+    "minimax_motion_coach_expert_url": "MINIMAX_MOTION_COACH_EXPERT_URL",
+    "minimax_prompt_template": "MINIMAX_PROMPT_TEMPLATE",
+    "minimax_browser_timeout_s": "MINIMAX_BROWSER_TIMEOUT_S",
+    "minimax_timeout_s": "MINIMAX_TIMEOUT_S",
+    "minimax_poll_interval_s": "MINIMAX_POLL_INTERVAL_S",
+    "minimax_browser_only": "MINIMAX_BROWSER_ONLY",
+    "minimax_browser_headless": "MINIMAX_BROWSER_HEADLESS",
+}
 
 
 def _base_url() -> str:
@@ -26,6 +57,7 @@ def _token() -> str:
     return str(
         os.getenv("MINIMAX_REMOTE_WORKER_TOKEN")
         or os.getenv("FORMCHECK_INTERNAL_TOKEN")
+        or os.getenv("RENDER_API_KEY")
         or ""
     ).strip()
 
@@ -47,8 +79,64 @@ def _worker_id() -> str:
 def _headers() -> dict[str, str]:
     token = _token()
     if not token:
-        raise RuntimeError("Missing MINIMAX_REMOTE_WORKER_TOKEN or FORMCHECK_INTERNAL_TOKEN")
+        raise RuntimeError(
+            "Missing MINIMAX_REMOTE_WORKER_TOKEN or FORMCHECK_INTERNAL_TOKEN or RENDER_API_KEY"
+        )
     return {"X-Formcheck-Internal-Token": token}
+
+
+def _as_bool(value: Any) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _cast_setting_value(value: Any, expected_type: type) -> Any:
+    if expected_type is bool:
+        return _as_bool(value)
+    if expected_type is int:
+        try:
+            return int(float(value))
+        except Exception:
+            return 0
+    if expected_type is float:
+        try:
+            return float(value)
+        except Exception:
+            return 0.0
+    return str(value or "")
+
+
+def _to_env_value(value: Any, expected_type: type) -> str:
+    if expected_type is bool:
+        return "true" if bool(value) else "false"
+    if expected_type is int:
+        return str(int(value))
+    if expected_type is float:
+        return str(float(value))
+    return str(value or "")
+
+
+def _apply_job_browser_context(job: dict) -> dict[str, Any]:
+    context = job.get("browser_context")
+    if not isinstance(context, dict):
+        return {}
+
+    applied: dict[str, Any] = {}
+    for key, expected_type in _JOB_BROWSER_SETTING_TYPES.items():
+        if key not in context:
+            continue
+        raw_value = context.get(key)
+        if raw_value is None:
+            continue
+        casted = _cast_setting_value(raw_value, expected_type)
+        applied[key] = casted
+        env_name = _SETTING_TO_ENV.get(key)
+        if env_name:
+            os.environ[env_name] = _to_env_value(casted, expected_type)
+        try:
+            setattr(minimax_motion_coach.settings, key, casted)
+        except Exception:
+            logger.warning("Failed to override runtime setting %s", key, exc_info=True)
+    return applied
 
 
 async def _claim_job(client: httpx.AsyncClient, worker_id: str) -> dict | None:
@@ -95,6 +183,13 @@ async def _process_job(client: httpx.AsyncClient, job: dict) -> None:
     video_url = str(job["video_url"])
     video_path: Path | None = None
     try:
+        applied_context = _apply_job_browser_context(job)
+        if applied_context:
+            logger.info(
+                "MiniMax remote job runtime context applied (job_id=%s keys=%s)",
+                job_id,
+                ",".join(sorted(applied_context.keys())),
+            )
         video_path = await _download_video(client, job_id, video_url)
         analysis = await asyncio.to_thread(run_minimax_motion_coach, str(video_path))
         logger.info(

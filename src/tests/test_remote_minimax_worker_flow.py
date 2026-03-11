@@ -193,6 +193,71 @@ class RemoteMiniMaxJobClaimTests(unittest.TestCase):
 
 @unittest.skipIf(minimax_remote_worker is None, "app deps unavailable: {}".format(_HANDLERS_IMPORT_ERROR))
 class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
+    def test_token_falls_back_to_render_api_key(self) -> None:
+        original_remote = os.environ.get("MINIMAX_REMOTE_WORKER_TOKEN")
+        original_internal = os.environ.get("FORMCHECK_INTERNAL_TOKEN")
+        original_render = os.environ.get("RENDER_API_KEY")
+        try:
+            os.environ.pop("MINIMAX_REMOTE_WORKER_TOKEN", None)
+            os.environ.pop("FORMCHECK_INTERNAL_TOKEN", None)
+            os.environ["RENDER_API_KEY"] = "render-fallback-token"
+            self.assertEqual(minimax_remote_worker._token(), "render-fallback-token")
+            headers = minimax_remote_worker._headers()
+            self.assertEqual(headers.get("X-Formcheck-Internal-Token"), "render-fallback-token")
+        finally:
+            if original_remote is None:
+                os.environ.pop("MINIMAX_REMOTE_WORKER_TOKEN", None)
+            else:
+                os.environ["MINIMAX_REMOTE_WORKER_TOKEN"] = original_remote
+            if original_internal is None:
+                os.environ.pop("FORMCHECK_INTERNAL_TOKEN", None)
+            else:
+                os.environ["FORMCHECK_INTERNAL_TOKEN"] = original_internal
+            if original_render is None:
+                os.environ.pop("RENDER_API_KEY", None)
+            else:
+                os.environ["RENDER_API_KEY"] = original_render
+
+    def test_apply_job_browser_context_updates_runtime_settings(self) -> None:
+        job = {
+            "id": 12,
+            "browser_context": {
+                "minimax_browser_email": "coach@example.com",
+                "minimax_browser_password": "secret-pw",
+                "minimax_motion_coach_expert_url": "https://agent.minimax.io/expert/chat/123456",
+                "minimax_browser_timeout_s": "240",
+                "minimax_poll_interval_s": "1.5",
+                "minimax_browser_headless": "false",
+            },
+        }
+        keys = tuple(job["browser_context"].keys())
+        env_map = minimax_remote_worker._SETTING_TO_ENV
+        original_env = {name: os.environ.get(name) for name in env_map.values()}
+        runtime_settings = minimax_remote_worker.minimax_motion_coach.settings
+        original_settings = {key: getattr(runtime_settings, key) for key in keys}
+
+        try:
+            applied = minimax_remote_worker._apply_job_browser_context(job)
+            self.assertEqual(applied.get("minimax_browser_email"), "coach@example.com")
+            self.assertEqual(applied.get("minimax_browser_timeout_s"), 240)
+            self.assertEqual(applied.get("minimax_poll_interval_s"), 1.5)
+            self.assertIs(applied.get("minimax_browser_headless"), False)
+            self.assertEqual(
+                getattr(runtime_settings, "minimax_motion_coach_expert_url"),
+                "https://agent.minimax.io/expert/chat/123456",
+            )
+            self.assertEqual(os.environ.get("MINIMAX_BROWSER_EMAIL"), "coach@example.com")
+            self.assertEqual(os.environ.get("MINIMAX_BROWSER_TIMEOUT_S"), "240")
+            self.assertEqual(os.environ.get("MINIMAX_BROWSER_HEADLESS"), "false")
+        finally:
+            for key, value in original_settings.items():
+                setattr(runtime_settings, key, value)
+            for name, value in original_env.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
     def test_run_worker_forces_headed_browser_without_forcing_channel(self) -> None:
         original_headless = os.environ.get("MINIMAX_BROWSER_HEADLESS")
         original_channel = os.environ.get("MINIMAX_BROWSER_CHANNEL")

@@ -732,6 +732,33 @@ try:
             raise HTTPException(status_code=403, detail="Invalid internal token")
         return expected
 
+    def _minimax_worker_browser_context() -> dict[str, object]:
+        """Ship critical MiniMax browser context with each claimed job.
+
+        This avoids silent worker drift when Render web/worker env vars are not
+        perfectly synced (common with blueprint keys declared as sync:false).
+        """
+        return {
+            "minimax_browser_email": str(settings.minimax_browser_email or "").strip(),
+            "minimax_browser_password": str(settings.minimax_browser_password or "").strip(),
+            "minimax_cookie": str(settings.minimax_cookie or "").strip(),
+            "minimax_browser_local_storage_json": str(
+                settings.minimax_browser_local_storage_json or ""
+            ).strip(),
+            "minimax_browser_session_storage_json": str(
+                settings.minimax_browser_session_storage_json or ""
+            ).strip(),
+            "minimax_motion_coach_expert_url": str(
+                settings.minimax_motion_coach_expert_url or ""
+            ).strip(),
+            "minimax_prompt_template": str(settings.minimax_prompt_template or "").strip(),
+            "minimax_browser_timeout_s": int(settings.minimax_browser_timeout_s or 120),
+            "minimax_timeout_s": int(settings.minimax_timeout_s or 180),
+            "minimax_poll_interval_s": float(settings.minimax_poll_interval_s or 2.0),
+            "minimax_browser_only": True,
+            "minimax_browser_headless": False,
+        }
+
     @app.post("/internal/minimax/jobs/claim")
     async def claim_minimax_remote_job(request: Request) -> dict:
         _require_internal_worker_token(request)
@@ -752,6 +779,7 @@ try:
                     settings.base_url.rstrip("/"),
                     job.id,
                 ),
+                "browser_context": _minimax_worker_browser_context(),
             }
         }
 
