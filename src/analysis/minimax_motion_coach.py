@@ -322,8 +322,8 @@ def _load_settings():
             minimax_cache_ttl_hours = int(os.getenv("MINIMAX_CACHE_TTL_HOURS", "168"))
             minimax_cache_path = os.getenv("MINIMAX_CACHE_PATH", "media/minimax_cache.sqlite")
             minimax_optimize_video = _as_bool(os.getenv("MINIMAX_OPTIMIZE_VIDEO"), True)
-            minimax_max_clip_s = int(os.getenv("MINIMAX_MAX_CLIP_S", "45"))
-            minimax_preserve_full_video_up_to_s = int(os.getenv("MINIMAX_PRESERVE_FULL_VIDEO_UP_TO_S", "180"))
+            minimax_max_clip_s = int(os.getenv("MINIMAX_MAX_CLIP_S", "240"))
+            minimax_preserve_full_video_up_to_s = int(os.getenv("MINIMAX_PRESERVE_FULL_VIDEO_UP_TO_S", "480"))
             minimax_target_height = int(os.getenv("MINIMAX_TARGET_HEIGHT", "720"))
             minimax_target_fps = int(os.getenv("MINIMAX_TARGET_FPS", "24"))
             minimax_target_video_bitrate_kbps = int(os.getenv("MINIMAX_TARGET_VIDEO_BITRATE_KBPS", "1400"))
@@ -624,9 +624,14 @@ def _count_rep_entries(text: str) -> int:
     if not raw.strip():
         return 0
 
-    # Accept common separators seen in Motion Coach outputs: '-', '–', '—', 'à', 'to', '->', '→'
+    # Accept common separators seen in Motion Coach outputs:
+    # - 00:09 - 00:13
+    # - 9s -> 13s
+    # - de 9s a 13s
     time_range_pattern = (
-        r"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:[-–—]|a|à|to|->|→)\s*\d{1,2}:\d{2}(?::\d{2})?\b"
+        r"(?:\b\d{1,2}:\d{2}(?::\d{2})?\b|\b\d{1,3}(?:[.,]\d+)?\s*s\b)\s*"
+        r"(?:[-–—]|a|à|to|->|→)\s*"
+        r"(?:\b\d{1,2}:\d{2}(?::\d{2})?\b|\b\d{1,3}(?:[.,]\d+)?\s*s\b)"
     )
 
     explicit_rep_ids: set[int] = set()
@@ -650,8 +655,15 @@ def _count_rep_entries(text: str) -> int:
         )
 
         rep_match = re.search(r"\brep(?:etition)?\s*(\d{1,3})\b", normalized, flags=re.IGNORECASE)
+        numbered_line_match = re.match(r"^\s*(\d{1,3})[.)]\s+", line)
         if rep_match and not has_rep_range and not (has_pause_marker and not has_time_range):
             explicit_rep_ids.add(int(rep_match.group(1)))
+        elif (
+            numbered_line_match
+            and (has_time_range or any(token in normalized for token in ("execution", "technique", "fatigue", "contraction")))
+            and not has_pause_marker
+        ):
+            explicit_rep_ids.add(int(numbered_line_match.group(1)))
 
         # Primary counting rule: one timed movement line = one measured rep line.
         # Ignore pause/transition commentary lines without explicit timing windows.
@@ -1866,10 +1878,10 @@ def _prepare_video_for_minimax(video_path: str) -> _PreparedVideo:
     if not _as_bool(getattr(settings, "minimax_optimize_video", True), True):
         return prepared
 
-    max_clip_s = max(8, int(getattr(settings, "minimax_max_clip_s", 45) or 45))
+    max_clip_s = max(8, int(getattr(settings, "minimax_max_clip_s", 240) or 240))
     preserve_full_up_to_s = max(
         max_clip_s,
-        int(getattr(settings, "minimax_preserve_full_video_up_to_s", 180) or 180),
+        int(getattr(settings, "minimax_preserve_full_video_up_to_s", 480) or 480),
     )
     target_height = max(360, int(getattr(settings, "minimax_target_height", 720) or 720))
     target_fps = max(12, int(getattr(settings, "minimax_target_fps", 24) or 24))
@@ -5044,6 +5056,10 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         raise RuntimeError("MiniMax configuration incomplete: {}".format(", ".join(missing)))
 
     timeout_s = max(30, int(settings.minimax_timeout_s or 180))
+    max_effective_timeout_s = max(
+        timeout_s,
+        int(getattr(settings, "minimax_max_effective_timeout_s", 300) or 300),
+    )
     poll_interval = max(0.8, float(settings.minimax_poll_interval_s or 2.0))
 
     video_hash = _md5_file(Path(video_path))
@@ -5054,12 +5070,16 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         float(prepared.source_duration_s or 0.0),
     )
     adaptive_timeout_s = int(180 + (base_duration_s * 5.0))
-    timeout_s_effective = max(timeout_s, min(900, adaptive_timeout_s))
+    timeout_s_effective = max(timeout_s, min(max_effective_timeout_s, adaptive_timeout_s))
     analysis: MiniMaxAnalysis | None = None
     prompt_variants = [
         ("primary", (settings.minimax_prompt_template or _DEFAULT_ANALYSIS_PROMPT).strip()),
         ("fallback", _FALLBACK_ANALYSIS_PROMPT.strip()),
     ]
+    if not _as_bool(getattr(settings, "minimax_prompt_retry_enabled", False), False):
+        prompt_variants = prompt_variants[:1]
+
+    global_deadline = time.monotonic() + float(timeout_s_effective) + 20.0
     last_exc: Exception | None = None
 
     try:
@@ -5072,8 +5092,8 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
                     prompt,
                     int(getattr(settings, "minimax_model_option", 0) or 0),
                     "v10_minimax_fullvideo_prep_cache_key",
-                    int(getattr(settings, "minimax_max_clip_s", 45) or 45),
-                    int(getattr(settings, "minimax_preserve_full_video_up_to_s", 180) or 180),
+                    int(getattr(settings, "minimax_max_clip_s", 240) or 240),
+                    int(getattr(settings, "minimax_preserve_full_video_up_to_s", 480) or 480),
                     1 if _as_bool(getattr(settings, "minimax_optimize_video", True), True) else 0,
                 )
             )
@@ -5091,11 +5111,15 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
                 return cached
 
             try:
+                remaining_s = int(max(45, global_deadline - time.monotonic()))
+                if remaining_s <= 45:
+                    raise TimeoutError("MiniMax global analysis timeout reached")
+
                 analysis = _run_minimax_browser_only_once(
                     prepared=prepared,
                     prompt=prompt,
                     poll_interval=poll_interval,
-                    timeout_s_effective=timeout_s_effective,
+                    timeout_s_effective=remaining_s,
                     video_hash=video_hash,
                     prompt_hash=prompt_hash,
                 )

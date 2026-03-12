@@ -60,8 +60,9 @@ from analysis.video_validator import VideoValidation, validate_video
 
 logger = logging.getLogger("formcheck.pipeline")
 
-# Thread pool dédié au traitement CV (CPU-bound)
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="formcheck-cv")
+# Thread pool dédié au traitement CV (CPU-bound).
+# 4 workers limite les blocages quand un run externe (MiniMax browser) se fige.
+_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="formcheck-cv")
 
 # Messages d'erreur user-friendly (français)
 _USER_ERRORS = {

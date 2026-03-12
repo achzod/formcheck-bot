@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass, field
 import logging
 import os
@@ -1105,7 +1106,69 @@ async def _run_analysis(
             # quand MiniMax repond.
             minimax_local_augmentation=False,
         )
-        result: PipelineResult = await run_pipeline_async(video_path, config)
+        hard_timeout_s = max(180, int(app_settings.pipeline_hard_timeout_s or 420))
+        ping_interval_s = max(45, int(app_settings.analysis_progress_ping_s or 90))
+
+        async def _run_pipeline_with_watchdog(
+            cfg: PipelineConfig,
+            *,
+            timeout_s: int,
+        ) -> PipelineResult:
+            async def _progress_ping_loop() -> None:
+                await asyncio.sleep(ping_interval_s)
+                while True:
+                    await wa.send_text(
+                        phone,
+                        "Analyse toujours en cours... je finalise ton rapport.",
+                    )
+                    await asyncio.sleep(ping_interval_s)
+
+            ping_task = asyncio.create_task(_progress_ping_loop())
+            try:
+                return await asyncio.wait_for(
+                    run_pipeline_async(video_path, cfg),
+                    timeout=timeout_s,
+                )
+            finally:
+                ping_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await ping_task
+
+        try:
+            result = await _run_pipeline_with_watchdog(config, timeout_s=hard_timeout_s)
+        except asyncio.TimeoutError:
+            logger.error(
+                "Pipeline timeout for analysis_id=%s after %ss",
+                analysis_id,
+                hard_timeout_s,
+            )
+            try:
+                from app.debug_log import log_error as _log_dbg
+
+                _log_dbg(
+                    "pipeline_timeout",
+                    "analysis_timeout",
+                    {
+                        "analysis_id": analysis_id,
+                        "phone": phone,
+                        "hard_timeout_s": hard_timeout_s,
+                        "strict_minimax_source": strict_minimax_source,
+                    },
+                )
+            except Exception:
+                pass
+            if strict_minimax_source and not fallback_local_enabled:
+                await wa.send_text(phone, msg.ERROR_MINIMAX_UNAVAILABLE)
+            else:
+                await wa.send_text(phone, msg.ERROR_ANALYSIS_FAILED)
+            cleanup_video(video_path)
+            if preview_frame_path:
+                try:
+                    Path(preview_frame_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            _active_analyses.pop(phone, None)
+            return
 
         # En mode non-strict seulement: filet de securite local si MiniMax indisponible.
         if (
@@ -1124,7 +1187,11 @@ async def _run_analysis(
                     minimax_strict_source=False,
                     minimax_local_augmentation=False,
                 )
-                local_result: PipelineResult = await run_pipeline_async(video_path, local_config)
+                local_timeout_s = max(120, min(300, hard_timeout_s // 2))
+                local_result = await _run_pipeline_with_watchdog(
+                    local_config,
+                    timeout_s=local_timeout_s,
+                )
                 if local_result.success and local_result.report:
                     logger.warning(
                         "Deterministic local rescue succeeded (analysis_id=%s)",

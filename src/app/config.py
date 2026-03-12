@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     minimax_timezone_offset: int = 0
     minimax_timeout_s: int = 180
     minimax_poll_interval_s: float = 2.0
+    minimax_max_effective_timeout_s: int = 300
+    minimax_prompt_retry_enabled: bool = False
     minimax_model_option: int = 0
     minimax_prompt_template: str = ""
     minimax_prefer_motion_coach_chat: bool = True
@@ -74,8 +76,8 @@ class Settings(BaseSettings):
     minimax_cache_ttl_hours: int = 168
     minimax_cache_path: str = "media/minimax_cache.sqlite"
     minimax_optimize_video: bool = True
-    minimax_max_clip_s: int = 45
-    minimax_preserve_full_video_up_to_s: int = 180
+    minimax_max_clip_s: int = 240
+    minimax_preserve_full_video_up_to_s: int = 480
     minimax_target_height: int = 720
     minimax_target_fps: int = 24
     minimax_target_video_bitrate_kbps: int = 1400
@@ -100,6 +102,8 @@ class Settings(BaseSettings):
     upload_max_mb: int = 1024  # Web upload fallback for heavy videos
     upload_chunk_size_mb: int = 2
     report_include_annotated_frames: bool = False
+    pipeline_hard_timeout_s: int = 420
+    analysis_progress_ping_s: int = 90
 
     # Phase de test — toutes les analyses gratuites
     # Remettre a False pour reactiver le paywall Stripe

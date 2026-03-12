@@ -187,6 +187,15 @@ _REPORT_NOISE_MARKERS = (
     "action 1",
     "action 2",
     "action 3",
+    "completed command line execution",
+    "ongoing command line execution",
+    "current process",
+    "thinking process",
+    "task failed",
+    "view all files",
+    "start chat",
+    "invoke motion-analysis skill",
+    "invoke frame-extraction skill",
 )
 
 _MINIMAX_WRAPPER_LINE_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -273,6 +282,15 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
         line = raw_line.strip()
         low = line.lower()
         low_normalized = re.sub(r"^[\-\*•#\s]+", "", low).strip()
+        # Drop obvious technical traces and code artifacts.
+        if "```" in line:
+            continue
+        if re.search(r"[A-Za-z0-9_/.-]+\.py:\d+", line):
+            continue
+        if line.startswith("Traceback (most recent call last):"):
+            continue
+        if line.startswith("{") and line.endswith("}"):
+            continue
         # Remove raw JSON debris or orphan braces from bad generations.
         if line in {"{", "}", "[", "]"}:
             continue
@@ -1118,20 +1136,18 @@ def generate_html_report(
     if morpho_data:
         morpho_html = _build_morpho_section(morpho_data)
 
-    # ── Rapport client: fallback deterministic si sortie LLM trop faible ──
+    # ── Rapport client: fallback deterministic si sortie faible ou sale ──
     raw_report_text = (report.report_text or "").strip()
     model_used = str(getattr(report, "model_used", "") or "").strip().lower()
     use_minimax_raw = ("minimax" in model_used)
-    if use_minimax_raw:
-        report_text = raw_report_text
-    else:
-        quality_score = _report_quality_score(raw_report_text)
-        use_deterministic_fallback = quality_score < 56
-        report_text = (
-            _build_deterministic_report_text(report, pipeline_result, client_name)
-            if use_deterministic_fallback
-            else raw_report_text
-        )
+    quality_score = _report_quality_score(raw_report_text)
+    threshold = 52 if use_minimax_raw else 56
+    use_deterministic_fallback = quality_score < threshold
+    report_text = (
+        _build_deterministic_report_text(report, pipeline_result, client_name)
+        if use_deterministic_fallback
+        else raw_report_text
+    )
     report_html = _format_report_html(report_text)
     client_intro_html = _build_client_intro_card(report, pipeline_result, client_name)
 
