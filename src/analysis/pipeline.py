@@ -1314,7 +1314,11 @@ def _apply_minimax_analysis_to_result(
     if display_norm in {"exercice_non_identifie", "formcheck", "formcheck_report_md", "report_md"}:
         raw_slug = str(analysis.exercise_slug or "").strip().lower()
         if raw_slug and raw_slug not in {"unknown", "formcheck_report_md", "formcheck"}:
-            display_name = raw_slug.replace("_", " ").title()
+            slug_mapped = _map_minimax_exercise_name(raw_slug, "")
+            if slug_mapped and exercise_enum != Exercise.UNKNOWN and slug_mapped != exercise_enum.value:
+                display_name = detection.display_name
+            else:
+                display_name = raw_slug.replace("_", " ").title()
         else:
             display_name = detection.display_name
     report_text = (analysis.report_text or analysis.raw_response or "").strip()

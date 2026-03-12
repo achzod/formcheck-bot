@@ -1069,6 +1069,7 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         out = _apply_minimax_analysis_to_result(base, analysis)
         assert out.detection is not None
         self.assertEqual(out.detection.exercise.value, "machine_chest_press")
+        self.assertEqual(out.report.exercise_display, "Presse Pectorale Machine")
 
     def test_pipeline_mapping_handles_freeform_minimax_machine_shoulder_slug(self) -> None:
         base = PipelineResult(video_path="video.mp4", output_dir="out")
@@ -1130,6 +1131,7 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         out = _apply_minimax_analysis_to_result(base, analysis)
         assert out.detection is not None
         self.assertEqual(out.detection.exercise.value, "machine_chest_press")
+        self.assertIn("pector", out.report.exercise_display.lower())
 
 
 class MiniMaxFinalOutputValidationTests(unittest.TestCase):
