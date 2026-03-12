@@ -979,6 +979,35 @@ def _report_quality_score(report_text: str) -> int:
     return int(section_score + numeric_score + length_score)
 
 
+def _should_keep_minimax_raw_report(report_text: str) -> bool:
+    """Accept short but structurally valid MiniMax reports instead of forcing generic fallback."""
+    cleaned = _clean_report_text_for_rendering(report_text)
+    if not cleaned:
+        return False
+
+    sections = _count_known_sections(cleaned)
+    rep_lines = len(
+        re.findall(
+            r"(?im)^\s*\d+\.\s*(?:rep(?:etition)?|r[eé]p[eé]tition)\b",
+            cleaned,
+        )
+    )
+    has_resume = bool(re.search(r"(?im)^\s*resume\b", cleaned))
+    has_tempo = bool(re.search(r"(?im)^\s*analyse du tempo", cleaned))
+    has_plan = bool(re.search(r"(?im)^\s*plan(?:\s+d['’]action|\s+action)\b", cleaned))
+
+    # Typical short valid structure: RESUME + ANALYSE REP PAR REP + at least one rep line.
+    if sections >= 2 and rep_lines >= 1:
+        return True
+    # Medium valid structure even without rep-by-rep.
+    if sections >= 3 and (has_resume or has_tempo or has_plan):
+        return True
+    # Long-enough cleaned narrative with at least one canonical section.
+    if len(cleaned) >= 220 and sections >= 1:
+        return True
+    return False
+
+
 _FRAME_LABELS = {
     "start": "Position de depart",
     "mid": "Pic de contraction / Amplitude max",
@@ -1141,8 +1170,11 @@ def generate_html_report(
     model_used = str(getattr(report, "model_used", "") or "").strip().lower()
     use_minimax_raw = ("minimax" in model_used)
     quality_score = _report_quality_score(raw_report_text)
-    threshold = 52 if use_minimax_raw else 56
-    use_deterministic_fallback = quality_score < threshold
+    if use_minimax_raw and _should_keep_minimax_raw_report(raw_report_text):
+        use_deterministic_fallback = False
+    else:
+        threshold = 30 if use_minimax_raw else 56
+        use_deterministic_fallback = quality_score < threshold
     report_text = (
         _build_deterministic_report_text(report, pipeline_result, client_name)
         if use_deterministic_fallback
