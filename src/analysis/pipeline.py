@@ -1245,6 +1245,26 @@ def _apply_minimax_analysis_to_result(
         analysis.exercise_slug,
         analysis.exercise_display,
     )
+    if mapped_name == "leg_press":
+        raw_corpus = " ".join(
+            part
+            for part in (
+                str(getattr(analysis, "exercise_display", "") or ""),
+                str(getattr(analysis, "report_text", "") or ""),
+                str(getattr(analysis, "raw_response", "") or ""),
+            )
+            if part
+        )
+        corpus = _normalize_exercise_name(raw_corpus)
+        has_leg_tokens = any(token in corpus for token in ("leg", "jamb", "cuisse", "quad", "plateforme", "platform"))
+        has_chest_tokens = any(token in corpus for token in ("chest", "poitrine", "pector", "pec", "bench", "couche"))
+        has_shoulder_tokens = any(token in corpus for token in ("epaule", "shoulder", "militaire", "overhead"))
+        if has_chest_tokens and not has_leg_tokens:
+            logger.warning("MiniMax mapping override: leg_press -> machine_chest_press (upper push lexical cues).")
+            mapped_name = "machine_chest_press"
+        elif has_shoulder_tokens and not has_leg_tokens:
+            logger.warning("MiniMax mapping override: leg_press -> ohp (shoulder press lexical cues).")
+            mapped_name = "ohp"
 
     try:
         exercise_enum = Exercise(mapped_name) if mapped_name else Exercise.UNKNOWN
@@ -1289,7 +1309,14 @@ def _apply_minimax_analysis_to_result(
     except Exception:
         _score = 0
     score = max(0, min(100, _score))
-    display_name = analysis.exercise_display or detection.display_name
+    display_name = str(analysis.exercise_display or "").strip() or detection.display_name
+    display_norm = _normalize_exercise_name(display_name)
+    if display_norm in {"exercice_non_identifie", "formcheck", "formcheck_report_md", "report_md"}:
+        raw_slug = str(analysis.exercise_slug or "").strip().lower()
+        if raw_slug and raw_slug not in {"unknown", "formcheck_report_md", "formcheck"}:
+            display_name = raw_slug.replace("_", " ").title()
+        else:
+            display_name = detection.display_name
     report_text = (analysis.report_text or analysis.raw_response or "").strip()
     if not report_text:
         report_text = "Analyse MiniMax terminee."

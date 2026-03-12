@@ -68,6 +68,9 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "Tu t'adresses directement au client, tu le tutoies, tu es critique, didactique, detaille, minutieux et precis.\n"
     "Ecris comme un coach humain: phrases concretes, directes, sans formules scolaires ou meta ('dans cette analyse', 'il est important de noter').\n"
     "Interdit: auto-commentaires ('je vais analyser', 'voici mon analyse'), disclaimers generiques et langue robotique.\n"
+    "Detection exo: ne devine jamais. Utilise les indices visuels (machine, trajectoire, segments en mouvement, position du corps).\n"
+    "Anti-confusion obligatoire: ne confonds pas chest press/developpe (bras qui poussent) avec leg press (jambes qui poussent).\n"
+    "Si l'exercice est ambigu, mets Exercice: Exercice non identifie et Exercice slug: unknown.\n"
     "Le score global doit etre coherent avec les 4 sous-scores.\n"
     "Le message final doit etre UNIQUEMENT un rapport Markdown place entre les balises exactes suivantes:\n"
     "{start}\n"
@@ -118,6 +121,9 @@ _FALLBACK_ANALYSIS_PROMPT = (
     "Reponds UNIQUEMENT en francais, en tutoyant.\n"
     "Style coach humain direct, concret, sans meta-commentaire.\n"
     "Interdit: auto-commentaires ('je vais analyser', 'voici mon analyse') et phrases de template.\n"
+    "Detection exo: ne devine jamais. Utilise les indices visuels (machine, trajectoire, segments en mouvement, position du corps).\n"
+    "Anti-confusion obligatoire: ne confonds pas chest press/developpe (bras qui poussent) avec leg press (jambes qui poussent).\n"
+    "Si l'exercice est ambigu, mets Exercice: Exercice non identifie et Exercice slug: unknown.\n"
     "Retourne UNIQUEMENT un rapport Markdown entre {start} et {end}.\n"
     "Aucun thinking process. Aucun texte hors balises.\n"
     "# FORMCHECK\n"
@@ -755,16 +761,74 @@ def _extract_intensity_from_text(text: str) -> tuple[int, float]:
 
 
 def _extract_exercise_from_text(text: str) -> str:
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    raw = _clean_markdown_report_text(str(text or ""))
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
     if not lines:
         return "Exercice non identifie"
 
-    first = lines[0]
-    # Remove leading label patterns.
-    first = re.sub(r"^FORMCHECK\s*[-:]\s*", "", first, flags=re.IGNORECASE)
-    if "—" in first:
-        first = first.split("—", 1)[0].strip()
-    return first or "Exercice non identifie"
+    def _strip_metric_suffix(candidate: str) -> str:
+        out = str(candidate or "").strip()
+        if not out:
+            return out
+        if "—" in out and re.search(r"(?:\d+\s*/\s*\d+|\breps?\b|intensit[eé])", out, flags=re.IGNORECASE):
+            out = out.split("—", 1)[0].strip()
+        out = re.sub(r"\s*[-–—]\s*\d{1,3}\s*/\s*\d{1,3}.*$", "", out, flags=re.IGNORECASE).strip()
+        out = re.sub(r"\s*[-–—]\s*\d{1,3}\s*reps?.*$", "", out, flags=re.IGNORECASE).strip()
+        return out or str(candidate or "").strip()
+
+    # 1) Strongest source: explicit metric line.
+    for line in lines:
+        candidate_line = re.sub(r"^[-*•#\s]+", "", line).strip()
+        match = re.match(
+            r"^(?:exercice|exercise|display_name_fr|display_name)\s*:\s*(.+)$",
+            candidate_line,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            candidate = _strip_metric_suffix(str(match.group(1) or "").strip())
+            candidate = re.sub(r"</?FORMCHECK_REPORT_MD>", "", candidate, flags=re.IGNORECASE).strip()
+            if candidate and _normalize_label_text(candidate) not in {"formcheck", "formcheck report md"}:
+                return candidate
+
+    # 2) Common heading pattern: "ANALYSE BIOMECANIQUE — <exercise>".
+    for line in lines:
+        match = re.match(
+            r"^analyse\s+biomecanique\s*[—:-]\s*(.+)$",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            candidate = _strip_metric_suffix(str(match.group(1) or "").strip())
+            candidate = re.sub(r"</?FORMCHECK_REPORT_MD>", "", candidate, flags=re.IGNORECASE).strip()
+            if candidate and _normalize_label_text(candidate) not in {"formcheck", "formcheck report md"}:
+                return candidate
+
+    # 3) Fallback: first meaningful line after removing wrappers/headings.
+    skip_norm = {
+        "formcheck",
+        "formcheck report md",
+        "analyse biomecanique",
+        "resume",
+        "points positifs",
+        "corrections prioritaires",
+        "analyse rep par rep",
+        "plan action",
+    }
+    for line in lines:
+        candidate = re.sub(r"</?FORMCHECK_REPORT_MD>", "", line, flags=re.IGNORECASE)
+        candidate = re.sub(r"^[-*•#\s]+", "", candidate).strip()
+        candidate_norm = _normalize_label_text(candidate)
+        if not candidate:
+            continue
+        if candidate_norm in skip_norm:
+            continue
+        if candidate.endswith((".", "!", "?")) and len(candidate.split()) >= 3:
+            # Narrative sentence, not an exercise name.
+            continue
+        if candidate.startswith("<") and candidate.endswith(">"):
+            continue
+        return _strip_metric_suffix(candidate)
+    return "Exercice non identifie"
 
 
 def _clean_markdown_report_text(text: str) -> str:
@@ -796,6 +860,10 @@ def _clean_markdown_report_text(text: str) -> str:
         line = raw_line.strip()
         if not line:
             lines.append("")
+            continue
+        if re.match(r"^\s*</?\s*formcheck_report_md\s*>\s*$", line, flags=re.IGNORECASE):
+            continue
+        if re.match(r"^\s*```(?:markdown|md|json)?\s*$", line, flags=re.IGNORECASE):
             continue
         if any(line.startswith(prefix) for prefix in noise_prefixes):
             continue
@@ -1258,6 +1326,9 @@ def _parse_markdown_analysis_payload(text: str) -> MiniMaxAnalysis | None:
         analysis.sections["resume"] = intro_text
     analysis.report_text = report_text
 
+    invalid_display_norm = _normalize_label_text(analysis.exercise_display)
+    if invalid_display_norm in {"formcheck", "formcheck report md", "report md"}:
+        analysis.exercise_display = "Exercice non identifie"
     if not analysis.exercise_slug:
         analysis.exercise_slug = _slugify(analysis.exercise_display)
     if not analysis.exercise_display:
@@ -1890,9 +1961,11 @@ def _prepare_video_for_minimax(video_path: str) -> _PreparedVideo:
 
     need_duration_trim = src_duration > (preserve_full_up_to_s + 2)
     need_duration_opt = need_duration_trim
-    need_resolution_opt = src_height > (target_height + 2)
-    need_fps_opt = src_fps > (target_fps + 1)
-    need_size_opt = src_size > (10 * 1024 * 1024)
+    # Keep source quality for common smartphone videos to reduce exercise misclassification.
+    # We only force full transcode on genuinely heavy/high-spec media.
+    need_resolution_opt = src_height > max(float(target_height + 2), 1920.0)
+    need_fps_opt = src_fps > max(float(target_fps + 1), 60.0)
+    need_size_opt = src_size > (32 * 1024 * 1024)
     if not any((need_duration_opt, need_resolution_opt, need_fps_opt, need_size_opt)):
         return prepared
 
@@ -2122,6 +2195,10 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
         if analysis.intensity_label == "indeterminee" and analysis.intensity_score > 0:
             analysis.intensity_label = _intensity_label_from_score(analysis.intensity_score)
 
+        invalid_display_norm = _normalize_label_text(analysis.exercise_display)
+        if invalid_display_norm in {"formcheck", "formcheck report md", "report md"}:
+            analysis.exercise_display = "Exercice non identifie"
+
         if analysis.reps_total <= 0:
             analysis.reps_total = _extract_reps_from_text(raw_text)
         if analysis.score <= 0:
@@ -2138,6 +2215,10 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
     # Regex fallback for non-JSON answers.
     analysis.exercise_display = _extract_exercise_from_text(raw_text)
     analysis.exercise_slug = _slugify(analysis.exercise_display)
+    invalid_display_norm = _normalize_label_text(analysis.exercise_display)
+    if invalid_display_norm in {"formcheck", "formcheck report md", "report md"}:
+        analysis.exercise_display = "Exercice non identifie"
+        analysis.exercise_slug = "unknown"
     analysis.score = _extract_score_from_text(raw_text)
     analysis.reps_total = _extract_reps_from_text(raw_text)
     intensity_score, avg_rest = _extract_intensity_from_text(raw_text)
@@ -5076,7 +5157,8 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         ("primary", (settings.minimax_prompt_template or _DEFAULT_ANALYSIS_PROMPT).strip()),
         ("fallback", _FALLBACK_ANALYSIS_PROMPT.strip()),
     ]
-    if not _as_bool(getattr(settings, "minimax_prompt_retry_enabled", False), False):
+    prompt_retry_enabled = _as_bool(getattr(settings, "minimax_prompt_retry_enabled", False), False)
+    if not prompt_retry_enabled:
         prompt_variants = prompt_variants[:1]
 
     global_deadline = time.monotonic() + float(timeout_s_effective) + 20.0
@@ -5091,7 +5173,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
                 "{}|{}|{}|clip:{}|preserve_full:{}|optimize:{}".format(
                     prompt,
                     int(getattr(settings, "minimax_model_option", 0) or 0),
-                    "v10_minimax_fullvideo_prep_cache_key",
+                    "v11_minimax_preserve_source_quality",
                     int(getattr(settings, "minimax_max_clip_s", 240) or 240),
                     int(getattr(settings, "minimax_preserve_full_video_up_to_s", 480) or 480),
                     1 if _as_bool(getattr(settings, "minimax_optimize_video", True), True) else 0,
@@ -5125,7 +5207,11 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
                 )
             except Exception as exc:
                 last_exc = exc
-                if attempt_index < len(prompt_variants) and _should_retry_browser_analysis(exc):
+                retryable = _should_retry_browser_analysis(exc)
+                can_try_fallback_once = (not prompt_retry_enabled) and attempt_index == 1 and retryable
+                if can_try_fallback_once and len(prompt_variants) < 2:
+                    prompt_variants.append(("fallback", _FALLBACK_ANALYSIS_PROMPT.strip()))
+                if attempt_index < len(prompt_variants) and retryable:
                     logger.warning(
                         "MiniMax browser analysis retrying with %s prompt after semantic failure: %s",
                         prompt_variants[attempt_index][0],

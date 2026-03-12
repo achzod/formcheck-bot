@@ -396,6 +396,30 @@ On voit aussi une legere compensation de l'epaule droite quand la fatigue monte.
         self.assertIn("bonne stabilite globale", out.report_text.lower())
         self.assertIn("correction: ralentis la descente", out.report_text.lower())
 
+    def test_parse_unstructured_report_does_not_keep_formcheck_wrapper_as_exercise(self) -> None:
+        text = """
+<FORMCHECK_REPORT_MD>
+# FORMCHECK
+## RESUME
+Execution correcte globalement.
+## PLAN ACTION
+- Controle la descente.
+</FORMCHECK_REPORT_MD>
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.exercise_display, "Exercice non identifie")
+
+    def test_parse_unstructured_report_extracts_exercise_from_biomechanics_heading(self) -> None:
+        text = """
+ANALYSE BIOMECANIQUE — Développé couché à la machine convergente
+Score global: 81/100
+Repetitions detectees: 9
+Intensite: 72/100 (elevee)
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.exercise_display, "Développé couché à la machine convergente")
+        self.assertEqual(out.reps_total, 9)
+
     def test_score_breakdown_is_clamped_per_category(self) -> None:
         text = """
 {
@@ -579,6 +603,48 @@ class MiniMaxVideoStatsTests(unittest.TestCase):
 
 
 class MiniMaxVideoPreparationTests(unittest.TestCase):
+    def test_prepare_video_keeps_original_quality_for_medium_phone_video(self) -> None:
+        original_video_stats = mm._video_stats
+        original_detect_active_window = mm._detect_active_window
+        original_subprocess_run = mm.subprocess.run
+        original_max_clip = getattr(minimax_settings, "minimax_max_clip_s", 45)
+        original_preserve = getattr(minimax_settings, "minimax_preserve_full_video_up_to_s", 180)
+        original_optimize = getattr(minimax_settings, "minimax_optimize_video", True)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "video.mp4"
+            src.write_bytes(b"x" * (16 * 1024 * 1024))
+
+            try:
+                minimax_settings.minimax_optimize_video = True
+                minimax_settings.minimax_max_clip_s = 240
+                minimax_settings.minimax_preserve_full_video_up_to_s = 480
+                mm._video_stats = lambda _path: {"duration_s": 114.47, "height": 1920, "fps": 60.0}  # type: ignore[assignment]
+
+                def _fail_detect(_path: str):
+                    raise AssertionError("active window should not run for medium video under preserve threshold")
+
+                mm._detect_active_window = _fail_detect  # type: ignore[assignment]
+
+                def _forbidden_run(*_args, **_kwargs):
+                    raise AssertionError("ffmpeg should not run for medium source video")
+
+                mm.subprocess.run = _forbidden_run  # type: ignore[assignment]
+
+                prepared = mm._prepare_video_for_minimax(str(src))
+            finally:
+                mm._video_stats = original_video_stats  # type: ignore[assignment]
+                mm._detect_active_window = original_detect_active_window  # type: ignore[assignment]
+                mm.subprocess.run = original_subprocess_run  # type: ignore[assignment]
+                minimax_settings.minimax_max_clip_s = original_max_clip
+                minimax_settings.minimax_preserve_full_video_up_to_s = original_preserve
+                minimax_settings.minimax_optimize_video = original_optimize
+
+        self.assertEqual(prepared.path, str(src))
+        self.assertFalse(prepared.was_trimmed)
+        self.assertFalse(prepared.was_transcoded)
+        self.assertEqual(prepared.strategy, "original")
+
     def test_prepare_video_preserves_full_duration_under_threshold(self) -> None:
         original_video_stats = mm._video_stats
         original_detect_active_window = mm._detect_active_window
@@ -589,7 +655,7 @@ class MiniMaxVideoPreparationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "video.mp4"
-            src.write_bytes(b"video")
+            src.write_bytes(b"x" * (40 * 1024 * 1024))
 
             try:
                 minimax_settings.minimax_optimize_video = True
@@ -1037,6 +1103,29 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
             intensity_label="moderee",
             avg_inter_rep_rest_s=4.0,
             report_text="Rapport MiniMax",
+        )
+        out = _apply_minimax_analysis_to_result(base, analysis)
+        assert out.detection is not None
+        self.assertEqual(out.detection.exercise.value, "machine_chest_press")
+
+    def test_pipeline_mapping_overrides_leg_press_when_report_text_has_clear_chest_press_cues(self) -> None:
+        base = PipelineResult(video_path="video.mp4", output_dir="out")
+        analysis = MiniMaxAnalysis(
+            exercise_slug="leg_press",
+            exercise_display="Exercice non identifie",
+            exercise_confidence=0.61,
+            score=77,
+            reps_total=8,
+            reps_complete=8,
+            reps_partial=0,
+            intensity_score=74,
+            intensity_label="elevee",
+            avg_inter_rep_rest_s=0.9,
+            report_text=(
+                "# FORMCHECK\n"
+                "- Exercice: Développé couché à la machine convergente\n"
+                "Trajectoire des bras correcte, focus poitrine et pectoraux.\n"
+            ),
         )
         out = _apply_minimax_analysis_to_result(base, analysis)
         assert out.detection is not None
