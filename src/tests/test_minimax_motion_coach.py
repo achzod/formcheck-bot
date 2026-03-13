@@ -1145,7 +1145,7 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         out = _apply_minimax_analysis_to_result(base, analysis)
         assert out.detection is not None
         self.assertEqual(out.detection.exercise.value, "machine_chest_press")
-        self.assertIn("pector", out.report.exercise_display.lower())
+        self.assertIn("develop", out.report.exercise_display.lower().replace("é", "e"))
 
 
 class MiniMaxFinalOutputValidationTests(unittest.TestCase):

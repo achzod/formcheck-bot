@@ -1261,7 +1261,10 @@ def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
     avg_rest_text = _extract_labeled_scalar(normalized_text, ("AVG_INTER_REP_REST_S", "REPOS_MOYEN_S", "AVG_REST_S"))
 
     analysis.exercise_slug = _slugify(exercise_name or display_name)
-    analysis.exercise_display = display_name or exercise_name.replace("_", " ").title() or analysis.exercise_display
+    if display_name and not _is_unknown_exercise_label(display_name):
+        analysis.exercise_display = display_name
+    elif _is_unknown_exercise_label(analysis.exercise_display):
+        analysis.exercise_display = "Exercice non identifie"
     analysis.exercise_confidence = max(0.0, min(1.0, _coerce_float(confidence_text.replace(",", "."), 0.0)))
     analysis.score = _extract_score_from_text(score_text) or _extract_score_from_text(text)
     analysis.reps_total = max(0, int(_coerce_float(reps_total_text, 0.0)))
@@ -2144,12 +2147,16 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
             exercise_name = str(exercise.get("name", "") or "")
             exercise_display = str(exercise.get("display_name_fr", "") or "")
             analysis.exercise_slug = _slugify(exercise_name or exercise_display)
-            analysis.exercise_display = exercise_display or exercise_name.replace("_", " ").title() or analysis.exercise_display
+            if exercise_display and not _is_unknown_exercise_label(exercise_display):
+                analysis.exercise_display = exercise_display
+            elif _is_unknown_exercise_label(analysis.exercise_display):
+                analysis.exercise_display = "Exercice non identifie"
             analysis.exercise_confidence = max(0.0, min(1.0, _coerce_float(exercise.get("confidence", 0.0))))
         else:
             exercise_text = str(exercise or "")
             analysis.exercise_slug = _slugify(exercise_text)
-            analysis.exercise_display = exercise_text or analysis.exercise_display
+            if exercise_text and not _is_unknown_exercise_label(exercise_text):
+                analysis.exercise_display = exercise_text
 
         analysis.score = _clamp_int(payload.get("score", 0))
 

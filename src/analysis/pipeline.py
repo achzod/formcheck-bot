@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
@@ -1312,15 +1313,21 @@ def _apply_minimax_analysis_to_result(
     display_name = str(analysis.exercise_display or "").strip() or detection.display_name
     display_norm = _normalize_exercise_name(display_name)
     if display_norm in {"exercice_non_identifie", "formcheck", "formcheck_report_md", "report_md"}:
-        raw_slug = str(analysis.exercise_slug or "").strip().lower()
-        if raw_slug and raw_slug not in {"unknown", "formcheck_report_md", "formcheck"}:
-            slug_mapped = _map_minimax_exercise_name(raw_slug, "")
-            if slug_mapped and exercise_enum != Exercise.UNKNOWN and slug_mapped != exercise_enum.value:
-                display_name = detection.display_name
+        # Try explicit report frontmatter label first, then fail safe to unknown.
+        report_match = re.search(
+            r"(?im)^\s*[-*•#\s]*exercice\s*:\s*(.+?)\s*$",
+            str(analysis.report_text or analysis.raw_response or ""),
+        )
+        if report_match:
+            candidate = str(report_match.group(1) or "").strip()
+            candidate_norm = _normalize_exercise_name(candidate)
+            if candidate and candidate_norm not in {"exercice_non_identifie", "formcheck", "formcheck_report_md", "report_md"}:
+                display_name = candidate
             else:
-                display_name = raw_slug.replace("_", " ").title()
+                display_name = "Exercice non identifie"
         else:
-            display_name = detection.display_name
+            # Never invent an exercise label from a weak slug fallback: better unknown than wrong.
+            display_name = "Exercice non identifie"
     report_text = (analysis.report_text or analysis.raw_response or "").strip()
     if not report_text:
         report_text = "Analyse MiniMax terminee."
