@@ -809,6 +809,15 @@ def _extract_exercise_from_text(text: str) -> str:
         "formcheck report md",
         "analyse biomecanique",
         "resume",
+        "score global",
+        "score",
+        "confiance exercice",
+        "exercice slug",
+        "repetitions detectees",
+        "repetitions completes",
+        "repetitions partielles",
+        "intensite",
+        "repos inter reps moyen",
         "points positifs",
         "corrections prioritaires",
         "analyse rep par rep",
@@ -829,6 +838,65 @@ def _extract_exercise_from_text(text: str) -> str:
             continue
         return _strip_metric_suffix(candidate)
     return "Exercice non identifie"
+
+
+def _is_unknown_exercise_label(value: Any) -> bool:
+    norm = _normalize_label_text(value)
+    return norm in {
+        "",
+        "unknown",
+        "none",
+        "n a",
+        "na",
+        "exercice non identifie",
+        "formcheck",
+        "formcheck report md",
+        "report md",
+    }
+
+
+def _reconcile_exercise_from_report_text(analysis: MiniMaxAnalysis, report_text: str) -> None:
+    cleaned = _clean_markdown_report_text(str(report_text or ""))
+    if not cleaned:
+        return
+
+    low_cleaned = _compact_text(cleaned).lower()
+    has_structured_markers = any(
+        marker in low_cleaned
+        for marker in (
+            "exercice:",
+            "exercise:",
+            "exercice slug:",
+            "score global:",
+            "repetitions detectees:",
+            "analyse biomecanique",
+            "resume",
+        )
+    )
+
+    candidate_display = _extract_metric_line(
+        cleaned,
+        ("Exercice", "Exercise", "Display name", "Display_name_fr", "Nom exercice"),
+    ).strip()
+    if not candidate_display and has_structured_markers:
+        candidate_display = _extract_exercise_from_text(cleaned).strip()
+    candidate_display = re.sub(r"</?FORMCHECK_REPORT_MD>", "", candidate_display, flags=re.IGNORECASE).strip()
+
+    candidate_slug = _extract_metric_line(
+        cleaned,
+        ("Exercice slug", "Exercise slug"),
+    ).strip()
+
+    if candidate_display and not _is_unknown_exercise_label(candidate_display):
+        analysis.exercise_display = candidate_display
+        if candidate_slug and not _is_unknown_exercise_label(candidate_slug):
+            analysis.exercise_slug = _slugify(candidate_slug)
+        elif _is_unknown_exercise_label(analysis.exercise_slug):
+            analysis.exercise_slug = _slugify(candidate_display)
+        return
+
+    if candidate_slug and not _is_unknown_exercise_label(candidate_slug):
+        analysis.exercise_slug = _slugify(candidate_slug)
 
 
 def _clean_markdown_report_text(text: str) -> str:
@@ -1325,6 +1393,7 @@ def _parse_markdown_analysis_payload(text: str) -> MiniMaxAnalysis | None:
     if intro_text and "resume" not in analysis.sections:
         analysis.sections["resume"] = intro_text
     analysis.report_text = report_text
+    _reconcile_exercise_from_report_text(analysis, report_text)
 
     invalid_display_norm = _normalize_label_text(analysis.exercise_display)
     if invalid_display_norm in {"formcheck", "formcheck report md", "report md"}:
@@ -2189,6 +2258,7 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
         ).strip()
         if report_text:
             analysis.report_text = report_text
+            _reconcile_exercise_from_report_text(analysis, report_text)
         else:
             analysis.report_text = _build_structured_report_text(analysis)
 

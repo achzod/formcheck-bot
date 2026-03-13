@@ -191,6 +191,20 @@ Filme un peu plus large avec la machine complete visible.
         self.assertAlmostEqual(out.avg_inter_rep_rest_s, 0.92, places=2)
         self.assertEqual(out.report_text, "Rapport complet.")
 
+    def test_parse_structured_json_prefers_report_frontmatter_exercise_when_payload_conflicts(self) -> None:
+        text = """
+{
+  "exercise": {"name": "leg_press", "display_name_fr": "Presse a cuisses inclinee", "confidence": 0.93},
+  "score": 78,
+  "reps": {"total": 8, "complete": 8, "partial": 0},
+  "intensity": {"score": 76, "label": "elevee", "avg_inter_rep_rest_s": 0.92},
+  "report_markdown": "<FORMCHECK_REPORT_MD>\\n# FORMCHECK\\n- Exercice: Presse Pectorale Machine\\n- Exercice slug: machine_chest_press\\n- Score global: 78/100\\n- Repetitions detectees: 8\\n</FORMCHECK_REPORT_MD>"
+}
+        """.strip()
+        out = _parse_analysis_payload(text)
+        self.assertEqual(out.exercise_display, "Presse Pectorale Machine")
+        self.assertEqual(out.exercise_slug, "machine_chest_press")
+
     def test_parse_structured_json_builds_sectioned_report_when_markdown_missing(self) -> None:
         text = """
 {
