@@ -401,6 +401,7 @@ async def claim_next_minimax_remote_job(worker_id: str) -> MiniMaxRemoteJob | No
                 MiniMaxRemoteJob.created_at.asc(),
                 MiniMaxRemoteJob.id.asc(),
             )
+            .with_for_update(skip_locked=True)
             .limit(1)
         )
         job = result.scalar_one_or_none()
@@ -527,6 +528,8 @@ async def fail_minimax_remote_job(job_id: int, error: str) -> MiniMaxRemoteJob |
         job = await session.get(MiniMaxRemoteJob, job_id)
         if not job:
             return None
+        if str(job.status or "").strip().lower() == "completed":
+            return job
         job.status = "failed"
         job.error = (error or "").strip()[:4000]
         await session.commit()

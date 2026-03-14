@@ -85,6 +85,75 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
         self.assertEqual(result.reps.total_reps, 8)
         self.assertNotIn(job.phone, handlers._active_analyses)
 
+    def test_complete_remote_minimax_job_keeps_completed_state_when_delivery_fails(self) -> None:
+        payload = _analysis_to_payload(
+            MiniMaxAnalysis(
+                exercise_slug="machine_chest_press",
+                exercise_display="Machine Chest Press",
+                exercise_confidence=0.93,
+                score=82,
+                reps_total=8,
+                reps_complete=8,
+                intensity_score=74,
+                intensity_label="elevee",
+                avg_inter_rep_rest_s=1.1,
+                positives=["Trajectoire stable"],
+                report_text="Rapport MiniMax",
+            )
+        )
+        job = SimpleNamespace(
+            id=17,
+            analysis_id=52,
+            user_id=5,
+            phone="+33622222222",
+            video_path="/tmp/test-video-fail-delivery.mp4",
+        )
+        events: list[str] = []
+        cleaned: list[str] = []
+
+        original_get = handlers.db.get_minimax_remote_job
+        original_complete = handlers.db.complete_minimax_remote_job
+        original_deliver = handlers._deliver_pipeline_success
+        original_cleanup = handlers.cleanup_video
+        original_active = dict(handlers._active_analyses)
+        handlers._active_analyses[job.phone] = time.time()
+
+        async def fake_get(job_id: int):
+            self.assertEqual(job_id, 17)
+            return job
+
+        async def fake_complete(job_id: int, result_payload: str):
+            self.assertEqual(job_id, 17)
+            self.assertEqual(result_payload, payload)
+            events.append("complete")
+            return job
+
+        async def fake_deliver(**kwargs):
+            events.append("deliver")
+            raise RuntimeError("twilio down")
+
+        def fake_cleanup(path: str):
+            cleaned.append(path)
+
+        try:
+            handlers.db.get_minimax_remote_job = fake_get
+            handlers.db.complete_minimax_remote_job = fake_complete
+            handlers._deliver_pipeline_success = fake_deliver
+            handlers.cleanup_video = fake_cleanup
+            ok = asyncio.run(handlers.complete_remote_minimax_job(17, payload))
+        finally:
+            handlers.db.get_minimax_remote_job = original_get
+            handlers.db.complete_minimax_remote_job = original_complete
+            handlers._deliver_pipeline_success = original_deliver
+            handlers.cleanup_video = original_cleanup
+            handlers._active_analyses.clear()
+            handlers._active_analyses.update(original_active)
+
+        self.assertTrue(ok)
+        self.assertEqual(events, ["complete", "deliver"])
+        self.assertEqual(cleaned, [job.video_path])
+        self.assertNotIn(job.phone, handlers._active_analyses)
+
     def test_fail_remote_minimax_job_notifies_and_cleans_up(self) -> None:
         job = SimpleNamespace(
             id=8,
@@ -128,6 +197,52 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(sent[0][0], job.phone)
         self.assertEqual(cleaned, [job.video_path])
+        self.assertNotIn(job.phone, handlers._active_analyses)
+
+    def test_fail_remote_minimax_job_skips_notification_when_job_already_completed(self) -> None:
+        job = SimpleNamespace(
+            id=18,
+            analysis_id=100,
+            user_id=6,
+            phone="+33633333333",
+            video_path="/tmp/completed-video.mp4",
+            status="completed",
+        )
+        sent: list[tuple[str, str]] = []
+        cleaned: list[str] = []
+
+        original_fail = handlers.db.fail_minimax_remote_job
+        original_send = handlers.wa.send_text
+        original_cleanup = handlers.cleanup_video
+        original_active = dict(handlers._active_analyses)
+        handlers._active_analyses[job.phone] = time.time()
+
+        async def fake_fail(job_id: int, error: str):
+            self.assertEqual(job_id, 18)
+            self.assertIn("already completed", error)
+            return job
+
+        async def fake_send_text(phone: str, text: str):
+            sent.append((phone, text))
+
+        def fake_cleanup(path: str):
+            cleaned.append(path)
+
+        try:
+            handlers.db.fail_minimax_remote_job = fake_fail
+            handlers.wa.send_text = fake_send_text
+            handlers.cleanup_video = fake_cleanup
+            ok = asyncio.run(handlers.fail_remote_minimax_job(18, "already completed upstream"))
+        finally:
+            handlers.db.fail_minimax_remote_job = original_fail
+            handlers.wa.send_text = original_send
+            handlers.cleanup_video = original_cleanup
+            handlers._active_analyses.clear()
+            handlers._active_analyses.update(original_active)
+
+        self.assertTrue(ok)
+        self.assertEqual(sent, [])
+        self.assertEqual(cleaned, [])
         self.assertNotIn(job.phone, handlers._active_analyses)
 
 
@@ -257,6 +372,27 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
                     os.environ.pop(name, None)
                 else:
                     os.environ[name] = value
+
+    def test_restore_runtime_browser_context_resets_job_overrides(self) -> None:
+        runtime_settings = minimax_remote_worker.minimax_motion_coach.settings
+        snapshot = minimax_remote_worker._capture_runtime_browser_context()
+        original_email = getattr(runtime_settings, "minimax_browser_email", None)
+        original_timeout = getattr(runtime_settings, "minimax_browser_timeout_s", None)
+        try:
+            os.environ["MINIMAX_BROWSER_EMAIL"] = "job@example.com"
+            os.environ["MINIMAX_BROWSER_TIMEOUT_S"] = "240"
+            runtime_settings.minimax_browser_email = "job@example.com"
+            runtime_settings.minimax_browser_timeout_s = 240
+
+            minimax_remote_worker._restore_runtime_browser_context(snapshot)
+
+            self.assertEqual(os.environ.get("MINIMAX_BROWSER_EMAIL"), snapshot["env"].get("MINIMAX_BROWSER_EMAIL"))
+            self.assertEqual(os.environ.get("MINIMAX_BROWSER_TIMEOUT_S"), snapshot["env"].get("MINIMAX_BROWSER_TIMEOUT_S"))
+            self.assertEqual(getattr(runtime_settings, "minimax_browser_email"), snapshot["settings"].get("minimax_browser_email"))
+            self.assertEqual(getattr(runtime_settings, "minimax_browser_timeout_s"), snapshot["settings"].get("minimax_browser_timeout_s"))
+        finally:
+            runtime_settings.minimax_browser_email = original_email
+            runtime_settings.minimax_browser_timeout_s = original_timeout
 
     def test_run_worker_forces_headed_browser_without_forcing_channel(self) -> None:
         original_headless = os.environ.get("MINIMAX_BROWSER_HEADLESS")

@@ -948,18 +948,27 @@ async def complete_remote_minimax_job(job_id: int, analysis_payload: str) -> boo
         result.reps.total_reps if result.reps else 0,
     )
 
-    await _deliver_pipeline_success(
-        phone=job.phone,
-        user_id=job.user_id,
-        analysis_id=job.analysis_id,
-        video_path=job.video_path,
-        result=result,
-        include_annotated_frames=bool(app_settings.report_include_annotated_frames),
-        strict_minimax_source=True,
-        fallback_local_enabled=False,
-    )
     await db.complete_minimax_remote_job(job_id, analysis_payload)
-    _active_analyses.pop(job.phone, None)
+    try:
+        await _deliver_pipeline_success(
+            phone=job.phone,
+            user_id=job.user_id,
+            analysis_id=job.analysis_id,
+            video_path=job.video_path,
+            result=result,
+            include_annotated_frames=bool(app_settings.report_include_annotated_frames),
+            strict_minimax_source=True,
+            fallback_local_enabled=False,
+        )
+    except Exception:
+        logger.exception(
+            "Remote MiniMax delivery failed after job completion (job_id=%s analysis_id=%s)",
+            job_id,
+            job.analysis_id,
+        )
+        cleanup_video(job.video_path)
+    finally:
+        _active_analyses.pop(job.phone, None)
     return True
 
 
@@ -967,6 +976,9 @@ async def fail_remote_minimax_job(job_id: int, error: str) -> bool:
     job = await db.fail_minimax_remote_job(job_id, error)
     if not job:
         return False
+    if str(getattr(job, "status", "") or "").strip().lower() == "completed":
+        _active_analyses.pop(job.phone, None)
+        return True
     await wa.send_text(job.phone, msg.ERROR_MINIMAX_UNAVAILABLE)
     cleanup_video(job.video_path)
     _active_analyses.pop(job.phone, None)

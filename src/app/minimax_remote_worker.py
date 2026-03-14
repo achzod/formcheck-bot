@@ -43,6 +43,22 @@ _SETTING_TO_ENV: dict[str, str] = {
     "minimax_browser_only": "MINIMAX_BROWSER_ONLY",
     "minimax_browser_headless": "MINIMAX_BROWSER_HEADLESS",
 }
+_RUNTIME_SETTING_KEYS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        tuple(_SETTING_TO_ENV.keys())
+        + (
+            "minimax_browser_channel",
+        )
+    ).keys()
+)
+_RUNTIME_ENV_KEYS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        tuple(_SETTING_TO_ENV.values())
+        + (
+            "MINIMAX_BROWSER_CHANNEL",
+        )
+    ).keys()
+)
 
 
 def _base_url() -> str:
@@ -139,6 +155,34 @@ def _apply_job_browser_context(job: dict) -> dict[str, Any]:
     return applied
 
 
+def _capture_runtime_browser_context() -> dict[str, dict[str, Any]]:
+    runtime_settings = minimax_motion_coach.settings
+    return {
+        "env": {name: os.environ.get(name) for name in _RUNTIME_ENV_KEYS},
+        "settings": {
+            key: getattr(runtime_settings, key, None)
+            for key in _RUNTIME_SETTING_KEYS
+        },
+    }
+
+
+def _restore_runtime_browser_context(snapshot: dict[str, dict[str, Any]]) -> None:
+    env_snapshot = snapshot.get("env", {}) if isinstance(snapshot, dict) else {}
+    settings_snapshot = snapshot.get("settings", {}) if isinstance(snapshot, dict) else {}
+
+    for name in _RUNTIME_ENV_KEYS:
+        value = env_snapshot.get(name)
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = str(value)
+
+    runtime_settings = minimax_motion_coach.settings
+    for key in _RUNTIME_SETTING_KEYS:
+        if key in settings_snapshot:
+            setattr(runtime_settings, key, settings_snapshot.get(key))
+
+
 async def _claim_job(client: httpx.AsyncClient, worker_id: str) -> dict | None:
     response = await client.post(
         _base_url() + "/internal/minimax/jobs/claim",
@@ -226,10 +270,15 @@ async def run_worker() -> None:
     # - local machines can set MINIMAX_BROWSER_CHANNEL=chrome
     # - Render workers can rely on bundled Chromium (empty channel)
     channel = str(os.getenv("MINIMAX_BROWSER_CHANNEL", "") or "").strip()
+    os.environ["MINIMAX_BROWSER_CHANNEL"] = channel
+    minimax_motion_coach.settings.minimax_browser_only = True
+    minimax_motion_coach.settings.minimax_browser_headless = False
+    minimax_motion_coach.settings.minimax_browser_channel = channel
 
     worker_id = _worker_id()
     poll_s = _poll_interval_s()
     timeout = httpx.Timeout(120.0, connect=20.0)
+    base_runtime_context = _capture_runtime_browser_context()
 
     logger.info(
         "MiniMax remote worker bootstrap (worker_id=%s headless=%s channel=%s base_url=%s)",
@@ -246,7 +295,10 @@ async def run_worker() -> None:
                 if not job:
                     await asyncio.sleep(poll_s)
                     continue
-                await _process_job(client, job)
+                try:
+                    await _process_job(client, job)
+                finally:
+                    _restore_runtime_browser_context(base_runtime_context)
             except asyncio.CancelledError:
                 raise
             except Exception:
