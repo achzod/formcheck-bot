@@ -375,6 +375,107 @@ def _map_model_exercise_name(raw_name: str | None) -> str:
 _EXERCISE_VALUES = {ex.value for ex in Exercise}
 
 
+def _supports_exercise_family(raw_text: str | None, family: str | None) -> bool:
+    text = _normalize_exercise_name(raw_text)
+    family_norm = _normalize_exercise_name(family)
+    if not text or not family_norm:
+        return False
+
+    has_any = lambda *tokens: any(token in text for token in tokens)
+    has_all = lambda *tokens: all(token in text for token in tokens)
+
+    if family_norm == "leg_press":
+        return has_any("leg_press", "presse_a_cuisses") or (
+            has_any("leg", "quad", "cuisse", "jamb", "platform", "plateforme")
+            and has_any("press", "presse")
+        )
+    if family_norm == "machine_chest_press":
+        return (
+            has_any("machine_chest_press", "chest_press_machine", "presse_pectorale")
+            or (
+                has_any("chest", "pector", "pec", "poitrine")
+                and has_any("press", "presse", "developpe", "bench", "couche")
+            )
+        )
+    if family_norm == "bench_press":
+        return has_any("bench_press", "developpe_couche") or (
+            has_any("bench", "couche", "poitrine", "pector", "pec")
+            and has_any("press", "presse", "developpe", "bench")
+        )
+    if family_norm == "ohp":
+        return has_any("overhead_press", "military_press", "shoulder_press", "developpe_militaire") or (
+            has_any("shoulder", "epaule", "epaules", "militaire", "overhead")
+            and has_any("press", "presse", "developpe")
+        )
+    if family_norm == "lat_pulldown":
+        return has_any("lat_pulldown", "lat_pull_down", "tirage_vertical", "vertical_pull", "traction_verticale")
+    if family_norm == "cable_row":
+        return has_any("cable_row", "seated_row", "seated_cable_row", "tirage_poulie_basse") or (
+            has_any("cable", "poulie", "seated", "assis")
+            and has_any("row", "tirage")
+        )
+    if family_norm == "barbell_row":
+        return has_any("barbell_row", "bent_over_row", "rowing_barre", "barre_au_torse") or (
+            has_any("barbell", "barre", "rowing", "penche", "bent_over")
+            and has_any("row", "tirage")
+        )
+    if family_norm == "bulgarian_split_squat":
+        return has_any("bulgarian", "split_squat", "fente_bulgare")
+    if family_norm == "lunge":
+        return has_any("lunge", "fente")
+    if family_norm == "squat":
+        return has_any("squat")
+    if family_norm == "deadlift":
+        return has_any("deadlift", "souleve_de_terre")
+    if family_norm == "rdl":
+        return has_any("romanian_deadlift", "rdl", "souleve_de_terre_jambes_tendues")
+    return False
+
+
+def _slug_is_explicit_family(raw_slug: str | None) -> bool:
+    slug_norm = _normalize_exercise_name(raw_slug)
+    if not slug_norm:
+        return False
+    explicit_aliases = {
+        "chest_press",
+        "chest_press_machine",
+        "machine_press",
+        "seated_chest_press",
+        "military_press",
+        "overhead_press",
+        "lat_pull_down",
+        "lat_pulldown",
+        "cable_row",
+        "barbell_row",
+        "bent_over_row",
+    }
+    return slug_norm in _EXERCISE_VALUES or slug_norm in explicit_aliases
+
+
+def _infer_family_from_report_text(raw_text: str | None) -> str:
+    text = str(raw_text or "").strip()
+    if not text:
+        return ""
+    candidates = (
+        "machine_chest_press",
+        "bench_press",
+        "ohp",
+        "lat_pulldown",
+        "cable_row",
+        "barbell_row",
+        "leg_press",
+        "bulgarian_split_squat",
+        "lunge",
+        "squat",
+        "deadlift",
+        "rdl",
+    )
+    matches = [family for family in candidates if _supports_exercise_family(text, family)]
+    if len(matches) == 1:
+        return matches[0]
+    return ""
+
+
 def _map_minimax_exercise_name(slug: str | None, display_name: str | None) -> str:
     """Normalize MiniMax labels to the closest supported internal family.
 
@@ -414,6 +515,17 @@ def _map_minimax_exercise_name(slug: str | None, display_name: str | None) -> st
 
     if display_mapped:
         if slug_mapped and slug_mapped != display_mapped:
+            display_supported = _supports_exercise_family(display_name, display_mapped)
+            slug_supported = _supports_exercise_family(slug, slug_mapped) or _slug_is_explicit_family(slug)
+            if slug_supported and not display_supported:
+                logger.warning(
+                    "MiniMax slug/display disagreement resolved via explicit slug family: slug='%s' -> '%s', display='%s' -> '%s'",
+                    slug_norm,
+                    slug_mapped,
+                    display_norm,
+                    display_mapped,
+                )
+                return slug_mapped
             logger.warning(
                 "MiniMax slug/display disagreement resolved via display label: slug='%s' -> '%s', display='%s' -> '%s'",
                 slug_norm,
@@ -1246,6 +1358,20 @@ def _apply_minimax_analysis_to_result(
         analysis.exercise_slug,
         analysis.exercise_display,
     )
+    report_hint = _infer_family_from_report_text(
+        str(getattr(analysis, "report_text", "") or getattr(analysis, "raw_response", "") or "")
+    )
+    if report_hint and report_hint != mapped_name:
+        report_supports_current = bool(mapped_name and _supports_exercise_family(analysis.report_text, mapped_name))
+        if not report_supports_current:
+            logger.warning(
+                "MiniMax family override via report text: mapped='%s' -> report_hint='%s' (display='%s' slug='%s')",
+                mapped_name,
+                report_hint,
+                analysis.exercise_display,
+                analysis.exercise_slug,
+            )
+            mapped_name = report_hint
     if mapped_name == "leg_press":
         raw_corpus = " ".join(
             part
@@ -1328,6 +1454,23 @@ def _apply_minimax_analysis_to_result(
         else:
             # Never invent an exercise label from a weak slug fallback: better unknown than wrong.
             display_name = "Exercice non identifie"
+    elif exercise_enum != Exercise.UNKNOWN and not _supports_exercise_family(display_name, exercise_enum.value):
+        report_match = re.search(
+            r"(?im)^\s*[-*•#\s]*exercice\s*:\s*(.+?)\s*$",
+            str(analysis.report_text or analysis.raw_response or ""),
+        )
+        if report_match:
+            candidate = str(report_match.group(1) or "").strip()
+            if candidate and _supports_exercise_family(candidate, exercise_enum.value):
+                display_name = candidate
+        if display_name == str(analysis.exercise_display or "").strip() and detection.display_name:
+            logger.warning(
+                "MiniMax display label overridden to reconciled family display: raw='%s' family='%s' display='%s'",
+                analysis.exercise_display,
+                exercise_enum.value,
+                detection.display_name,
+            )
+            display_name = detection.display_name
     report_text = (analysis.report_text or analysis.raw_response or "").strip()
     if not report_text:
         report_text = "Analyse MiniMax terminee."

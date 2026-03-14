@@ -1145,6 +1145,50 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         assert out.detection is not None
         self.assertEqual(out.detection.exercise.value, "machine_chest_press")
 
+    def test_pipeline_mapping_prefers_explicit_slug_when_display_is_weak_and_conflicting(self) -> None:
+        base = PipelineResult(video_path="video.mp4", output_dir="out")
+        analysis = MiniMaxAnalysis(
+            exercise_slug="lat_pulldown",
+            exercise_display="Row",
+            exercise_confidence=0.89,
+            score=79,
+            reps_total=8,
+            reps_complete=8,
+            reps_partial=0,
+            intensity_score=73,
+            intensity_label="elevee",
+            avg_inter_rep_rest_s=0.8,
+            report_text="Rapport MiniMax",
+        )
+        out = _apply_minimax_analysis_to_result(base, analysis)
+        assert out.detection is not None
+        self.assertEqual(out.detection.exercise.value, "lat_pulldown")
+        self.assertEqual(out.report.exercise_display, "Lat Pulldown (Tirage Vertical)")
+
+    def test_pipeline_mapping_reconciles_display_name_when_raw_label_conflicts_with_family(self) -> None:
+        base = PipelineResult(video_path="video.mp4", output_dir="out")
+        analysis = MiniMaxAnalysis(
+            exercise_slug="lat_pulldown",
+            exercise_display="Leg Press",
+            exercise_confidence=0.87,
+            score=75,
+            reps_total=7,
+            reps_complete=7,
+            reps_partial=0,
+            intensity_score=70,
+            intensity_label="moderee",
+            avg_inter_rep_rest_s=1.0,
+            report_text=(
+                "# FORMCHECK\n"
+                "- Exercice: Lat Pulldown (Tirage Vertical)\n"
+                "Trajectoire verticale stable et tirage vers le haut du torse.\n"
+            ),
+        )
+        out = _apply_minimax_analysis_to_result(base, analysis)
+        assert out.detection is not None
+        self.assertEqual(out.detection.exercise.value, "lat_pulldown")
+        self.assertEqual(out.report.exercise_display, "Lat Pulldown (Tirage Vertical)")
+
     def test_pipeline_mapping_overrides_leg_press_when_report_text_has_clear_chest_press_cues(self) -> None:
         base = PipelineResult(video_path="video.mp4", output_dir="out")
         analysis = MiniMaxAnalysis(
