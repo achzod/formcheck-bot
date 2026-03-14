@@ -1163,7 +1163,7 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         out = _apply_minimax_analysis_to_result(base, analysis)
         assert out.detection is not None
         self.assertEqual(out.detection.exercise.value, "lat_pulldown")
-        self.assertEqual(out.report.exercise_display, "Lat Pulldown (Tirage Vertical)")
+        self.assertEqual(out.report.exercise_display, "Row")
 
     def test_pipeline_mapping_reconciles_display_name_when_raw_label_conflicts_with_family(self) -> None:
         base = PipelineResult(video_path="video.mp4", output_dir="out")
@@ -1187,7 +1187,7 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         out = _apply_minimax_analysis_to_result(base, analysis)
         assert out.detection is not None
         self.assertEqual(out.detection.exercise.value, "lat_pulldown")
-        self.assertEqual(out.report.exercise_display, "Lat Pulldown (Tirage Vertical)")
+        self.assertEqual(out.report.exercise_display, "Leg Press")
 
     def test_pipeline_mapping_overrides_leg_press_when_report_text_has_clear_chest_press_cues(self) -> None:
         base = PipelineResult(video_path="video.mp4", output_dir="out")

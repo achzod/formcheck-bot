@@ -1454,23 +1454,6 @@ def _apply_minimax_analysis_to_result(
         else:
             # Never invent an exercise label from a weak slug fallback: better unknown than wrong.
             display_name = "Exercice non identifie"
-    elif exercise_enum != Exercise.UNKNOWN and not _supports_exercise_family(display_name, exercise_enum.value):
-        report_match = re.search(
-            r"(?im)^\s*[-*•#\s]*exercice\s*:\s*(.+?)\s*$",
-            str(analysis.report_text or analysis.raw_response or ""),
-        )
-        if report_match:
-            candidate = str(report_match.group(1) or "").strip()
-            if candidate and _supports_exercise_family(candidate, exercise_enum.value):
-                display_name = candidate
-        if display_name == str(analysis.exercise_display or "").strip() and detection.display_name:
-            logger.warning(
-                "MiniMax display label overridden to reconciled family display: raw='%s' family='%s' display='%s'",
-                analysis.exercise_display,
-                exercise_enum.value,
-                detection.display_name,
-            )
-            display_name = detection.display_name
     report_text = (analysis.report_text or analysis.raw_response or "").strip()
     if not report_text:
         report_text = "Analyse MiniMax terminee."
