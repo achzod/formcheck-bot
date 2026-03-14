@@ -249,16 +249,6 @@ def _contains_cjk_characters(text: str) -> bool:
     return bool(_CJK_CHAR_PATTERN.search(str(text or "")))
 
 
-def _extract_first_name(client_name: str | None) -> str:
-    if not client_name:
-        return ""
-    raw = str(client_name).strip()
-    if not raw:
-        return ""
-    token = raw.split()[0].strip(" -_.,;:()[]{}")
-    return token[:32]
-
-
 def _md_inline_to_html(text: str) -> str:
     """Convert inline markdown (bold, italic) to HTML. Input must already be html-escaped."""
     # **bold** or __bold__
@@ -525,11 +515,7 @@ def _build_client_intro_card(
     pipeline_result: Any | None,
     client_name: str | None,
 ) -> str:
-    first_name = _extract_first_name(client_name)
-    if first_name:
-        intro = "Salut {}, voici ce que je vois sur ta serie.".format(html.escape(first_name))
-    else:
-        intro = "Salut, voici ce que je vois sur ta serie."
+    intro = "Voici ce que je vois sur ta serie."
 
     reps_total = 0
     intensity_score = 0
@@ -612,8 +598,7 @@ def _build_deterministic_report_text(
             return "upper"
         return "mixed"
 
-    first_name = _extract_first_name(client_name)
-    greeting = "Salut {},".format(first_name) if first_name else "Salut,"
+    greeting = "Voici la lecture de ta serie."
 
     reps_total = 0
     reps_complete = 0

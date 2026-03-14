@@ -46,7 +46,9 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
         self.assertEqual(analysis_id, "abc123")
         self.assertTrue(token)
         self.assertIn("Lecture Coach", html)
-        self.assertIn("Salut Achzod", html)
+        self.assertNotIn("Salut Achzod", html)
+        self.assertNotIn("Achzod Client", html)
+        self.assertIn("Voici ce que je vois sur ta serie.", html)
         self.assertIn("Intensite et Densite", html)
         self.assertIn("Plan d&#x27;Action", html)
 
