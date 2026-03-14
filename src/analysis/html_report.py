@@ -706,10 +706,10 @@ def _build_client_intro_card(
     model_used = str(getattr(report, "model_used", "") or "").strip().lower()
     source_metrics = _extract_minimax_frontmatter(report.report_text) if "minimax" in model_used else {}
 
-    score = _coerce_metric_int(source_metrics.get("score", report.score or 0), int(report.score or 0), minimum=0, maximum=100)
+    score = _coerce_metric_int(report.score if report.score is not None else source_metrics.get("score", 0), int(report.score or 0), minimum=0, maximum=100)
     exercise_name = str(
-        source_metrics.get("exercise_display")
-        or report.exercise_display
+        report.exercise_display
+        or source_metrics.get("exercise_display")
         or "Exercice"
     ).strip()
     summary_line = _extract_section_excerpt(report.report_text, "RESUME")

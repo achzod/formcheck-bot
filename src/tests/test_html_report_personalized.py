@@ -244,9 +244,35 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
             pipeline_result=None,
             client_name="Client",
         )
-        self.assertIn("Row assis", html)
+        self.assertIn("Row", html)
         self.assertIn("73/100", html)
         self.assertIn("Lecture exploitable", html)
+
+    def test_intro_prefers_reconciled_report_exercise_over_raw_frontmatter_exercise(self) -> None:
+        report = Report(
+            exercise="machine_chest_press",
+            exercise_display="Presse Pectorale Machine",
+            score=78,
+            model_used="minimax_motion_coach",
+            report_text=(
+                "<FORMCHECK_REPORT_MD>\n"
+                "- Exercice: Leg Press\n"
+                "- Score global: 55/100\n"
+                "RESUME\n"
+                "Execution stable.\n"
+                "</FORMCHECK_REPORT_MD>\n"
+            ),
+        )
+        html, _, _ = generate_html_report(
+            report=report,
+            annotated_frames={},
+            analysis_id="introreconciled",
+            pipeline_result=None,
+            client_name="Client",
+        )
+        self.assertIn("Presse Pectorale Machine", html)
+        self.assertNotIn("<strong>Leg Press</strong>", html)
+        self.assertIn("78/100", html)
 
 
 if __name__ == "__main__":
