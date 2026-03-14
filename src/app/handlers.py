@@ -89,6 +89,127 @@ def _queue_eta_minutes(position: int) -> int | None:
     return int(round(((position - 1) * avg_job_s) / 60.0))
 
 
+def _plain_report_excerpt(report_text: str, max_len: int = 900) -> str:
+    text = str(report_text or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"</?FORMCHECK_REPORT_MD>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^\s*#\s*FORMCHECK\s*$", "", text, flags=re.IGNORECASE | re.MULTILINE)
+    cleaned_lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = re.sub(r"^\s*[-*•#]+\s*", "", raw_line).strip()
+        if not line:
+            continue
+        low = line.lower()
+        if low.startswith(
+            (
+                "exercice:",
+                "exercise:",
+                "exercice slug:",
+                "confiance exercice:",
+                "confidence:",
+                "score global:",
+                "repetitions detectees:",
+                "repetitions completes:",
+                "repetitions partielles:",
+                "intensite:",
+                "repos inter-reps moyen:",
+            )
+        ):
+            continue
+        cleaned_lines.append(line)
+    excerpt = "\n".join(cleaned_lines).strip()
+    if len(excerpt) > max_len:
+        excerpt = excerpt[: max_len - 1].rstrip() + "…"
+    return excerpt
+
+
+def _build_whatsapp_report_message(
+    *,
+    exercise: str,
+    score: int,
+    reps: int,
+    intensity_line: str,
+    credits_line: str,
+    report_url: str | None,
+    report_excerpt: str = "",
+) -> tuple[str, str]:
+    if report_url:
+        primary = (
+            "*{exercise}* — *{score}/100*"
+            "{reps_line}"
+            "{intensity_line}\n\n"
+            "Rapport HTML:\n"
+            "{report_url}"
+            "{credits_line}"
+        ).format(
+            exercise=exercise,
+            score=score,
+            reps_line=" — {} reps".format(reps) if reps > 0 else "",
+            intensity_line=intensity_line,
+            report_url=report_url,
+            credits_line=credits_line,
+        )
+        minimal = (
+            "*{exercise}* — *{score}/100*\n\n"
+            "Rapport HTML:\n{report_url}"
+        ).format(
+            exercise=exercise,
+            score=score,
+            report_url=report_url,
+        )
+        return primary, minimal
+
+    excerpt = (report_excerpt or "").strip()
+    if excerpt:
+        primary = (
+            "*{exercise}* — *{score}/100*"
+            "{reps_line}"
+            "{intensity_line}\n\n"
+            "Synthese immediate :\n"
+            "{excerpt}"
+            "{credits_line}"
+        ).format(
+            exercise=exercise,
+            score=score,
+            reps_line=" — {} reps".format(reps) if reps > 0 else "",
+            intensity_line=intensity_line,
+            excerpt=excerpt,
+            credits_line=credits_line,
+        )
+        minimal = (
+            "*{exercise}* — *{score}/100*\n\n"
+            "Synthese immediate :\n{excerpt}"
+        ).format(
+            exercise=exercise,
+            score=score,
+            excerpt=excerpt,
+        )
+        return primary, minimal
+
+    primary = (
+        "*{exercise}* — *{score}/100*"
+        "{reps_line}"
+        "{intensity_line}\n\n"
+        "Analyse terminee. Le rapport detaille est temporairement indisponible."
+        "{credits_line}"
+    ).format(
+        exercise=exercise,
+        score=score,
+        reps_line=" — {} reps".format(reps) if reps > 0 else "",
+        intensity_line=intensity_line,
+        credits_line=credits_line,
+    )
+    minimal = (
+        "*{exercise}* — *{score}/100*\n\n"
+        "Analyse terminee. Le rapport detaille est temporairement indisponible."
+    ).format(
+        exercise=exercise,
+        score=score,
+    )
+    return primary, minimal
+
+
 async def _send_existing_queue_status(phone: str) -> None:
     open_job = await db.get_open_minimax_remote_job_for_phone(phone)
     if not open_job:
@@ -813,15 +934,23 @@ async def _deliver_pipeline_success(
 
     user_updated = await db.get_user_by_phone(phone)
 
-    html_content, report_id, report_token = generate_html_report(
-        report=result.report,
-        annotated_frames=(result.annotated_frames if include_annotated_frames else {}),
-        analysis_id=str(analysis_id),
-        pipeline_result=result,
-        client_name=(user_updated.name if user_updated else None),
-    )
-    save_report(report_id, report_token, html_content)
-    report_url = get_report_url(app_settings.base_url, report_id, report_token)
+    report_url: str | None = None
+    report_excerpt = _plain_report_excerpt(result.report.report_text)
+    try:
+        html_content, report_id, report_token = generate_html_report(
+            report=result.report,
+            annotated_frames=(result.annotated_frames if include_annotated_frames else {}),
+            analysis_id=str(analysis_id),
+            pipeline_result=result,
+            client_name=(user_updated.name if user_updated else None),
+        )
+        save_report(report_id, report_token, html_content)
+        report_url = get_report_url(app_settings.base_url, report_id, report_token)
+    except Exception:
+        logger.exception(
+            "HTML report generation/save failed (analysis_id=%s). Falling back to text-only delivery.",
+            analysis_id,
+        )
 
     score = result.report.score
     exercise = result.report.exercise_display
@@ -845,20 +974,14 @@ async def _deliver_pipeline_success(
         else:
             credits_line = "\n_Derniere analyse ! Tape *forfaits* pour recharger._"
 
-    short_msg = (
-        "*{exercise}* — *{score}/100*"
-        "{reps_line}"
-        "{intensity_line}\n\n"
-        "Rapport HTML:\n"
-        "{report_url}"
-        "{credits_line}"
-    ).format(
+    short_msg, minimal_msg = _build_whatsapp_report_message(
         exercise=exercise,
         score=score,
-        reps_line=" — {} reps".format(reps) if reps > 0 else "",
+        reps=reps,
         intensity_line=intensity_line,
-        report_url=report_url,
         credits_line=credits_line,
+        report_url=report_url,
+        report_excerpt=report_excerpt,
     )
     try:
         await wa.send_text(phone, short_msg)
@@ -866,14 +989,6 @@ async def _deliver_pipeline_success(
         logger.exception(
             "Primary WhatsApp report message failed (analysis_id=%s). Retrying minimal link message.",
             analysis_id,
-        )
-        minimal_msg = (
-            "*{exercise}* — *{score}/100*\n\n"
-            "Rapport HTML:\n{report_url}"
-        ).format(
-            exercise=exercise,
-            score=score,
-            report_url=report_url,
         )
         await wa.send_text(phone, minimal_msg)
 

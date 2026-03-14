@@ -245,6 +245,112 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
         self.assertEqual(cleaned, [])
         self.assertNotIn(job.phone, handlers._active_analyses)
 
+    def test_deliver_pipeline_success_falls_back_to_text_when_html_generation_fails(self) -> None:
+        result = SimpleNamespace(
+            report=SimpleNamespace(
+                exercise_display="Lat Pulldown (Tirage Vertical)",
+                score=78,
+                report_text=(
+                    "<FORMCHECK_REPORT_MD>\n"
+                    "- Exercice: Lat Pulldown (Tirage Vertical)\n"
+                    "- Score global: 78/100\n"
+                    "RESUME\n"
+                    "Serie solide avec une fin de trajectoire un peu moins propre.\n"
+                    "</FORMCHECK_REPORT_MD>"
+                ),
+                model_used="minimax_motion_coach",
+            ),
+            reps=SimpleNamespace(
+                total_reps=8,
+                intensity_score=76,
+                intensity_label="elevee",
+                avg_inter_rep_rest_s=0.92,
+            ),
+            annotated_frames={},
+            detection=None,
+        )
+        sent: list[tuple[str, str]] = []
+        cleaned: list[str] = []
+
+        original_update = handlers.db.update_analysis
+        original_get_user = handlers.db.get_user_by_phone
+        original_decrement = handlers.db.decrement_credit
+        original_generate = handlers.generate_html_report
+        original_save = handlers.save_report
+        original_get_report_url = handlers.get_report_url
+        original_send = handlers.wa.send_text
+        original_cleanup = handlers.cleanup_video
+        original_test_mode = handlers.app_settings.test_mode
+        original_test_mode_free = handlers.app_settings.test_mode_free
+
+        async def fake_update(*args, **kwargs):
+            return None
+
+        async def fake_get_user(_phone: str):
+            return SimpleNamespace(name="Client", is_unlimited=True, credits=3)
+
+        async def fake_decrement(_user_id: int):
+            raise AssertionError("decrement_credit should not be called in test mode")
+
+        def fake_generate_html_report(**kwargs):
+            raise RuntimeError("html crash")
+
+        def fake_save_report(*args, **kwargs):
+            raise AssertionError("save_report should not be called when html generation fails")
+
+        def fake_get_report_url(*args, **kwargs):
+            return "https://example.com/report"
+
+        async def fake_send_text(phone: str, text: str):
+            sent.append((phone, text))
+            return {"sid": "SM123", "status": "queued"}
+
+        def fake_cleanup(path: str):
+            cleaned.append(path)
+
+        try:
+            handlers.db.update_analysis = fake_update
+            handlers.db.get_user_by_phone = fake_get_user
+            handlers.db.decrement_credit = fake_decrement
+            handlers.generate_html_report = fake_generate_html_report
+            handlers.save_report = fake_save_report
+            handlers.get_report_url = fake_get_report_url
+            handlers.wa.send_text = fake_send_text
+            handlers.cleanup_video = fake_cleanup
+            handlers.app_settings.test_mode = True
+            handlers.app_settings.test_mode_free = True
+
+            asyncio.run(
+                handlers._deliver_pipeline_success(
+                    phone="+33644444444",
+                    user_id=7,
+                    analysis_id=321,
+                    video_path="/tmp/test-fallback.mp4",
+                    result=result,
+                    include_annotated_frames=False,
+                    strict_minimax_source=True,
+                    fallback_local_enabled=False,
+                )
+            )
+        finally:
+            handlers.db.update_analysis = original_update
+            handlers.db.get_user_by_phone = original_get_user
+            handlers.db.decrement_credit = original_decrement
+            handlers.generate_html_report = original_generate
+            handlers.save_report = original_save
+            handlers.get_report_url = original_get_report_url
+            handlers.wa.send_text = original_send
+            handlers.cleanup_video = original_cleanup
+            handlers.app_settings.test_mode = original_test_mode
+            handlers.app_settings.test_mode_free = original_test_mode_free
+
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0][0], "+33644444444")
+        self.assertIn("Lat Pulldown (Tirage Vertical)", sent[0][1])
+        self.assertIn("Synthese immediate", sent[0][1])
+        self.assertIn("Serie solide avec une fin de trajectoire", sent[0][1])
+        self.assertEqual(cleaned, ["/tmp/test-fallback.mp4"])
+
 
 @unittest.skipIf(db is None, "app deps unavailable: {}".format(_HANDLERS_IMPORT_ERROR))
 class RemoteMiniMaxJobClaimTests(unittest.TestCase):

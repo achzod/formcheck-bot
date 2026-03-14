@@ -220,6 +220,34 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
         self.assertIn("Cue", html)
         self.assertIn("Garde 2 secondes de freinage", html)
 
+    def test_malformed_minimax_frontmatter_does_not_break_report_delivery(self) -> None:
+        report = Report(
+            exercise="row",
+            exercise_display="Row",
+            score=73,
+            model_used="minimax_motion_coach",
+            report_text=(
+                "<FORMCHECK_REPORT_MD>\n"
+                "- Exercice: Row assis\n"
+                "- Score global: NON MESURABLE\n"
+                "- Confiance exercice: forte\n"
+                "- Intensite: elevee\n"
+                "RESUME\n"
+                "Lecture exploitable avec un besoin de mieux freiner le retour.\n"
+                "</FORMCHECK_REPORT_MD>\n"
+            ),
+        )
+        html, _, _ = generate_html_report(
+            report=report,
+            annotated_frames={},
+            analysis_id="minimaxmalformed",
+            pipeline_result=None,
+            client_name="Client",
+        )
+        self.assertIn("Row assis", html)
+        self.assertIn("73/100", html)
+        self.assertIn("Lecture exploitable", html)
+
 
 if __name__ == "__main__":
     unittest.main()

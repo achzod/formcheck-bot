@@ -436,6 +436,40 @@ def _extract_section_excerpt(report_text: str, section_title: str) -> str:
     return " ".join(buffer[:2]).strip()
 
 
+def _coerce_metric_int(value: Any, default: int = 0, *, minimum: int | None = None, maximum: int | None = None) -> int:
+    try:
+        if isinstance(value, str):
+            match = re.search(r"-?\d+(?:[.,]\d+)?", value)
+            if not match:
+                raise ValueError("no numeric token")
+            value = match.group(0).replace(",", ".")
+        out = int(round(float(value)))
+    except Exception:
+        out = int(default)
+    if minimum is not None:
+        out = max(minimum, out)
+    if maximum is not None:
+        out = min(maximum, out)
+    return out
+
+
+def _coerce_metric_float(value: Any, default: float = 0.0, *, minimum: float | None = None, maximum: float | None = None) -> float:
+    try:
+        if isinstance(value, str):
+            match = re.search(r"-?\d+(?:[.,]\d+)?", value)
+            if not match:
+                raise ValueError("no numeric token")
+            value = match.group(0).replace(",", ".")
+        out = float(value)
+    except Exception:
+        out = float(default)
+    if minimum is not None:
+        out = max(minimum, out)
+    if maximum is not None:
+        out = min(maximum, out)
+    return out
+
+
 def _format_report_html(report_text: str) -> str:
     """Convertit le texte du rapport LLM en HTML propre, parse par sections."""
     text = html.escape(_clean_report_text_for_rendering(report_text))
@@ -672,7 +706,7 @@ def _build_client_intro_card(
     model_used = str(getattr(report, "model_used", "") or "").strip().lower()
     source_metrics = _extract_minimax_frontmatter(report.report_text) if "minimax" in model_used else {}
 
-    score = int(source_metrics.get("score", report.score or 0) or 0)
+    score = _coerce_metric_int(source_metrics.get("score", report.score or 0), int(report.score or 0), minimum=0, maximum=100)
     exercise_name = str(
         source_metrics.get("exercise_display")
         or report.exercise_display
@@ -680,11 +714,11 @@ def _build_client_intro_card(
     ).strip()
     summary_line = _extract_section_excerpt(report.report_text, "RESUME")
 
-    reps_total = int(source_metrics.get("reps_detected", 0) or 0)
-    intensity_score = int(source_metrics.get("intensity_score", 0) or 0)
+    reps_total = _coerce_metric_int(source_metrics.get("reps_detected", 0), 0, minimum=0)
+    intensity_score = _coerce_metric_int(source_metrics.get("intensity_score", 0), 0, minimum=0, maximum=100)
     intensity_label = str(source_metrics.get("intensity_label", "") or "").strip()
-    avg_rest = float(source_metrics.get("avg_rest", 0.0) or 0.0)
-    detection_conf = int(source_metrics.get("confidence", 0) or 0)
+    avg_rest = _coerce_metric_float(source_metrics.get("avg_rest", 0.0), 0.0, minimum=0.0)
+    detection_conf = _coerce_metric_int(source_metrics.get("confidence", 0), 0, minimum=0, maximum=100)
 
     if not source_metrics and pipeline_result and getattr(pipeline_result, "reps", None):
         reps = pipeline_result.reps
