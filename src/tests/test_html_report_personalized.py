@@ -137,6 +137,38 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
         self.assertIn("Execution propre et stable.", html)
         self.assertIn("Analyse Rep par Rep", html)
 
+    def test_render_strips_cjk_noise_and_visible_dash_artifacts(self) -> None:
+        report = Report(
+            exercise="machine_chest_press",
+            exercise_display="Presse Pectorale Machine",
+            score=81,
+            model_used="minimax_motion_coach",
+            report_text=(
+                "RESUME\n"
+                "收到您的请求，我正在处理。\n"
+                "--\n"
+                "- Execution stable et propre.\n"
+                "ANALYSE REP PAR REP\n"
+                "1. Rep 1 | 00:09 - 00:13 | Fluide.\n"
+                "PLAN ACTION\n"
+                "-- Filme plus large\n"
+                "- Ralentis la descente\n"
+            ),
+        )
+        html, _, _ = generate_html_report(
+            report=report,
+            annotated_frames={},
+            analysis_id="minimaxnoise",
+            pipeline_result=None,
+            client_name="Client",
+        )
+        self.assertNotIn("收到您的请求", html)
+        self.assertIn("Execution stable et propre.", html)
+        self.assertIn("Filme plus large", html)
+        self.assertNotIn("-- Filme plus large", html)
+        self.assertNotIn("Presse Pectorale Machine — score global", html)
+        self.assertIn("Presse Pectorale Machine. Score global", html)
+
 
 if __name__ == "__main__":
     unittest.main()

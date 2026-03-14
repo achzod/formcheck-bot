@@ -234,6 +234,7 @@ _AI_STYLE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bde maniere generale[, ]*", re.IGNORECASE), ""),
     (re.compile(r"\bglobalement[, ]*", re.IGNORECASE), ""),
 )
+_CJK_CHAR_PATTERN = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]")
 
 
 def _get_section_icon(title: str) -> str:
@@ -242,6 +243,10 @@ def _get_section_icon(title: str) -> str:
         if key in upper:
             return icon
     return ""
+
+
+def _contains_cjk_characters(text: str) -> bool:
+    return bool(_CJK_CHAR_PATTERN.search(str(text or "")))
 
 
 def _extract_first_name(client_name: str | None) -> str:
@@ -280,6 +285,8 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
             continue
 
         line = raw_line.strip()
+        if _contains_cjk_characters(line):
+            continue
         low = line.lower()
         low_normalized = re.sub(r"^[\-\*•#\s]+", "", low).strip()
         # Drop obvious technical traces and code artifacts.
@@ -310,7 +317,10 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
         line = re.sub(r"\bNON\s+MESURABLE\b", "Non mesurable sur cette prise", line, flags=re.IGNORECASE)
         for pattern, replacement in _AI_STYLE_REWRITES:
             line = pattern.sub(replacement, line)
-        line = re.sub(r"\s{2,}", " ", line).strip(" -")
+        line = re.sub(r"^\s*(?:[-–—]{2,}|[-*•])\s*", "", line)
+        line = re.sub(r"\s{2,}", " ", line).strip(" -–—_")
+        if re.fullmatch(r"[\s\-–—_=:|.]+", line or ""):
+            continue
         if not line:
             continue
         out_lines.append(line)
@@ -554,7 +564,7 @@ def _build_client_intro_card(
     <div class="card fade-in client-intro" style="animation-delay:0.18s">
         <div class="card-header">Lecture Coach</div>
         <p class="report-p" style="margin-top:4px">{intro}</p>
-        <p class="report-p">{exercise} — score global <strong>{score}/100</strong>.</p>
+        <p class="report-p">{exercise}. Score global <strong>{score}/100</strong>.</p>
         <p class="report-p" style="color:#5a4a3a">{key_metrics}</p>
     </div>
     """.format(
@@ -785,7 +795,7 @@ def _build_deterministic_report_text(
     profile = _exercise_profile(report.exercise or report.exercise_display)
 
     lines: list[str] = []
-    lines.append("ANALYSE BIOMECANIQUE — {}".format(exercise))
+    lines.append("ANALYSE BIOMECANIQUE: {}".format(exercise))
     lines.append("Score : {}/100".format(score))
     lines.append("")
     lines.append("---")
@@ -1189,7 +1199,7 @@ def generate_html_report(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=5.0">
-<title>FORMCHECK — {html.escape(exercise_name)}</title>
+<title>FORMCHECK | {html.escape(exercise_name)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -1608,7 +1618,7 @@ def _build_angle_chart(pipeline_result: Any) -> str:
 
     return f'''
     <div class="card fade-in" style="animation-delay:0.35s">
-        <div class="card-header">Courbe d'angle — {html.escape(label)}</div>
+        <div class="card-header">Courbe d'angle : {html.escape(label)}</div>
         <div class="angle-chart">
             <svg viewBox="0 0 {chart_w} {chart_h}" preserveAspectRatio="none" style="width:100%;height:100%">
                 <defs>
@@ -1913,7 +1923,7 @@ def _build_reps_timeline(reps: Any) -> str:
 
     return f'''
     <div class="card fade-in" style="animation-delay:0.38s">
-        <div class="card-header">Timeline des repetitions — {reps.total_reps} reps</div>
+        <div class="card-header">Timeline des repetitions : {reps.total_reps} reps</div>
         <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
             <div style="font-size:0.82em;color:#8a8070">Tempo moyen : <span style="color:#1a1a1a;font-weight:600">{avg_ecc:.1f}s ecc / {avg_conc:.1f}s conc</span></div>
             <div style="font-size:0.82em;color:#8a8070">Consistance : <span style="color:#1a1a1a;font-weight:600">{reps.tempo_consistency:.0%}</span></div>

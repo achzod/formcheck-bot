@@ -255,6 +255,7 @@ _LABELED_HEADINGS = (
     "PLAN_ACTION",
 )
 _RETRYABLE_HTTP_STATUSES = {403, 408, 409, 425, 429, 500, 502, 503, 504}
+_CJK_CHAR_PATTERN = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]")
 
 
 def _as_bool(raw: Any, default: bool = False) -> bool:
@@ -263,6 +264,10 @@ def _as_bool(raw: Any, default: bool = False) -> bool:
     if isinstance(raw, bool):
         return raw
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _contains_cjk_characters(text: str) -> bool:
+    return bool(_CJK_CHAR_PATTERN.search(str(text or "")))
 
 
 def _load_settings():
@@ -929,6 +934,8 @@ def _clean_markdown_report_text(text: str) -> str:
         if not line:
             lines.append("")
             continue
+        if _contains_cjk_characters(line):
+            continue
         if re.match(r"^\s*</?\s*formcheck_report_md\s*>\s*$", line, flags=re.IGNORECASE):
             continue
         if re.match(r"^\s*```(?:markdown|md|json)?\s*$", line, flags=re.IGNORECASE):
@@ -937,7 +944,10 @@ def _clean_markdown_report_text(text: str) -> str:
             continue
         if line == "MAX":
             continue
-        lines.append(raw_line.rstrip())
+        cleaned_line = re.sub(r"^\s*(?:[-–—]{2,}|[-*•])\s*", "", raw_line.rstrip())
+        if re.fullmatch(r"[\s\-–—_=:|.]+", cleaned_line or ""):
+            continue
+        lines.append(cleaned_line.rstrip())
     cleaned = "\n".join(lines)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()

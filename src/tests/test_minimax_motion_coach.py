@@ -917,6 +917,18 @@ class MiniMaxMessageExtractionTests(unittest.TestCase):
             )
         )
 
+    def test_clean_markdown_report_text_drops_cjk_and_dash_only_lines(self) -> None:
+        cleaned = mm._clean_markdown_report_text(
+            "RESUME\n"
+            "收到您的请求，我正在处理。\n"
+            "--\n"
+            "- Execution propre.\n"
+        )
+        self.assertIn("RESUME", cleaned)
+        self.assertIn("Execution propre.", cleaned)
+        self.assertNotIn("收到您的请求", cleaned)
+        self.assertNotIn("\n--\n", "\n" + cleaned + "\n")
+
     def test_analysis_candidate_filter_rejects_thinking_process_with_markdown_instructions(self) -> None:
         self.assertFalse(
             mm._is_analysis_candidate_text(
