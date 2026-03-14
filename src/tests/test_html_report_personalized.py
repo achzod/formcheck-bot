@@ -45,10 +45,11 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
 
         self.assertEqual(analysis_id, "abc123")
         self.assertTrue(token)
-        self.assertIn("Lecture Coach", html)
+        self.assertIn("Synthese de serie", html)
         self.assertNotIn("Salut Achzod", html)
         self.assertNotIn("Achzod Client", html)
-        self.assertIn("Voici ce que je vois sur ta serie.", html)
+        self.assertIn("Score global", html)
+        self.assertIn("8 detectees", html)
         self.assertIn("Intensite et Densite", html)
         self.assertIn("Plan d&#x27;Action", html)
 
@@ -103,6 +104,25 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
         self.assertIn("Rep 1 | 00:09 - 00:13 | Execution fluide.", html)
         self.assertNotIn("Plan d&#x27;Action", html)
 
+    def test_minimax_short_report_stays_source_first_without_local_analysis(self) -> None:
+        report = Report(
+            exercise="machine_chest_press",
+            exercise_display="Presse Pectorale Machine",
+            score=79,
+            report_text="Analyse breve mais valide.",
+            model_used="minimax_motion_coach",
+        )
+        html, _, _ = generate_html_report(
+            report=report,
+            annotated_frames={},
+            analysis_id="minimaxshort",
+            pipeline_result=None,
+            client_name="Client",
+        )
+        self.assertIn("Analyse breve mais valide.", html)
+        self.assertNotIn("Plan d&#x27;Action", html)
+        self.assertNotIn("Intensite et Densite", html)
+
     def test_minimax_wrapper_and_frontmatter_are_not_rendered(self) -> None:
         report = Report(
             exercise="machine_chest_press",
@@ -138,6 +158,10 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
         self.assertNotIn("Confiance exercice: 0.95", html)
         self.assertIn("Execution propre et stable.", html)
         self.assertIn("Analyse Rep par Rep", html)
+        self.assertIn("11 detectees", html)
+        self.assertIn("85 /100 (elevee)", html)
+        self.assertIn("0.00s", html)
+        self.assertIn("95%", html)
 
     def test_render_strips_cjk_noise_and_visible_dash_artifacts(self) -> None:
         report = Report(
@@ -169,7 +193,32 @@ class HtmlReportPersonalizedTests(unittest.TestCase):
         self.assertIn("Filme plus large", html)
         self.assertNotIn("-- Filme plus large", html)
         self.assertNotIn("Presse Pectorale Machine — score global", html)
-        self.assertIn("Presse Pectorale Machine. Score global", html)
+        self.assertIn("Score global", html)
+        self.assertIn("Presse Pectorale Machine", html)
+
+    def test_correction_lines_are_rendered_as_structured_blocks(self) -> None:
+        report = Report(
+            exercise="lat_pulldown",
+            exercise_display="Lat Pulldown (Tirage Vertical)",
+            score=76,
+            model_used="minimax_motion_coach",
+            report_text=(
+                "CORRECTIONS PRIORITAIRES\n"
+                "1. Tempo excentrique | Descente trop rapide | Tu perds de la tension sur le grand dorsal | Garde 2 secondes de freinage\n"
+            ),
+        )
+        html, _, _ = generate_html_report(
+            report=report,
+            annotated_frames={},
+            analysis_id="corrblocks",
+            pipeline_result=None,
+            client_name="Client",
+        )
+        self.assertIn("Tempo excentrique", html)
+        self.assertIn("Observation", html)
+        self.assertIn("Impact", html)
+        self.assertIn("Cue", html)
+        self.assertIn("Garde 2 secondes de freinage", html)
 
 
 if __name__ == "__main__":

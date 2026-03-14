@@ -24,6 +24,7 @@ from analysis.minimax_motion_coach import (
     _analysis_is_valid_final_output,
     _cache_get,
     _cache_put,
+    _compose_analysis_prompt,
     _extract_chat_candidates,
     _extract_agent_message,
     _extract_chat_name,
@@ -73,6 +74,15 @@ class MiniMaxSigningTests(unittest.TestCase):
             ).encode("utf-8")
         ).hexdigest()
         self.assertEqual(headers["yy"], expected_yy)
+
+
+class MiniMaxPromptTests(unittest.TestCase):
+    def test_compose_analysis_prompt_enforces_non_negotiable_contract(self) -> None:
+        prompt = _compose_analysis_prompt("Analyse la video et reponds en francais.")
+        self.assertIn("CONTRAINTES NON NEGOCIABLES FORMCHECK", prompt)
+        self.assertIn("N'utilise jamais de valeurs internes brutes non interpretees", prompt)
+        self.assertIn("CORRECTIONS PRIORITAIRES", prompt)
+        self.assertIn("<FORMCHECK_REPORT_MD>", prompt)
 
 
 class MiniMaxParsingTests(unittest.TestCase):

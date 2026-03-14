@@ -156,6 +156,35 @@ _FALLBACK_ANALYSIS_PROMPT = (
     "Si une information est invisible, ecris NON MESURABLE."
 ).format(start=_REPORT_START_TAG, end=_REPORT_END_TAG)
 
+_PROMPT_NON_NEGOTIABLE_SUFFIX = (
+    "\n\nCONTRAINTES NON NEGOCIABLES FORMCHECK\n"
+    "- Tu rapportes uniquement ce que tu observes sur la video. N'invente rien.\n"
+    "- Le message final doit etre uniquement un rapport Markdown place entre {start} et {end}. "
+    "Ne mets rien avant {start} et rien apres {end}.\n"
+    "- N'utilise jamais de valeurs internes brutes non interpretees comme 0.01863, 0.931 ou 0.1423. "
+    "Traduis-les en score, pourcentage, angle, temps lisible ou ne les affiche pas.\n"
+    "- Evite toute phrase vide ou scolaire. Chaque phrase doit apporter une information utile au client.\n"
+    "- Dans RESUME, commence directement par le diagnostic utile. Pas d'introduction generique.\n"
+    "- Dans CORRECTIONS PRIORITAIRES, garde exactement le format `1. titre | observation | impact | cue`.\n"
+    "- Dans ANALYSE REP PAR REP, garde exactement une ligne numerotee par rep detectee, au format "
+    "`1. Rep 1 | 00:00 - 00:00 | commentaire`.\n"
+    "- Signale explicitement les pauses visibles entre reps, les reps partielles et toute baisse de qualite.\n"
+    "- Si une section a peu de matiere, ecris une phrase courte et concrete au lieu de meubler.\n"
+    "- N'utilise ni separateurs `---`, ni JSON, ni blocs de code, ni anglais, ni texte chinois.\n"
+).format(start=_REPORT_START_TAG, end=_REPORT_END_TAG)
+
+
+def _compose_analysis_prompt(template: str | None = None, *, fallback: bool = False) -> str:
+    base_prompt = str(
+        template or (_FALLBACK_ANALYSIS_PROMPT if fallback else _DEFAULT_ANALYSIS_PROMPT)
+    ).strip()
+    if "CONTRAINTES NON NEGOCIABLES FORMCHECK" in base_prompt:
+        return base_prompt
+    return "{}{}".format(
+        base_prompt,
+        _PROMPT_NON_NEGOTIABLE_SUFFIX,
+    ).strip()
+
 _INTENSITY_LABELS = (
     ("tres elevee", 85),
     ("elevee", 70),
@@ -5241,8 +5270,8 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
     timeout_s_effective = max(timeout_s, min(max_effective_timeout_s, adaptive_timeout_s))
     analysis: MiniMaxAnalysis | None = None
     prompt_variants = [
-        ("primary", (settings.minimax_prompt_template or _DEFAULT_ANALYSIS_PROMPT).strip()),
-        ("fallback", _FALLBACK_ANALYSIS_PROMPT.strip()),
+        ("primary", _compose_analysis_prompt(settings.minimax_prompt_template, fallback=False)),
+        ("fallback", _compose_analysis_prompt(fallback=True)),
     ]
     prompt_retry_enabled = _as_bool(getattr(settings, "minimax_prompt_retry_enabled", False), False)
     if not prompt_retry_enabled:
@@ -5297,7 +5326,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
                 retryable = _should_retry_browser_analysis(exc)
                 can_try_fallback_once = (not prompt_retry_enabled) and attempt_index == 1 and retryable
                 if can_try_fallback_once and len(prompt_variants) < 2:
-                    prompt_variants.append(("fallback", _FALLBACK_ANALYSIS_PROMPT.strip()))
+                    prompt_variants.append(("fallback", _compose_analysis_prompt(fallback=True)))
                 if attempt_index < len(prompt_variants) and retryable:
                     logger.warning(
                         "MiniMax browser analysis retrying with %s prompt after semantic failure: %s",

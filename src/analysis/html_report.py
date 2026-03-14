@@ -147,7 +147,7 @@ _SECTION_ICONS: dict[str, str] = {
 
 _SECTION_DISPLAY_TITLES: dict[str, str] = {
     "ANALYSE BIOMECANIQUE": "Analyse Biomecanique",
-    "RESUME": "Resume Coach",
+    "RESUME": "Synthese de Serie",
     "AMPLITUDE DE MOUVEMENT": "Amplitude de Mouvement",
     "POINTS POSITIFS": "Points Forts",
     "CORRECTIONS PRIORITAIRES": "Corrections Prioritaires",
@@ -160,10 +160,10 @@ _SECTION_DISPLAY_TITLES: dict[str, str] = {
     "COMPENSATIONS ET BIOMECANIQUE AVANCEE": "Compensations et Biomecanique Avancee",
     "PROFIL MORPHOLOGIQUE": "Profil Morphologique",
     "EXERCICES CORRECTIFS": "Exercices Correctifs",
-    "DECOMPOSITION DU SCORE": "Decomposition du Score",
+    "DECOMPOSITION DU SCORE": "Score Detaille",
     "ANALYSE AVANCEE": "Analyse Avancee",
-    "POINT BIOMECANIQUE": "Point Biomecanique",
-    "RECOMMANDATION POUR LA PROCHAINE VIDEO": "Recommandation Prochaine Video",
+    "POINT BIOMECANIQUE": "Point Biomecanique Cle",
+    "RECOMMANDATION POUR LA PROCHAINE VIDEO": "Prochaine Video",
     "RECOMMANDATION": "Recommandation",
     "PLAN ACTION": "Plan d'Action",
     "PLAN D'ACTION": "Plan d'Action",
@@ -317,6 +317,125 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
     return "\n".join(out_lines).strip()
 
 
+def _is_known_section_header(line: str) -> bool:
+    upper = str(line or "").strip().upper()
+    if not upper:
+        return False
+    return any(upper.startswith(title) for title in _SECTION_TITLES)
+
+
+def _extract_minimax_frontmatter(report_text: str) -> dict[str, Any]:
+    metrics: dict[str, Any] = {}
+    key_aliases = {
+        "exercice": "exercise_display",
+        "exercise": "exercise_display",
+        "exercice slug": "exercise_slug",
+        "exercise slug": "exercise_slug",
+        "confiance exercice": "confidence",
+        "confidence": "confidence",
+        "score global": "score",
+        "score": "score",
+        "repetitions detectees": "reps_detected",
+        "repetitions completes": "reps_complete",
+        "repetitions partielles": "reps_partial",
+        "reps_total": "reps_detected",
+        "reps_complete": "reps_complete",
+        "reps_partial": "reps_partial",
+        "intensite": "intensity",
+        "intensity_score": "intensity",
+        "intensity_label": "intensity_label",
+        "repos inter-reps moyen": "avg_rest",
+        "repos inter reps moyen": "avg_rest",
+        "avg_inter_rep_rest_s": "avg_rest",
+    }
+
+    for raw_line in str(report_text or "").splitlines():
+        line = re.sub(r"^\s*[-*•]\s*", "", str(raw_line or "")).strip()
+        if not line:
+            continue
+        if any(pattern.match(line) for pattern in _MINIMAX_WRAPPER_LINE_PATTERNS):
+            continue
+        upper_line = re.sub(r"^[#\s]+", "", line).strip().upper()
+        if _is_known_section_header(upper_line):
+            break
+        if ":" not in line:
+            continue
+        raw_key, raw_value = line.split(":", 1)
+        key = raw_key.strip().lower().replace("é", "e").replace("è", "e")
+        value = raw_value.strip()
+        canonical = key_aliases.get(key)
+        if not canonical or not value:
+            continue
+        metrics[canonical] = value
+
+    score_text = str(metrics.get("score", "") or "")
+    score_match = re.search(r"(-?\d{1,3})\s*/\s*100", score_text)
+    if score_match:
+        metrics["score"] = max(0, min(100, int(score_match.group(1))))
+
+    confidence_text = str(metrics.get("confidence", "") or "")
+    confidence_match = re.search(r"(-?\d+(?:[.,]\d+)?)", confidence_text)
+    if confidence_match:
+        confidence_val = float(confidence_match.group(1).replace(",", "."))
+        if confidence_val <= 1.0:
+            confidence_val *= 100.0
+        metrics["confidence"] = max(0, min(100, int(round(confidence_val))))
+
+    for key in ("reps_detected", "reps_complete", "reps_partial"):
+        number_text = str(metrics.get(key, "") or "")
+        number_match = re.search(r"(-?\d+)", number_text)
+        if number_match:
+            metrics[key] = max(0, int(number_match.group(1)))
+
+    intensity_text = str(metrics.get("intensity", "") or "")
+    intensity_match = re.search(r"(-?\d{1,3})\s*/\s*100(?:\s*\(([^)]+)\))?", intensity_text)
+    if intensity_match:
+        metrics["intensity_score"] = max(0, min(100, int(intensity_match.group(1))))
+        label = (intensity_match.group(2) or "").strip()
+        if label:
+            metrics["intensity_label"] = label
+    elif intensity_text:
+        number_match = re.search(r"(-?\d{1,3})", intensity_text)
+        if number_match:
+            metrics["intensity_score"] = max(0, min(100, int(number_match.group(1))))
+
+    rest_text = str(metrics.get("avg_rest", "") or "")
+    rest_match = re.search(r"(-?\d+(?:[.,]\d+)?)", rest_text)
+    if rest_match:
+        metrics["avg_rest"] = max(0.0, float(rest_match.group(1).replace(",", ".")))
+
+    return metrics
+
+
+def _extract_section_excerpt(report_text: str, section_title: str) -> str:
+    cleaned = _clean_report_text_for_rendering(report_text)
+    if not cleaned:
+        return ""
+
+    target = section_title.strip().upper()
+    lines = [line.strip() for line in cleaned.splitlines()]
+    collecting = False
+    buffer: list[str] = []
+
+    for line in lines:
+        if not line:
+            if collecting and buffer:
+                break
+            continue
+        upper = line.upper()
+        if upper.startswith(target):
+            collecting = True
+            continue
+        if collecting and _is_known_section_header(line):
+            break
+        if collecting:
+            buffer.append(line)
+            if len(buffer) >= 2:
+                break
+
+    return " ".join(buffer[:2]).strip()
+
+
 def _format_report_html(report_text: str) -> str:
     """Convertit le texte du rapport LLM en HTML propre, parse par sections."""
     text = html.escape(_clean_report_text_for_rendering(report_text))
@@ -327,6 +446,7 @@ def _format_report_html(report_text: str) -> str:
     html_parts: list[str] = []
     in_section = False
     section_count = 0
+    current_section_title = ""
 
     for line in lines:
         stripped = line.strip()
@@ -358,6 +478,7 @@ def _format_report_html(report_text: str) -> str:
             if in_section:
                 html_parts.append("</div></div>")
             section_count += 1
+            current_section_title = upper
             icon = _get_section_icon(header_candidate)
             display_title = html.escape(_normalize_section_title(header_candidate))
             icon_html = f'<span style="margin-right:8px;vertical-align:middle;opacity:0.8">{icon}</span>' if icon else ""
@@ -432,6 +553,39 @@ def _format_report_html(report_text: str) -> str:
                             f'<div class="rep-time">{rep_timing}</div>'
                             f"{rep_comment_html}"
                             f'<span style="display:none">{html.escape(rep_raw_line)}</span>'
+                            f"</div>"
+                            f"</div>"
+                        )
+                        continue
+                    if "CORRECTIONS PRIORITAIRES" in current_section_title:
+                        observation = timing
+                        impact = segments[2] if len(segments) > 2 else ""
+                        cue = segments[3] if len(segments) > 3 else ""
+                        detail_rows: list[str] = []
+                        if observation:
+                            detail_rows.append(
+                                '<div class="correction-detail"><span class="correction-detail-label">Observation</span>{}</div>'.format(
+                                    _md_inline_to_html(observation)
+                                )
+                            )
+                        if impact:
+                            detail_rows.append(
+                                '<div class="correction-detail"><span class="correction-detail-label">Impact</span>{}</div>'.format(
+                                    _md_inline_to_html(impact)
+                                )
+                            )
+                        if cue:
+                            detail_rows.append(
+                                '<div class="correction-detail"><span class="correction-detail-label">Cue</span>{}</div>'.format(
+                                    _md_inline_to_html(cue)
+                                )
+                            )
+                        html_parts.append(
+                            f'<div class="numbered-item correction-item">'
+                            f'<span class="item-num">{num}</span>'
+                            f'<div class="correction-main">'
+                            f'<div class="correction-title">{_md_inline_to_html(lead)}</div>'
+                            f'{"".join(detail_rows)}'
                             f"</div>"
                             f"</div>"
                         )
@@ -515,49 +669,82 @@ def _build_client_intro_card(
     pipeline_result: Any | None,
     client_name: str | None,
 ) -> str:
-    intro = "Voici ce que je vois sur ta serie."
+    model_used = str(getattr(report, "model_used", "") or "").strip().lower()
+    source_metrics = _extract_minimax_frontmatter(report.report_text) if "minimax" in model_used else {}
 
-    reps_total = 0
-    intensity_score = 0
-    intensity_label = "indeterminee"
-    avg_rest = 0.0
-    detection_conf = 0.0
+    score = int(source_metrics.get("score", report.score or 0) or 0)
+    exercise_name = str(
+        source_metrics.get("exercise_display")
+        or report.exercise_display
+        or "Exercice"
+    ).strip()
+    summary_line = _extract_section_excerpt(report.report_text, "RESUME")
 
-    if pipeline_result and getattr(pipeline_result, "reps", None):
+    reps_total = int(source_metrics.get("reps_detected", 0) or 0)
+    intensity_score = int(source_metrics.get("intensity_score", 0) or 0)
+    intensity_label = str(source_metrics.get("intensity_label", "") or "").strip()
+    avg_rest = float(source_metrics.get("avg_rest", 0.0) or 0.0)
+    detection_conf = int(source_metrics.get("confidence", 0) or 0)
+
+    if not source_metrics and pipeline_result and getattr(pipeline_result, "reps", None):
         reps = pipeline_result.reps
         reps_total = int(getattr(reps, "total_reps", 0) or 0)
         intensity_score = int(getattr(reps, "intensity_score", 0) or 0)
         intensity_label = str(getattr(reps, "intensity_label", "indeterminee") or "indeterminee")
         avg_rest = float(getattr(reps, "avg_inter_rep_rest_s", 0.0) or 0.0)
-    if pipeline_result and getattr(pipeline_result, "detection", None):
-        detection_conf = float(getattr(pipeline_result.detection, "confidence", 0.0) or 0.0)
+    if not source_metrics and pipeline_result and getattr(pipeline_result, "detection", None):
+        detection_conf = int(round(float(getattr(pipeline_result.detection, "confidence", 0.0) or 0.0) * 100.0))
 
-    metrics: list[str] = []
+    metric_chips: list[str] = [
+        '<div class="metric-chip"><span class="metric-chip-label">Score global</span><span class="metric-chip-value">{}/100</span></div>'.format(
+            max(0, min(100, score))
+        )
+    ]
     if reps_total > 0:
-        metrics.append("{} reps detectees".format(reps_total))
+        metric_chips.append(
+            '<div class="metric-chip"><span class="metric-chip-label">Repetitions</span><span class="metric-chip-value">{} detectees</span></div>'.format(
+                reps_total
+            )
+        )
     if intensity_score > 0:
-        metrics.append("Intensite {} /100 ({})".format(intensity_score, html.escape(intensity_label)))
-    elif reps_total >= 2:
-        metrics.append("Intensite limitee sur cette prise")
-    if avg_rest > 0:
-        metrics.append("Repos inter-reps moyen {:.2f}s".format(avg_rest))
+        intensity_value = "{} /100".format(max(0, min(100, intensity_score)))
+        if intensity_label:
+            intensity_value = "{} ({})".format(intensity_value, html.escape(intensity_label))
+        metric_chips.append(
+            '<div class="metric-chip"><span class="metric-chip-label">Intensite</span><span class="metric-chip-value">{}</span></div>'.format(
+                intensity_value
+            )
+        )
+    if ("avg_rest" in source_metrics) or avg_rest > 0:
+        metric_chips.append(
+            '<div class="metric-chip"><span class="metric-chip-label">Repos inter-reps</span><span class="metric-chip-value">{:.2f}s</span></div>'.format(
+                avg_rest
+            )
+        )
     if detection_conf > 0:
-        metrics.append("Confiance exo {:.0f}%".format(detection_conf * 100.0))
+        metric_chips.append(
+            '<div class="metric-chip"><span class="metric-chip-label">Confiance exo</span><span class="metric-chip-value">{}%</span></div>'.format(
+                max(0, min(100, detection_conf))
+            )
+        )
 
-    key_metrics = " | ".join(metrics) if metrics else "Points cles extraits proprement sur cette video."
+    summary_html = (
+        '<p class="report-p intro-summary">{}</p>'.format(_md_inline_to_html(html.escape(summary_line)))
+        if summary_line
+        else ""
+    )
 
     return """
     <div class="card fade-in client-intro" style="animation-delay:0.18s">
-        <div class="card-header">Lecture Coach</div>
-        <p class="report-p" style="margin-top:4px">{intro}</p>
-        <p class="report-p">{exercise}. Score global <strong>{score}/100</strong>.</p>
-        <p class="report-p" style="color:#5a4a3a">{key_metrics}</p>
+        <div class="card-header">Synthese de serie</div>
+        <p class="report-p"><strong>{exercise}</strong></p>
+        {summary_html}
+        <div class="metric-chips">{metric_chips}</div>
     </div>
     """.format(
-        intro=intro,
-        exercise=html.escape(report.exercise_display or "Exercice"),
-        score=max(0, min(100, int(report.score or 0))),
-        key_metrics=key_metrics,
+        exercise=html.escape(exercise_name),
+        summary_html=summary_html,
+        metric_chips="".join(metric_chips),
     )
 
 
@@ -1160,14 +1347,14 @@ def generate_html_report(
     if morpho_data:
         morpho_html = _build_morpho_section(morpho_data)
 
-    # ── Rapport client: fallback deterministic si sortie faible ou sale ──
+    # ── Rapport client: MiniMax garde strictement son fond, fallback local reserve aux autres modes ──
     raw_report_text = (report.report_text or "").strip()
     model_used = str(getattr(report, "model_used", "") or "").strip().lower()
     use_minimax_raw = ("minimax" in model_used)
-    quality_score = _report_quality_score(raw_report_text)
-    if use_minimax_raw and _should_keep_minimax_raw_report(raw_report_text):
+    if use_minimax_raw:
         use_deterministic_fallback = False
     else:
+        quality_score = _report_quality_score(raw_report_text)
         threshold = 30 if use_minimax_raw else 56
         use_deterministic_fallback = quality_score < threshold
     report_text = (
@@ -1255,6 +1442,33 @@ body{{
     overflow:hidden
 }}
 .client-intro{{border-left:3px solid #5a4a3a}}
+.metric-chips{{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:10px;
+    margin-top:16px
+}}
+.metric-chip{{
+    background:#e5e0d5;
+    border:1px solid #d5cfc5;
+    border-radius:12px;
+    padding:12px 14px
+}}
+.metric-chip-label{{
+    display:block;
+    font-size:0.74em;
+    text-transform:uppercase;
+    letter-spacing:1.2px;
+    color:#8a8070;
+    margin-bottom:4px
+}}
+.metric-chip-value{{
+    display:block;
+    font-size:0.95em;
+    line-height:1.4;
+    color:#1a1a1a;
+    font-weight:700
+}}
 .card-header{{
     font-size:0.95em;
     color:#1a1a1a;
@@ -1353,6 +1567,25 @@ body{{
     margin-top:1px
 }}
 .item-text{{font-weight:700;color:#1a1a1a;font-size:0.95em;line-height:1.5}}
+.correction-item{{align-items:flex-start}}
+.correction-main{{display:flex;flex-direction:column;gap:8px;min-width:0}}
+.correction-title{{font-weight:700;color:#1a1a1a;font-size:0.96em;line-height:1.45}}
+.correction-detail{{
+    font-size:0.9em;
+    line-height:1.65;
+    color:#1a1a1a;
+    padding-left:12px;
+    border-left:2px solid #d5cfc5
+}}
+.correction-detail-label{{
+    display:block;
+    color:#5a4a3a;
+    font-size:0.76em;
+    font-weight:700;
+    letter-spacing:0.8px;
+    text-transform:uppercase;
+    margin-bottom:2px
+}}
 .rep-item{{align-items:flex-start;margin:12px 0}}
 .rep-main{{display:flex;flex-direction:column;gap:2px;min-width:0}}
 .rep-title{{font-weight:700;color:#1a1a1a;font-size:0.95em;line-height:1.4}}
