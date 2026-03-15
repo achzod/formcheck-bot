@@ -3,6 +3,7 @@ import os
 import time
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 from analysis.minimax_motion_coach import MiniMaxAnalysis, _analysis_to_payload
 
@@ -504,6 +505,7 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
         original_headless = os.environ.get("MINIMAX_BROWSER_HEADLESS")
         original_channel = os.environ.get("MINIMAX_BROWSER_CHANNEL")
         original_claim = minimax_remote_worker._claim_job
+        original_reexec = minimax_remote_worker._maybe_reexec_under_xvfb
         observed: dict[str, str | None] = {"headless": None, "channel": None}
 
         async def fake_claim(_client, _worker_id):
@@ -511,14 +513,19 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
             observed["channel"] = os.environ.get("MINIMAX_BROWSER_CHANNEL")
             raise asyncio.CancelledError()
 
+        def fake_reexec():
+            return None
+
         try:
             os.environ["MINIMAX_BROWSER_HEADLESS"] = "true"
             os.environ.pop("MINIMAX_BROWSER_CHANNEL", None)
             minimax_remote_worker._claim_job = fake_claim
+            minimax_remote_worker._maybe_reexec_under_xvfb = fake_reexec
             with self.assertRaises(asyncio.CancelledError):
                 asyncio.run(minimax_remote_worker.run_worker())
         finally:
             minimax_remote_worker._claim_job = original_claim
+            minimax_remote_worker._maybe_reexec_under_xvfb = original_reexec
             if original_headless is None:
                 os.environ.pop("MINIMAX_BROWSER_HEADLESS", None)
             else:
@@ -530,6 +537,62 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
 
         self.assertEqual(observed["headless"], "false")
         self.assertEqual(observed["channel"], "")
+
+    def test_reexec_under_xvfb_when_display_missing(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MINIMAX_BROWSER_HEADLESS": "false",
+                "DISPLAY": "",
+            },
+            clear=False,
+        ):
+            with mock.patch.object(minimax_remote_worker.shutil, "which", return_value="/usr/bin/xvfb-run"):
+                with mock.patch.object(minimax_remote_worker.os, "execvpe") as execvpe:
+                    minimax_remote_worker._maybe_reexec_under_xvfb()
+
+        execvpe.assert_called_once()
+        path, cmd, env = execvpe.call_args.args
+        self.assertEqual(path, "/usr/bin/xvfb-run")
+        self.assertEqual(
+            cmd,
+            [
+                "/usr/bin/xvfb-run",
+                "-a",
+                "-s",
+                "-screen 0 1920x1080x24",
+                minimax_remote_worker.sys.executable,
+                "-m",
+                "app.minimax_remote_worker",
+            ],
+        )
+        self.assertEqual(env.get("FORMCHECK_XVFB_REEXEC"), "true")
+
+    def test_reexec_is_skipped_when_display_present(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MINIMAX_BROWSER_HEADLESS": "false",
+                "DISPLAY": ":99",
+            },
+            clear=False,
+        ):
+            with mock.patch.object(minimax_remote_worker.os, "execvpe") as execvpe:
+                minimax_remote_worker._maybe_reexec_under_xvfb()
+        execvpe.assert_not_called()
+
+    def test_reexec_raises_if_display_still_missing_after_retry(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MINIMAX_BROWSER_HEADLESS": "false",
+                "DISPLAY": "",
+                "FORMCHECK_XVFB_REEXEC": "true",
+            },
+            clear=False,
+        ):
+            with self.assertRaises(RuntimeError):
+                minimax_remote_worker._maybe_reexec_under_xvfb()
 
 
 if __name__ == "__main__":

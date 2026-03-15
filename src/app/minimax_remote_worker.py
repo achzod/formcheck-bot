@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import socket
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -99,6 +101,53 @@ def _headers() -> dict[str, str]:
             "Missing MINIMAX_REMOTE_WORKER_TOKEN or FORMCHECK_INTERNAL_TOKEN or RENDER_API_KEY"
         )
     return {"X-Formcheck-Internal-Token": token}
+
+
+def _maybe_reexec_under_xvfb() -> None:
+    """Ensure headed Playwright runs with an X server even if Render bypasses CMD.
+
+    Render workers should normally start through `xvfb-run` via the Docker
+    entrypoint. In practice, some worker runtimes end up invoking
+    `python -m app.minimax_remote_worker` directly, leaving `DISPLAY` unset.
+    When that happens, Playwright headed Chromium crashes before MiniMax sees
+    the video. Re-exec the current process under `xvfb-run` so the worker can
+    self-heal from runtime command drift.
+    """
+
+    headless = _as_bool(os.getenv("MINIMAX_BROWSER_HEADLESS", "true"))
+    if headless:
+        return
+
+    display = str(os.getenv("DISPLAY", "") or "").strip()
+    if display:
+        return
+
+    if _as_bool(os.getenv("FORMCHECK_XVFB_REEXEC", "false")):
+        raise RuntimeError(
+            "DISPLAY is still missing after xvfb re-exec; headed MiniMax worker cannot start"
+        )
+
+    xvfb_run = shutil.which("xvfb-run")
+    if not xvfb_run:
+        raise RuntimeError(
+            "xvfb-run is not installed while headed MiniMax worker requires a virtual display"
+        )
+
+    cmd = [
+        xvfb_run,
+        "-a",
+        "-s",
+        "-screen 0 1920x1080x24",
+        sys.executable,
+        "-m",
+        "app.minimax_remote_worker",
+    ]
+    env = os.environ.copy()
+    env["FORMCHECK_XVFB_REEXEC"] = "true"
+    logger.warning(
+        "DISPLAY missing for headed MiniMax worker; re-executing under xvfb-run"
+    )
+    os.execvpe(xvfb_run, cmd, env)
 
 
 def _as_bool(value: Any) -> bool:
@@ -274,6 +323,7 @@ async def run_worker() -> None:
     minimax_motion_coach.settings.minimax_browser_only = True
     minimax_motion_coach.settings.minimax_browser_headless = False
     minimax_motion_coach.settings.minimax_browser_channel = channel
+    _maybe_reexec_under_xvfb()
 
     worker_id = _worker_id()
     poll_s = _poll_interval_s()
