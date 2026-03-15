@@ -1,26 +1,19 @@
 # Todo
 
 ## Current Task
-- [x] Audit the MiniMax flow end-to-end: intake, prep, upload, browser run, parse, validation, delivery.
-- [x] Verify browser-only execution remains enforced in code paths that matter.
-- [x] Remove or harden any behavior that can crash, invent content, or silently degrade MiniMax analysis.
-- [x] Add regression tests for critical MiniMax failure modes.
-- [x] Run targeted tests and full suite.
-- [x] Push production-ready fixes.
+- [x] Investigate why production reports `remote_worker_enabled=false`.
+- [x] Audit config loading and runtime feature gating around MiniMax remote worker mode.
+- [x] Implement a robust fix if the mismatch can be solved in code.
+- [x] Add regression coverage.
+- [x] Re-run tests, push, and re-check production endpoints.
 
 ## Review
-- Root causes fixed:
-  - parser still accepted fallback/unstructured MiniMax outputs and could validate them as final
-  - browser DOM fallback could still grab unstructured page text instead of a true final report
-  - cached runs could reuse older, weaker parser-contract results
-  - browser auth validation was stricter than necessary for persisted OAuth/browser sessions
-- Fixes applied:
-  - MiniMax parser now marks `parse_mode` and rejects `fallback` outputs as final in [analysis/minimax_motion_coach.py](/Users/achzod/clawd/src/analysis/minimax_motion_coach.py)
-  - browser page-report fallback no longer accepts unstructured text; it waits for structured final output
-  - candidate filter no longer accepts bare metric summaries as analysis
-  - cache contract bumped to `v12_minimax_strict_final_output`
-  - config validation now accepts persisted browser auth seeds without forcing email/password when not needed
-- Verification:
-  - `pytest -q tests/test_minimax_motion_coach.py` -> `90 passed`
-  - `pytest -q tests/test_html_report_personalized.py tests/test_remote_minimax_worker_flow.py tests/test_minimax_motion_coach.py` -> `109 passed`
-  - `pytest -q` -> `146 passed, 2 skipped`
+- Root cause: the likely issue is config drift between Render blueprint intent and the runtime boolean env on the web service.
+- Fix applied:
+  - added `minimax_remote_worker_effective_enabled()` in [app/config.py](/Users/achzod/clawd/src/app/config.py)
+  - web service now treats remote worker mode as effectively enabled when the deployment is clearly in strict browser-only MiniMax mode and already has an internal worker token configured
+  - handlers and internal worker endpoints now use the effective flag instead of the raw boolean only
+  - `/health/debug`, queue stats and debug settings now expose both raw and effective remote worker state
+- Validation:
+  - `pytest -q tests/test_runtime_config.py tests/test_remote_minimax_worker_flow.py tests/test_minimax_motion_coach.py` -> `105 passed`
+  - `pytest -q` -> `151 passed, 2 skipped`

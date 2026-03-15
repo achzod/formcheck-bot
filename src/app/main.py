@@ -493,7 +493,11 @@ try:
     import logging
     import stripe
     from app import database as db
-    from app.config import settings
+    from app.config import (
+        minimax_internal_worker_token,
+        minimax_remote_worker_effective_enabled,
+        settings,
+    )
     from app.database import init_db
     from app.debug_log import log_error, get_errors
     from app.handlers import (
@@ -696,21 +700,19 @@ try:
                 "browser_refresh_enabled": bool(settings.minimax_browser_refresh_enabled),
                 "browser_only": bool(settings.minimax_browser_only),
                 "remote_worker_enabled": bool(settings.minimax_remote_worker_enabled),
+                "remote_worker_effective_enabled": bool(minimax_remote_worker_effective_enabled(settings)),
+                "remote_worker_token_present": bool(minimax_internal_worker_token(settings)),
                 "timeout_s": int(settings.minimax_timeout_s or 0),
                 "poll_interval_s": float(settings.minimax_poll_interval_s or 0.0),
             },
         }
 
     def _internal_worker_token() -> str:
-        return str(
-            settings.minimax_remote_worker_token
-            or settings.render_api_key
-            or ""
-        ).strip()
+        return minimax_internal_worker_token(settings)
 
     def _require_internal_worker_token(request: Request) -> None:
         expected = _internal_worker_token()
-        if not settings.minimax_remote_worker_enabled or not expected:
+        if not minimax_remote_worker_effective_enabled(settings) or not expected:
             raise HTTPException(status_code=503, detail="Remote worker disabled")
         provided = (
             request.headers.get("X-Formcheck-Internal-Token", "")
@@ -827,6 +829,7 @@ try:
         counts = await db.get_minimax_remote_queue_stats(stale_after_s=stale_after_s)
         return {
             "remote_worker_enabled": bool(settings.minimax_remote_worker_enabled),
+            "remote_worker_effective_enabled": bool(minimax_remote_worker_effective_enabled(settings)),
             "browser_only": bool(settings.minimax_browser_only),
             "strict_source": bool(settings.minimax_strict_source),
             "fallback_to_local": bool(settings.minimax_fallback_to_local),
@@ -1757,6 +1760,7 @@ try:
                 "minimax_browser_refresh_enabled": bool(settings.minimax_browser_refresh_enabled),
                 "minimax_browser_only": bool(settings.minimax_browser_only),
                 "minimax_remote_worker_enabled": bool(settings.minimax_remote_worker_enabled),
+                "minimax_remote_worker_effective_enabled": bool(minimax_remote_worker_effective_enabled(settings)),
                 "minimax_timeout_s": int(settings.minimax_timeout_s or 0),
             },
         }

@@ -15,7 +15,10 @@ import uuid
 from app import database as db
 from app import messages as msg
 from app import whatsapp as wa
-from app.config import settings as app_settings
+from app.config import (
+    minimax_remote_worker_effective_enabled,
+    settings as app_settings,
+)
 from app.media_handler import (
     VIDEOS_DIR,
     cleanup_video,
@@ -68,18 +71,7 @@ _pending_clip_hints: dict[str, tuple[int, int, float]] = {}
 
 
 def _is_remote_worker_mode_enabled() -> bool:
-    strict_minimax_source = bool(
-        app_settings.minimax_enabled and app_settings.minimax_strict_source
-    )
-    fallback_local_enabled = bool(
-        app_settings.minimax_enabled and app_settings.minimax_fallback_to_local
-    )
-    return bool(
-        app_settings.minimax_enabled
-        and app_settings.minimax_remote_worker_enabled
-        and strict_minimax_source
-        and not fallback_local_enabled
-    )
+    return bool(minimax_remote_worker_effective_enabled(app_settings))
 
 
 def _queue_eta_minutes(position: int) -> int | None:

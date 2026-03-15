@@ -122,3 +122,37 @@ class Settings(BaseSettings):
 
 
 settings = Settings()  # type: ignore[call-arg]
+
+
+def minimax_internal_worker_token(cfg: Settings | None = None) -> str:
+    runtime = cfg or settings
+    return str(
+        runtime.minimax_remote_worker_token
+        or runtime.render_api_key
+        or ""
+    ).strip()
+
+
+def minimax_remote_worker_effective_enabled(cfg: Settings | None = None) -> bool:
+    """Return the effective remote-worker mode, tolerant to Render env drift.
+
+    The explicit boolean remains authoritative when set. If it is missing/false
+    but the service is clearly configured for strict browser-only MiniMax with
+    an internal worker token already present, we auto-enable the mode to avoid
+    web/worker drift caused by blueprint env mismatches.
+    """
+    runtime = cfg or settings
+    if bool(runtime.minimax_remote_worker_enabled):
+        return True
+
+    strict_minimax_source = bool(runtime.minimax_enabled and runtime.minimax_strict_source)
+    fallback_local_enabled = bool(runtime.minimax_enabled and runtime.minimax_fallback_to_local)
+    token_present = bool(minimax_internal_worker_token(runtime))
+
+    return bool(
+        runtime.minimax_enabled
+        and runtime.minimax_browser_only
+        and strict_minimax_source
+        and not fallback_local_enabled
+        and token_present
+    )
