@@ -7,6 +7,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 from urllib.parse import quote
 
 import httpx
@@ -37,7 +38,12 @@ from analysis.minimax_motion_coach import (
     run_minimax_motion_coach,
     settings as minimax_settings,
 )
-from analysis.pipeline import PipelineResult, _apply_minimax_analysis_to_result
+from analysis.pipeline import (
+    PipelineConfig,
+    PipelineResult,
+    _apply_minimax_analysis_to_result,
+    run_pipeline,
+)
 
 
 class MiniMaxSigningTests(unittest.TestCase):
@@ -1087,7 +1093,7 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         self.assertEqual(out.reps.intensity_score, 74)
         self.assertEqual(out.detection.exercise.value, "lat_pulldown")
 
-    def test_pipeline_mapping_prefers_display_when_slug_conflicts(self) -> None:
+    def test_pipeline_mapping_keeps_explicit_slug_when_minimax_fields_conflict(self) -> None:
         base = PipelineResult(video_path="video.mp4", output_dir="out")
         analysis = MiniMaxAnalysis(
             exercise_slug="leg_press",
@@ -1104,7 +1110,7 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         )
         out = _apply_minimax_analysis_to_result(base, analysis)
         assert out.detection is not None
-        self.assertEqual(out.detection.exercise.value, "machine_chest_press")
+        self.assertEqual(out.detection.exercise.value, "leg_press")
         self.assertEqual(out.report.exercise_display, "Presse Pectorale Machine")
 
     def test_pipeline_mapping_handles_freeform_minimax_machine_shoulder_slug(self) -> None:
@@ -1189,7 +1195,7 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         self.assertEqual(out.detection.exercise.value, "lat_pulldown")
         self.assertEqual(out.report.exercise_display, "Leg Press")
 
-    def test_pipeline_mapping_overrides_leg_press_when_report_text_has_clear_chest_press_cues(self) -> None:
+    def test_pipeline_mapping_does_not_override_slug_from_report_text_cues(self) -> None:
         base = PipelineResult(video_path="video.mp4", output_dir="out")
         analysis = MiniMaxAnalysis(
             exercise_slug="leg_press",
@@ -1210,8 +1216,66 @@ class MiniMaxPipelineMappingTests(unittest.TestCase):
         )
         out = _apply_minimax_analysis_to_result(base, analysis)
         assert out.detection is not None
-        self.assertEqual(out.detection.exercise.value, "machine_chest_press")
+        self.assertEqual(out.detection.exercise.value, "leg_press")
         self.assertIn("develop", out.report.exercise_display.lower().replace("é", "e"))
+
+    def test_pipeline_mapping_unknown_when_minimax_label_is_freeform_without_exact_alias(self) -> None:
+        base = PipelineResult(video_path="video.mp4", output_dir="out")
+        analysis = MiniMaxAnalysis(
+            exercise_slug="vertical_press_pattern_variant",
+            exercise_display="Mouvement de poussee epaules guidee",
+            exercise_confidence=0.74,
+            score=70,
+            reps_total=6,
+            reps_complete=6,
+            reps_partial=0,
+            intensity_score=66,
+            intensity_label="moderee",
+            avg_inter_rep_rest_s=1.1,
+            report_text="Rapport MiniMax",
+        )
+        out = _apply_minimax_analysis_to_result(base, analysis)
+        assert out.detection is not None
+        self.assertEqual(out.detection.exercise.value, "unknown")
+        self.assertEqual(out.report.exercise_display, "Mouvement de poussee epaules guidee")
+
+
+class MiniMaxStrictSourcePipelineTests(unittest.TestCase):
+    def test_run_pipeline_skips_local_augmentation_when_strict_source_enabled(self) -> None:
+        analysis = MiniMaxAnalysis(
+            exercise_slug="lat_pulldown",
+            exercise_display="Lat Pulldown (Tirage Vertical)",
+            exercise_confidence=0.92,
+            score=84,
+            reps_total=8,
+            reps_complete=8,
+            reps_partial=0,
+            intensity_score=77,
+            intensity_label="elevee",
+            avg_inter_rep_rest_s=0.9,
+            report_text="RESUME\nSerie propre.",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = Path(tmpdir) / "input.mp4"
+            video_path.write_bytes(b"fake")
+            cfg = PipelineConfig(
+                use_minimax_motion_coach=True,
+                minimax_strict_source=True,
+                minimax_fallback_to_local=False,
+                minimax_local_augmentation=True,
+                output_dir=tmpdir,
+                save_json=False,
+                save_annotated_frames=False,
+            )
+            with mock.patch("analysis.pipeline.run_minimax_motion_coach", return_value=analysis) as run_mm, mock.patch(
+                "analysis.pipeline._augment_minimax_with_local_metrics"
+            ) as augment:
+                out = run_pipeline(str(video_path), cfg)
+
+        self.assertTrue(out.success)
+        self.assertIsNotNone(out.report)
+        run_mm.assert_called_once()
+        augment.assert_not_called()
 
 
 class MiniMaxFinalOutputValidationTests(unittest.TestCase):

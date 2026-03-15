@@ -477,11 +477,11 @@ def _infer_family_from_report_text(raw_text: str | None) -> str:
 
 
 def _map_minimax_exercise_name(slug: str | None, display_name: str | None) -> str:
-    """Normalize MiniMax labels to the closest supported internal family.
+    """Normalize MiniMax labels conservatively for internal routing only.
 
-    MiniMax often returns a rich French display name plus a free-form slug.
-    We preserve the exact display text for the client, but normalize it here
-    so internal HTML/rules/metrics stay consistent.
+    MiniMax remains the analytical source of truth. This mapper only handles
+    exact slugs and exact known aliases so internal enums remain stable
+    without reinterpreting MiniMax semantics.
     """
     slug_norm = _normalize_exercise_name(slug)
     display_norm = _normalize_exercise_name(display_name)
@@ -498,44 +498,39 @@ def _map_minimax_exercise_name(slug: str | None, display_name: str | None) -> st
         "cable_row": "cable_row",
         "barbell_row": "barbell_row",
         "bent_over_row": "barbell_row",
+        "presse_pectorale_machine": "machine_chest_press",
+        "presse_pectorale": "machine_chest_press",
+        "developpe_epaules_a_la_machine_convergente": "ohp",
+        "developpe_epaules_machine_convergente": "ohp",
+        "developpe_couche_a_la_machine_hammer_strength": "machine_chest_press",
+        "developpe_couche_a_la_machine__hammer_strength_": "machine_chest_press",
     }
+
+    def _canonical_alias_key(name: str) -> str:
+        return re.sub(r"[^a-z0-9_]+", "_", name or "").strip("_")
 
     def _map_free_label(name: str) -> str:
         if not name:
             return ""
         if name in _EXERCISE_VALUES:
             return name
-        if name in explicit_aliases:
-            return explicit_aliases[name]
-        mapped = _map_model_exercise_name(name)
-        return mapped if mapped in _EXERCISE_VALUES else ""
+        return explicit_aliases.get(name) or explicit_aliases.get(_canonical_alias_key(name)) or ""
 
-    display_mapped = _map_free_label(display_norm)
     slug_mapped = _map_free_label(slug_norm)
+    display_mapped = _map_free_label(display_norm)
 
-    if display_mapped:
-        if slug_mapped and slug_mapped != display_mapped:
-            display_supported = _supports_exercise_family(display_name, display_mapped)
-            slug_supported = _supports_exercise_family(slug, slug_mapped) or _slug_is_explicit_family(slug)
-            if slug_supported and not display_supported:
-                logger.warning(
-                    "MiniMax slug/display disagreement resolved via explicit slug family: slug='%s' -> '%s', display='%s' -> '%s'",
-                    slug_norm,
-                    slug_mapped,
-                    display_norm,
-                    display_mapped,
-                )
-                return slug_mapped
+    if slug_mapped:
+        if display_mapped and display_mapped != slug_mapped:
             logger.warning(
-                "MiniMax slug/display disagreement resolved via display label: slug='%s' -> '%s', display='%s' -> '%s'",
+                "MiniMax slug/display disagreement kept source-first: slug='%s' -> '%s', display='%s' -> '%s'",
                 slug_norm,
                 slug_mapped,
                 display_norm,
                 display_mapped,
             )
-        return display_mapped
-    if slug_mapped:
         return slug_mapped
+    if display_mapped:
+        return display_mapped
     return ""
 
 
@@ -1358,40 +1353,6 @@ def _apply_minimax_analysis_to_result(
         analysis.exercise_slug,
         analysis.exercise_display,
     )
-    report_hint = _infer_family_from_report_text(
-        str(getattr(analysis, "report_text", "") or getattr(analysis, "raw_response", "") or "")
-    )
-    if report_hint and report_hint != mapped_name:
-        report_supports_current = bool(mapped_name and _supports_exercise_family(analysis.report_text, mapped_name))
-        if not report_supports_current:
-            logger.warning(
-                "MiniMax family override via report text: mapped='%s' -> report_hint='%s' (display='%s' slug='%s')",
-                mapped_name,
-                report_hint,
-                analysis.exercise_display,
-                analysis.exercise_slug,
-            )
-            mapped_name = report_hint
-    if mapped_name == "leg_press":
-        raw_corpus = " ".join(
-            part
-            for part in (
-                str(getattr(analysis, "exercise_display", "") or ""),
-                str(getattr(analysis, "report_text", "") or ""),
-                str(getattr(analysis, "raw_response", "") or ""),
-            )
-            if part
-        )
-        corpus = _normalize_exercise_name(raw_corpus)
-        has_leg_tokens = any(token in corpus for token in ("leg", "jamb", "cuisse", "quad", "plateforme", "platform"))
-        has_chest_tokens = any(token in corpus for token in ("chest", "poitrine", "pector", "pec", "bench", "couche"))
-        has_shoulder_tokens = any(token in corpus for token in ("epaule", "shoulder", "militaire", "overhead"))
-        if has_chest_tokens and not has_leg_tokens:
-            logger.warning("MiniMax mapping override: leg_press -> machine_chest_press (upper push lexical cues).")
-            mapped_name = "machine_chest_press"
-        elif has_shoulder_tokens and not has_leg_tokens:
-            logger.warning("MiniMax mapping override: leg_press -> ohp (shoulder press lexical cues).")
-            mapped_name = "ohp"
 
     try:
         exercise_enum = Exercise(mapped_name) if mapped_name else Exercise.UNKNOWN
@@ -1668,7 +1629,9 @@ def run_pipeline(
             minimax_analysis = run_minimax_motion_coach(str(video))
             result = _apply_minimax_analysis_to_result(result, minimax_analysis)
             result.timings["minimax_motion_coach"] = time.monotonic() - t0_minimax
-            if cfg.minimax_local_augmentation:
+            if cfg.minimax_local_augmentation and cfg.minimax_strict_source:
+                logger.info("MiniMax local augmentation skipped: strict source mode.")
+            elif cfg.minimax_local_augmentation:
                 try:
                     _augment_minimax_with_local_metrics(
                         video=video,
