@@ -1359,6 +1359,7 @@ def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
             analysis.score = derived_total
     analysis.plan_action = _extract_bullets(plan_block)[:6]
     analysis.report_text = _build_structured_report_text(analysis)
+    analysis.metadata["parse_mode"] = "labeled"
     _harmonize_rep_counts(analysis, raw_text=(text or ""))
     return analysis
 
@@ -1446,6 +1447,9 @@ def _parse_markdown_analysis_payload(text: str) -> MiniMaxAnalysis | None:
         analysis.exercise_slug = _slugify(analysis.exercise_display)
     if not analysis.exercise_display:
         analysis.exercise_display = "Exercice non identifie"
+    analysis.metadata["parse_mode"] = (
+        "tagged_markdown" if bool(_extract_tagged_report_block(text)) else "markdown"
+    )
     _harmonize_rep_counts(analysis, raw_text=(text or ""))
     return analysis
 
@@ -2183,6 +2187,7 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
     analysis = MiniMaxAnalysis(raw_response=raw_text)
 
     if payload:
+        analysis.metadata["parse_mode"] = "json"
         exercise = payload.get("exercise", {})
         if isinstance(exercise, dict):
             exercise_name = str(exercise.get("name", "") or "")
@@ -2331,6 +2336,7 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
         return labeled
 
     # Regex fallback for non-JSON answers.
+    analysis.metadata["parse_mode"] = "fallback"
     analysis.exercise_display = _extract_exercise_from_text(raw_text)
     analysis.exercise_slug = _slugify(analysis.exercise_display)
     invalid_display_norm = _normalize_label_text(analysis.exercise_display)
@@ -2359,6 +2365,7 @@ def _analysis_is_valid_final_output(analysis: MiniMaxAnalysis) -> bool:
     raw = str(getattr(analysis, "raw_response", "") or "").strip()
     display = str(getattr(analysis, "exercise_display", "") or "").strip()
     report = str(getattr(analysis, "report_text", "") or "").strip()
+    parse_mode = str(getattr(analysis, "metadata", {}).get("parse_mode", "") or "").strip().lower()
     low_blob = _compact_text("\n".join(part for part in (raw, display, report) if part)).lower()
     invalid_markers = (
         "l'utilisateur me demande",
@@ -2371,6 +2378,9 @@ def _analysis_is_valid_final_output(analysis: MiniMaxAnalysis) -> bool:
         "format de sortie obligatoire",
     )
     if any(marker in low_blob for marker in invalid_markers):
+        return False
+
+    if parse_mode == "fallback":
         return False
 
     if _extract_tagged_report_block(raw) or _extract_markdown_report_block(raw):
@@ -2390,7 +2400,9 @@ def _analysis_is_valid_final_output(analysis: MiniMaxAnalysis) -> bool:
             getattr(analysis, "plan_action", []),
         )
     )
-    return has_metrics or has_content
+    if parse_mode in {"json", "labeled"}:
+        return has_metrics or has_content
+    return False
 
 
 def _should_retry_browser_analysis(exc: Exception) -> bool:
@@ -3064,9 +3076,10 @@ def _validate_settings() -> list[str]:
     missing: list[str] = []
     email = str(getattr(settings, "minimax_browser_email", "") or "").strip()
     password = str(getattr(settings, "minimax_browser_password", "") or "").strip()
-    if not email:
-        missing.append("minimax_browser_email")
-    if not password and not _browser_auth_seed_available():
+    has_auth_seed = _browser_auth_seed_available()
+    if not email and not has_auth_seed:
+        missing.append("minimax_browser_email_or_browser_auth_seed")
+    if not password and not has_auth_seed:
         missing.append("minimax_browser_password_or_browser_auth_seed")
     return missing
 
@@ -4612,10 +4625,6 @@ def _is_analysis_candidate_text(text: str) -> bool:
     if any(marker in low for marker in positive_markers):
         return True
 
-    if re.search(r"\b\d{1,3}/100\b", low) and re.search(r"\b\d+\s*reps?\b", low):
-        return True
-    if re.search(r"\bexercise\b", low) and re.search(r"\bconfidence\b", low):
-        return True
     return False
 
 
@@ -4754,12 +4763,6 @@ def _collect_page_report_candidate(page: Any) -> str:
     if dom_candidates:
         return _select_new_dom_candidate(dom_candidates, set())
 
-    broad_dom_candidates = _collect_dom_text_candidates(page)
-    unstructured = [candidate for candidate in broad_dom_candidates if _looks_like_unstructured_report_text(candidate)]
-    if unstructured:
-        unstructured.sort(key=lambda item: (len(item), item.count("\n")), reverse=True)
-        return unstructured[0]
-
     try:
         body_text = str(page.locator("body").inner_text(timeout=1800) or "")
     except Exception:
@@ -4767,8 +4770,6 @@ def _collect_page_report_candidate(page: Any) -> str:
     report_block = _extract_markdown_report_block(body_text)
     if report_block:
         return report_block
-    if _looks_like_unstructured_report_text(body_text):
-        return _clean_markdown_report_text(body_text)
     if _is_analysis_candidate_text(body_text):
         return _compact_text(body_text)
     return ""
@@ -4814,10 +4815,9 @@ def _run_minimax_browser_only_once(
     email = str(getattr(settings, "minimax_browser_email", "") or "").strip()
     password = str(getattr(settings, "minimax_browser_password", "") or "").strip()
     has_auth_seed = _browser_auth_seed_available()
-    if not email or (not password and not has_auth_seed):
+    if not has_auth_seed and (not email or not password):
         raise RuntimeError(
-            "MiniMax browser-only mode requires MINIMAX_BROWSER_EMAIL and either MINIMAX_BROWSER_PASSWORD "
-            "or persisted browser auth (profile/storage/cookie)"
+            "MiniMax browser-only mode requires persisted browser auth or MINIMAX_BROWSER_EMAIL/MINIMAX_BROWSER_PASSWORD"
         )
 
     timeout_s = max(45, int(getattr(settings, "minimax_browser_timeout_s", 120) or 120))
@@ -5291,7 +5291,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
                 "{}|{}|{}|clip:{}|preserve_full:{}|optimize:{}".format(
                     prompt,
                     int(getattr(settings, "minimax_model_option", 0) or 0),
-                    "v11_minimax_preserve_source_quality",
+                    "v12_minimax_strict_final_output",
                     int(getattr(settings, "minimax_max_clip_s", 240) or 240),
                     int(getattr(settings, "minimax_preserve_full_video_up_to_s", 480) or 480),
                     1 if _as_bool(getattr(settings, "minimax_optimize_video", True), True) else 0,

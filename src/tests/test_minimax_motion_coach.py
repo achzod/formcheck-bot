@@ -331,6 +331,8 @@ PLAN_ACTION:
         self.assertEqual(out.intensity_score, 76)
         self.assertEqual(out.intensity_label, "elevee")
         self.assertAlmostEqual(out.avg_inter_rep_rest_s, 0.92, places=2)
+        self.assertEqual(out.metadata.get("parse_mode"), "fallback")
+        self.assertFalse(_analysis_is_valid_final_output(out))
 
     def test_reps_total_is_harmonized_from_rep_by_rep_section(self) -> None:
         text = """
@@ -425,6 +427,8 @@ On voit aussi une legere compensation de l'epaule droite quand la fatigue monte.
         self.assertEqual(out.exercise_display, "Machine Chest Press")
         self.assertIn("bonne stabilite globale", out.report_text.lower())
         self.assertIn("correction: ralentis la descente", out.report_text.lower())
+        self.assertEqual(out.metadata.get("parse_mode"), "fallback")
+        self.assertFalse(_analysis_is_valid_final_output(out))
 
     def test_parse_unstructured_report_does_not_keep_formcheck_wrapper_as_exercise(self) -> None:
         text = """
@@ -449,6 +453,8 @@ Intensite: 72/100 (elevee)
         out = _parse_analysis_payload(text)
         self.assertEqual(out.exercise_display, "Développé couché à la machine convergente")
         self.assertEqual(out.reps_total, 9)
+        self.assertEqual(out.metadata.get("parse_mode"), "markdown")
+        self.assertTrue(_analysis_is_valid_final_output(out))
 
     def test_score_breakdown_is_clamped_per_category(self) -> None:
         text = """
@@ -781,6 +787,36 @@ class MiniMaxVideoPreparationTests(unittest.TestCase):
 
 
 class MiniMaxBrowserConfigValidationTests(unittest.TestCase):
+    def test_validate_settings_allows_seeded_browser_profile_without_email_or_password(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "profile"
+            default_dir = profile_dir / "Default"
+            default_dir.mkdir(parents=True)
+            (default_dir / "Preferences").write_text("{}", encoding="utf-8")
+            original = {
+                "email": minimax_settings.minimax_browser_email,
+                "password": minimax_settings.minimax_browser_password,
+                "profile_dir": minimax_settings.minimax_browser_profile_dir,
+                "local": minimax_settings.minimax_browser_local_storage_json,
+                "session": minimax_settings.minimax_browser_session_storage_json,
+                "cookie": minimax_settings.minimax_cookie,
+            }
+            try:
+                minimax_settings.minimax_browser_email = ""
+                minimax_settings.minimax_browser_password = ""
+                minimax_settings.minimax_browser_profile_dir = str(profile_dir)
+                minimax_settings.minimax_browser_local_storage_json = ""
+                minimax_settings.minimax_browser_session_storage_json = ""
+                minimax_settings.minimax_cookie = ""
+                self.assertEqual(mm._validate_settings(), [])
+            finally:
+                minimax_settings.minimax_browser_email = original["email"]
+                minimax_settings.minimax_browser_password = original["password"]
+                minimax_settings.minimax_browser_profile_dir = original["profile_dir"]
+                minimax_settings.minimax_browser_local_storage_json = original["local"]
+                minimax_settings.minimax_browser_session_storage_json = original["session"]
+                minimax_settings.minimax_cookie = original["cookie"]
+
     def test_validate_settings_allows_seeded_browser_profile_without_password(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             profile_dir = Path(tmpdir) / "profile"
@@ -830,7 +866,10 @@ class MiniMaxBrowserConfigValidationTests(unittest.TestCase):
                 minimax_settings.minimax_browser_local_storage_json = ""
                 minimax_settings.minimax_browser_session_storage_json = ""
                 minimax_settings.minimax_cookie = ""
-                self.assertEqual(mm._validate_settings(), ["minimax_browser_password_or_browser_auth_seed"])
+                self.assertEqual(
+                    mm._validate_settings(),
+                    ["minimax_browser_password_or_browser_auth_seed"],
+                )
             finally:
                 minimax_settings.minimax_browser_email = original["email"]
                 minimax_settings.minimax_browser_password = original["password"]
@@ -911,6 +950,14 @@ class MiniMaxMessageExtractionTests(unittest.TestCase):
                 "<FORMCHECK_REPORT_MD>\n# FORMCHECK\n- Exercice: Presse pectorale machine\n"
                 "- Score global: 82/100\n- Repetitions detectees: 9\n## RESUME\nSerie propre.\n"
                 "## PLAN ACTION\n- Controle la descente\n</FORMCHECK_REPORT_MD>"
+            )
+        )
+
+    def test_analysis_candidate_filter_rejects_bare_metric_summary(self) -> None:
+        self.assertFalse(
+            mm._is_analysis_candidate_text(
+                "Lat Pulldown (Tirage Vertical) — 78/100 — 8 reps\n"
+                "Intensite: 76/100 (elevee) — repos moyen 0.92s"
             )
         )
 
@@ -1300,6 +1347,23 @@ class MiniMaxFinalOutputValidationTests(unittest.TestCase):
             "</FORMCHECK_REPORT_MD>"
         )
         self.assertTrue(_analysis_is_valid_final_output(analysis))
+        self.assertEqual(analysis.metadata.get("parse_mode"), "tagged_markdown")
+
+    def test_validation_accepts_structured_json_output(self) -> None:
+        analysis = _parse_analysis_payload(
+            '{"exercise":{"name":"machine_chest_press","display_name_fr":"Presse pectorale machine","confidence":0.92},'
+            '"score":81,"reps":{"total":8,"complete":8,"partial":0},"intensity":{"score":74,"label":"elevee","avg_inter_rep_rest_s":0.9},'
+            '"sections":{"resume":"Serie propre.","tempo":"Excentrique a mieux freiner."},"plan_action":["Controle la descente"]}'
+        )
+        self.assertTrue(_analysis_is_valid_final_output(analysis))
+        self.assertEqual(analysis.metadata.get("parse_mode"), "json")
+
+    def test_validation_rejects_bare_metric_summary(self) -> None:
+        analysis = _parse_analysis_payload(
+            "Lat Pulldown (Tirage Vertical) — 78/100 — 8 reps\nIntensite: 76/100 (elevee) — repos moyen 0.92s"
+        )
+        self.assertFalse(_analysis_is_valid_final_output(analysis))
+        self.assertEqual(analysis.metadata.get("parse_mode"), "fallback")
 
 
 class MiniMaxCacheTests(unittest.TestCase):
@@ -1318,7 +1382,29 @@ class MiniMaxCacheTests(unittest.TestCase):
                     score=82,
                     reps_total=9,
                     intensity_score=70,
-                    report_text="Test report",
+                    report_text=(
+                        "<FORMCHECK_REPORT_MD>\n"
+                        "# FORMCHECK\n"
+                        "- Exercice: Back Squat\n"
+                        "- Exercice slug: squat\n"
+                        "- Score global: 82/100\n"
+                        "- Repetitions detectees: 9\n"
+                        "## RESUME\nSerie propre.\n"
+                        "## PLAN ACTION\n- Controle la descente\n"
+                        "</FORMCHECK_REPORT_MD>"
+                    ),
+                    raw_response=(
+                        "<FORMCHECK_REPORT_MD>\n"
+                        "# FORMCHECK\n"
+                        "- Exercice: Back Squat\n"
+                        "- Exercice slug: squat\n"
+                        "- Score global: 82/100\n"
+                        "- Repetitions detectees: 9\n"
+                        "## RESUME\nSerie propre.\n"
+                        "## PLAN ACTION\n- Controle la descente\n"
+                        "</FORMCHECK_REPORT_MD>"
+                    ),
+                    metadata={"parse_mode": "tagged_markdown"},
                 )
                 _cache_put("video_hash_1", "prompt_hash_1", analysis)
                 loaded = _cache_get("video_hash_1", "prompt_hash_1")

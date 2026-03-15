@@ -7,3 +7,4 @@
 - Do not add local semantic overrides on top of a third-party analysis engine unless the user explicitly asks for that layer.
 - For non-trivial tasks, write the execution plan to `tasks/todo.md` before implementation and finish with a review section.
 - After a user correction about process or quality expectations, capture the pattern immediately in `tasks/lessons.md`.
+- When the user says MiniMax must receive and analyze videos perfectly, audit the entire transport chain (download, video prep, browser upload, response validation, delivery), not only the report renderer.

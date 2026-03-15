@@ -1,25 +1,26 @@
 # Todo
 
 ## Current Task
-- [x] Audit the MiniMax integration path end-to-end.
-- [x] Verify that MiniMax remains the analytical source of truth.
-- [x] Remove local semantic overrides from the MiniMax result mapping path.
-- [x] Block local post-analysis augmentation when `minimax_strict_source=true`.
-- [x] Prove the behavior with targeted regression tests.
-- [x] Run the full test suite.
-- [x] Push the fix to `main`.
+- [x] Audit the MiniMax flow end-to-end: intake, prep, upload, browser run, parse, validation, delivery.
+- [x] Verify browser-only execution remains enforced in code paths that matter.
+- [x] Remove or harden any behavior that can crash, invent content, or silently degrade MiniMax analysis.
+- [x] Add regression tests for critical MiniMax failure modes.
+- [x] Run targeted tests and full suite.
+- [x] Push production-ready fixes.
 
 ## Review
-- Root cause: the code still allowed two non-source-first behaviors after MiniMax returned:
-  - local semantic reinterpretation of the exercise label
-  - optional local metric augmentation after MiniMax analysis
-- Fix applied in [analysis/pipeline.py](/Users/achzod/clawd/src/analysis/pipeline.py):
-  - MiniMax mapping is now conservative and source-first
-  - report text no longer overrides MiniMax exercise semantics
-  - strict-source mode now skips local augmentation even if that flag is enabled
-- Regression coverage added in [tests/test_minimax_motion_coach.py](/Users/achzod/clawd/src/tests/test_minimax_motion_coach.py)
+- Root causes fixed:
+  - parser still accepted fallback/unstructured MiniMax outputs and could validate them as final
+  - browser DOM fallback could still grab unstructured page text instead of a true final report
+  - cached runs could reuse older, weaker parser-contract results
+  - browser auth validation was stricter than necessary for persisted OAuth/browser sessions
+- Fixes applied:
+  - MiniMax parser now marks `parse_mode` and rejects `fallback` outputs as final in [analysis/minimax_motion_coach.py](/Users/achzod/clawd/src/analysis/minimax_motion_coach.py)
+  - browser page-report fallback no longer accepts unstructured text; it waits for structured final output
+  - candidate filter no longer accepts bare metric summaries as analysis
+  - cache contract bumped to `v12_minimax_strict_final_output`
+  - config validation now accepts persisted browser auth seeds without forcing email/password when not needed
 - Verification:
-  - targeted tests passed
-  - full suite passed: `142 passed, 2 skipped`
-  - commit pushed: `e8fec25`
-
+  - `pytest -q tests/test_minimax_motion_coach.py` -> `90 passed`
+  - `pytest -q tests/test_html_report_personalized.py tests/test_remote_minimax_worker_flow.py tests/test_minimax_motion_coach.py` -> `109 passed`
+  - `pytest -q` -> `146 passed, 2 skipped`
