@@ -1,9 +1,9 @@
 # Session State
 
-*Mise a jour : 2026-03-16 13:24 GST*
+*Mise a jour : 2026-03-16 13:34 GST*
 
 ## Tache en cours
-Deblocage final de la queue MiniMax prod: l auth interne est corrigee, mais le wrapper `xvfb-run` laisse le service worker `live` sans vrai process Python consommateur.
+Deblocage final de la chaine MiniMax prod: worker et auth sont corriges, mais il restait une perte de fichier source video avant telechargement par le worker.
 
 ## Contexte immediat
 1. Le worker local Mac est maintenant bloque cote serveur par le filtre `worker_id`.
@@ -12,14 +12,16 @@ Deblocage final de la queue MiniMax prod: l auth interne est corrigee, mais le w
    - `DERIVED_ID=srv-d6o382rh46gs73a59h8g-8644669cc5-jgc2l-29`
    - claim manuel => `403 {"detail":"Invalid internal token"}`
 4. Correctif auth pousse et deploye via `38351e8`: le worker peut maintenant claim en `200`.
-5. Nouveau diagnostic runtime: dans le shell worker, on observe seulement `/bin/sh /usr/bin/xvfb-run ... python -m app.minimax_remote_worker` et `Xvfb`, mais pas de process Python worker long vivant.
-6. Cause racine courante: le reexec `xvfb-run` est trop fragile sur Render et peut laisser un conteneur `live` sans consumer MiniMax actif.
+5. Correctif Xvfb pousse et deploye via `73b4e5e`: le worker a bien repris automatiquement la queue.
+6. Le job `id=6` a alors echoue avec `404 /internal/minimax/jobs/6/video`.
+7. Diagnostic web shell: `video_path='media/videos/e168cb58-1b27-4ffe-8d01-2662d3fcffdf.mp4'` et `EXISTS False`.
+8. Cause racine courante: la video de job MiniMax etait stockee hors disque persistant web; un redeploiement la rendait indisponible avant fetch worker.
 
 ## Plan actif
-1. Remplacer le reexec `xvfb-run` par un demarrage direct d `Xvfb` depuis Python.
-2. Couvrir ce bootstrap par tests.
+1. Basculer le stockage media job vers `/app/state/media` quand le disque persistant Render est disponible.
+2. Couvrir ce routage stockage par tests.
 3. Push + deploy.
-4. Revalider que le job queue est repris automatiquement par le worker Render live.
+4. Revalider sur une nouvelle video que le worker recupere bien le media et va au bout.
 
 ## Prochaine action immediate
-Pousser le correctif Xvfb direct puis verifier que la queue quitte `queued` sans claim manuel.
+Pousser le correctif storage persistant puis attendre le redeploy pour le prochain test reel.

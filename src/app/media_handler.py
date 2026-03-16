@@ -8,6 +8,7 @@ endpoint FastAPI `/media/{filename}`.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import uuid
 from pathlib import Path
@@ -17,8 +18,21 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+def _media_root_dir() -> Path:
+    configured = str(os.getenv("FORMCHECK_MEDIA_DIR", "") or "").strip()
+    if configured:
+        return Path(configured)
+
+    persistent_root = Path("/app/state")
+    if persistent_root.exists():
+        return persistent_root / "media"
+
+    return Path("media")
+
+
 # Répertoires de stockage
-MEDIA_DIR = Path("media")
+MEDIA_DIR = _media_root_dir()
 VIDEOS_DIR = MEDIA_DIR / "videos"
 ANNOTATED_DIR = MEDIA_DIR / "annotated"
 
