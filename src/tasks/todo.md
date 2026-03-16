@@ -15,6 +15,11 @@
 - [x] Identifier pourquoi un job worker valide echoue en `404 /video`
 - [x] Identifier pourquoi le dernier job crash sur le profil navigateur MiniMax
 - [ ] Verifier que le job en queue est bien repris par le worker Render live
+- [x] Verifier le dernier test utilisateur apres fix profil navigateur
+- [x] Identifier pourquoi le dernier run MiniMax timeoute alors que la queue est saine
+- [x] Corriger le nouveau bloqueur overlay MiniMax `MaxClaw Team Mode`
+- [x] Ajouter la regression test associee
+- [ ] Deployer le fix overlay et recontroler le prochain run
 
 ## Review
 - Cause racine 1 confirmee: un worker local `MacBook-Pro-de-achkan.local-*` utilisait encore le token interne et claimait la queue prod.
@@ -24,4 +29,13 @@
 - Cause racine 5 confirmee: la video source des jobs MiniMax etait stockee sous `media/videos/...` hors disque persistant web. Un redeploiement web pouvait donc faire disparaitre le fichier avant le `GET /internal/minimax/jobs/{id}/video`.
 - Cause racine 6 confirmee: Chromium etait lance sur un profil persistant partage MiniMax, ce qui exposait les runs suivants a un verrou `profile appears to be in use by another Chromium process`.
 - Correctifs appliques: garde-fou serveur sur les `worker_id`, fallback du worker Render sur son hostname `srv-*` quand l env vaut `auto`, acceptation cote web des deux secrets internes valides, demarrage direct de `Xvfb` depuis le process Python worker au lieu d un reexec `xvfb-run`, stockage des medias sous `/app/state/media` quand le disque persistant Render est disponible, puis workspace navigateur temporaire par run clone depuis le seed MiniMax avec purge des locks Chromium.
+- Verification du dernier test utilisateur: la video inbound du `2026-03-16 10:07:18` a bien cree `analysis_id=17` puis `job_id=8`, le worker Render l a bien claim, puis le job a echoue a `2026-03-16 10:13:17` avec `MiniMax global analysis timeout reached`.
+- Conclusion actuelle: la queue prod et le worker ne sont plus bloques; le defaut actif est maintenant dans le temps d analyse MiniMax sur certaines videos.
+- Nouveau diagnostic live sur le test suivant:
+  - video inbound `2026-03-16 10:53:03`
+  - `analysis_id=18`, `job_id=9`
+  - worker a bien charge la video a `10:53:05`
+  - logs worker a `10:53:24`: `MiniMax blanket overlay detected` avec promo `MaxClaw Team Mode is here`
+- Cause racine 7 confirmee: le browser MiniMax etait capable de detecter un overlay promo `MaxClaw`, mais la suppression DOM etait trop specifique (`MaxClaw is here`) et la boucle d attente apres send ne purgeait pas cet overlay.
+- Correctif applique: suppression DOM elargie a la variante `MaxClaw Team Mode` et purge active de l overlay dans la boucle de polling post-envoi.
 - Validation locale: `166 passed, 2 skipped`.

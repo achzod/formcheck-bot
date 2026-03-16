@@ -3749,7 +3749,15 @@ def _remove_maxclaw_promo_overlay(page: Any) -> bool:
                     const nodes = Array.from(document.querySelectorAll('[class*="bg-utility_blanket"], div.fixed.inset-0, [role="dialog"]'));
                     for (const node of nodes) {
                         const text = String(node.textContent || '');
-                        if (!text.includes('MaxClaw is here') && !text.includes('Get MaxClaw')) continue;
+                        const low = text.toLowerCase();
+                        const isMaxClawPromo = low.includes('maxclaw') && (
+                            low.includes('team mode')
+                            || low.includes('get maxclaw')
+                            || low.includes('multi-agent collaboration')
+                            || low.includes('build your ai workgroup')
+                            || low.includes('running continuously in the cloud')
+                        );
+                        if (!isMaxClawPromo) continue;
                         node.remove();
                         removed = true;
                     }
@@ -5034,6 +5042,8 @@ def _run_minimax_browser_only_once(
             deadline = time.monotonic() + timeout_s_effective
             sleep_ms = max(300, int(max(0.8, poll_interval) * 1000))
             while time.monotonic() < deadline:
+                if _blanket_overlay_visible(page):
+                    _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
                 if state.get("best_text") and (
                     state.get("done")
                     or (
