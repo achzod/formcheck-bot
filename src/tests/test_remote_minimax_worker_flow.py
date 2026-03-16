@@ -585,6 +585,12 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
         self.assertEqual(observed["headless"], "false")
         self.assertEqual(observed["channel"], "")
 
+    def test_worker_id_treats_auto_env_as_hostname_fallback(self) -> None:
+        with mock.patch.dict(os.environ, {"MINIMAX_REMOTE_WORKER_ID": "auto"}, clear=False):
+            with mock.patch.object(minimax_remote_worker.socket, "gethostname", return_value="srv-test"):
+                with mock.patch.object(minimax_remote_worker.os, "getpid", return_value=42):
+                    self.assertEqual(minimax_remote_worker._worker_id(), "srv-test-42")
+
     def test_reexec_under_xvfb_when_display_missing(self) -> None:
         with mock.patch.dict(
             os.environ,

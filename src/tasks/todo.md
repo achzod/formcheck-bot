@@ -12,6 +12,7 @@
 - [ ] Deployer et verifier que la queue prod n est plus parasitee
 
 ## Review
-- Cause racine confirmee: un worker local `MacBook-Pro-de-achkan.local-*` utilisait encore le token interne et claimait la queue prod.
-- Correctif applique: en prod, seuls les `worker_id` autorises peuvent claim les jobs MiniMax; par defaut, les workers Render (`srv-*`) sont acceptes.
-- Validation locale: `159 passed, 2 skipped`.
+- Cause racine 1 confirmee: un worker local `MacBook-Pro-de-achkan.local-*` utilisait encore le token interne et claimait la queue prod.
+- Cause racine 2 confirmee: le worker Render recevait `MINIMAX_REMOTE_WORKER_ID=auto`, ce qui le faisait lui aussi rejeter apres le garde-fou serveur.
+- Correctifs appliques: garde-fou serveur sur les `worker_id` + fallback du worker Render sur son hostname `srv-*` quand l env vaut `auto`.
+- Validation locale: `160 passed, 2 skipped`.

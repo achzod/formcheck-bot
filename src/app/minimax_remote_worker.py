@@ -89,7 +89,7 @@ def _poll_interval_s() -> float:
 
 def _worker_id() -> str:
     raw = str(os.getenv("MINIMAX_REMOTE_WORKER_ID", "") or "").strip()
-    if raw:
+    if raw and raw.lower() not in {"auto", "render-auto"}:
         return raw[:120]
     return "{}-{}".format(socket.gethostname(), os.getpid())[:120]
 
