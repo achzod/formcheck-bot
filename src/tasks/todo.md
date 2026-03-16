@@ -13,6 +13,7 @@
 - [x] Corriger la derive d auth interne web/worker sur les endpoints MiniMax
 - [x] Identifier pourquoi le worker live ne consomme pas la queue
 - [x] Identifier pourquoi un job worker valide echoue en `404 /video`
+- [x] Identifier pourquoi le dernier job crash sur le profil navigateur MiniMax
 - [ ] Verifier que le job en queue est bien repris par le worker Render live
 
 ## Review
@@ -21,5 +22,6 @@
 - Cause racine 3 confirmee: le worker Render utilisait un secret interne different de celui accepte par le web (`Invalid internal token`), alors que l architecture supporte a la fois `MINIMAX_REMOTE_WORKER_TOKEN` et `RENDER_API_KEY`.
 - Cause racine 4 confirmee: le wrapper `xvfb-run` peut laisser le service Render `live` alors que le vrai process Python worker n est plus present, ce qui vide la queue sans consumer.
 - Cause racine 5 confirmee: la video source des jobs MiniMax etait stockee sous `media/videos/...` hors disque persistant web. Un redeploiement web pouvait donc faire disparaitre le fichier avant le `GET /internal/minimax/jobs/{id}/video`.
-- Correctifs appliques: garde-fou serveur sur les `worker_id`, fallback du worker Render sur son hostname `srv-*` quand l env vaut `auto`, acceptation cote web des deux secrets internes valides, demarrage direct de `Xvfb` depuis le process Python worker au lieu d un reexec `xvfb-run`, puis stockage des medias sous `/app/state/media` quand le disque persistant Render est disponible.
-- Validation locale: `162 passed, 2 skipped`.
+- Cause racine 6 confirmee: Chromium etait lance sur un profil persistant partage MiniMax, ce qui exposait les runs suivants a un verrou `profile appears to be in use by another Chromium process`.
+- Correctifs appliques: garde-fou serveur sur les `worker_id`, fallback du worker Render sur son hostname `srv-*` quand l env vaut `auto`, acceptation cote web des deux secrets internes valides, demarrage direct de `Xvfb` depuis le process Python worker au lieu d un reexec `xvfb-run`, stockage des medias sous `/app/state/media` quand le disque persistant Render est disponible, puis workspace navigateur temporaire par run clone depuis le seed MiniMax avec purge des locks Chromium.
+- Validation locale: `166 passed, 2 skipped`.

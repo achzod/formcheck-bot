@@ -14,8 +14,10 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
+import tempfile
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -60,6 +62,11 @@ _LABEL_NORMALIZATION_TABLE = str.maketrans(
 )
 _REPORT_START_TAG = "<FORMCHECK_REPORT_MD>"
 _REPORT_END_TAG = "</FORMCHECK_REPORT_MD>"
+_BROWSER_PROFILE_LOCK_NAMES = (
+    "SingletonLock",
+    "SingletonCookie",
+    "SingletonSocket",
+)
 
 _DEFAULT_ANALYSIS_PROMPT = (
     "Analyse uniquement la video jointe comme AI Motion Coach expert en biomecanique de la musculation.\n"
@@ -3101,6 +3108,59 @@ def _browser_profile_dir() -> Path:
     return path
 
 
+def _scrub_browser_profile_locks(path: Path) -> None:
+    if not path.exists():
+        return
+    for candidate in path.rglob("Singleton*"):
+        try:
+            if candidate.is_dir():
+                shutil.rmtree(candidate, ignore_errors=True)
+            else:
+                candidate.unlink(missing_ok=True)
+        except Exception:
+            logger.warning(
+                "Failed to remove stale Chromium profile lock at %s",
+                candidate,
+                exc_info=True,
+            )
+
+
+def _prepare_browser_profile_workspace() -> tuple[Path, callable]:
+    seed_dir = _browser_profile_dir()
+    runtime_root = seed_dir.parent / f"{seed_dir.name}_runtime"
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    workspace = Path(tempfile.mkdtemp(prefix="session-", dir=str(runtime_root)))
+
+    try:
+        if seed_dir.exists():
+            shutil.copytree(
+                seed_dir,
+                workspace,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns(*_BROWSER_PROFILE_LOCK_NAMES),
+            )
+    except Exception:
+        logger.warning(
+            "Failed to clone MiniMax browser profile seed into workspace %s",
+            workspace,
+            exc_info=True,
+        )
+
+    _scrub_browser_profile_locks(workspace)
+
+    def _cleanup() -> None:
+        try:
+            shutil.rmtree(workspace, ignore_errors=True)
+        except Exception:
+            logger.warning(
+                "Failed to cleanup MiniMax browser workspace %s",
+                workspace,
+                exc_info=True,
+            )
+
+    return workspace, _cleanup
+
+
 def _motion_coach_expert_url() -> str:
     raw = str(getattr(settings, "minimax_motion_coach_expert_url", "") or "").strip()
     return raw or "https://agent.minimax.io/expert/chat/362683345551702"
@@ -4823,7 +4883,7 @@ def _run_minimax_browser_only_once(
     timeout_s = max(45, int(getattr(settings, "minimax_browser_timeout_s", 120) or 120))
     timeout_ms = timeout_s * 1000
     headless = _as_bool(getattr(settings, "minimax_browser_headless", True), True)
-    profile_dir = _browser_profile_dir()
+    profile_dir, cleanup_profile_dir = _prepare_browser_profile_workspace()
 
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
@@ -5055,6 +5115,7 @@ def _run_minimax_browser_only_once(
                     context.close()
                 except Exception:
                     pass
+            cleanup_profile_dir()
 
     best_text = str(state.get("best_text", "") or "").strip()
     if not best_text:

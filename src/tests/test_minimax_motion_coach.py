@@ -878,6 +878,26 @@ class MiniMaxBrowserConfigValidationTests(unittest.TestCase):
                 minimax_settings.minimax_browser_session_storage_json = original["session"]
                 minimax_settings.minimax_cookie = original["cookie"]
 
+    def test_prepare_browser_profile_workspace_clones_seed_without_singleton_locks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "profile"
+            default_dir = profile_dir / "Default"
+            default_dir.mkdir(parents=True)
+            (default_dir / "Preferences").write_text("{}", encoding="utf-8")
+            (profile_dir / "SingletonLock").write_text("lock", encoding="utf-8")
+            original_profile_dir = minimax_settings.minimax_browser_profile_dir
+            try:
+                minimax_settings.minimax_browser_profile_dir = str(profile_dir)
+                workspace, cleanup = mm._prepare_browser_profile_workspace()
+                try:
+                    self.assertTrue((workspace / "Default" / "Preferences").exists())
+                    self.assertFalse((workspace / "SingletonLock").exists())
+                finally:
+                    cleanup()
+                    self.assertFalse(workspace.exists())
+            finally:
+                minimax_settings.minimax_browser_profile_dir = original_profile_dir
+
     def test_parse_labeled_output_embedded_in_thinking_process(self) -> None:
         text = (
             "Thinking Process The user wants me to analyze a workout video. "
