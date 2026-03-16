@@ -5,17 +5,20 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+from fastapi.testclient import TestClient
 from analysis.minimax_motion_coach import MiniMaxAnalysis, _analysis_to_payload
 
 try:
     from app import database as db
     from app import handlers
+    from app import main
     from app import minimax_remote_worker
     from sqlalchemy.dialects import sqlite
     _HANDLERS_IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - local env may miss app deps
     db = None
     handlers = None
+    main = None
     minimax_remote_worker = None
     sqlite = None
     _HANDLERS_IMPORT_ERROR = exc
@@ -411,6 +414,50 @@ class RemoteMiniMaxJobClaimTests(unittest.TestCase):
         self.assertIn("minimax_remote_jobs.status = 'queued'", sql)
         self.assertIn("minimax_remote_jobs.status = 'processing'", sql)
         self.assertIn("minimax_remote_jobs.updated_at <", sql)
+
+
+@unittest.skipIf(main is None, "app deps unavailable: {}".format(_HANDLERS_IMPORT_ERROR))
+class RemoteMiniMaxClaimEndpointGuardTests(unittest.TestCase):
+    def test_claim_endpoint_rejects_non_render_worker_id_in_prod(self) -> None:
+        client = TestClient(main.app)
+        token_snapshot = main.settings.minimax_remote_worker_token
+        render_snapshot = main.settings.render_api_key
+        enabled_snapshot = main.settings.minimax_remote_worker_enabled
+        base_url_snapshot = main.settings.base_url
+        test_mode_snapshot = main.settings.test_mode
+        allowed_ids_snapshot = main.settings.minimax_remote_worker_allowed_ids
+        allowed_prefixes_snapshot = main.settings.minimax_remote_worker_allowed_prefixes
+        original_claim = main.db.claim_next_minimax_remote_job
+        try:
+            main.settings.minimax_remote_worker_token = "worker-token"
+            main.settings.render_api_key = ""
+            main.settings.minimax_remote_worker_enabled = True
+            main.settings.base_url = "https://formcheck-bot.onrender.com"
+            main.settings.test_mode = False
+            main.settings.minimax_remote_worker_allowed_ids = ""
+            main.settings.minimax_remote_worker_allowed_prefixes = ""
+
+            async def fake_claim(_worker_id: str):
+                raise AssertionError("claim_next_minimax_remote_job should not be called")
+
+            main.db.claim_next_minimax_remote_job = fake_claim
+            response = client.post(
+                "/internal/minimax/jobs/claim",
+                headers={"X-Formcheck-Internal-Token": "worker-token"},
+                json={"worker_id": "MacBook-Pro-de-achkan.local-60518"},
+            )
+        finally:
+            main.db.claim_next_minimax_remote_job = original_claim
+            main.settings.minimax_remote_worker_token = token_snapshot
+            main.settings.render_api_key = render_snapshot
+            main.settings.minimax_remote_worker_enabled = enabled_snapshot
+            main.settings.base_url = base_url_snapshot
+            main.settings.test_mode = test_mode_snapshot
+            main.settings.minimax_remote_worker_allowed_ids = allowed_ids_snapshot
+            main.settings.minimax_remote_worker_allowed_prefixes = allowed_prefixes_snapshot
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json().get("detail"), "Worker not allowed")
 
 
 @unittest.skipIf(minimax_remote_worker is None, "app deps unavailable: {}".format(_HANDLERS_IMPORT_ERROR))

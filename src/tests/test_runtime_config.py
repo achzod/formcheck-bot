@@ -5,6 +5,7 @@ import unittest
 from app.config import (
     minimax_internal_worker_token,
     minimax_remote_worker_effective_enabled,
+    minimax_remote_worker_id_allowed,
     settings,
 )
 
@@ -18,7 +19,11 @@ class MiniMaxRuntimeConfigTests(unittest.TestCase):
             "minimax_fallback_to_local": settings.minimax_fallback_to_local,
             "minimax_remote_worker_enabled": settings.minimax_remote_worker_enabled,
             "minimax_remote_worker_token": settings.minimax_remote_worker_token,
+            "minimax_remote_worker_allowed_ids": settings.minimax_remote_worker_allowed_ids,
+            "minimax_remote_worker_allowed_prefixes": settings.minimax_remote_worker_allowed_prefixes,
             "render_api_key": settings.render_api_key,
+            "base_url": settings.base_url,
+            "test_mode": settings.test_mode,
         }
 
     def _restore(self, snapshot: dict[str, object]) -> None:
@@ -87,6 +92,51 @@ class MiniMaxRuntimeConfigTests(unittest.TestCase):
             settings.minimax_remote_worker_token = ""
             settings.render_api_key = ""
             self.assertFalse(minimax_remote_worker_effective_enabled(settings))
+        finally:
+            self._restore(snapshot)
+
+    def test_remote_worker_id_allowed_accepts_render_worker_by_default(self) -> None:
+        snapshot = self._snapshot()
+        try:
+            settings.base_url = "https://formcheck-bot.onrender.com"
+            settings.test_mode = False
+            settings.minimax_remote_worker_allowed_ids = ""
+            settings.minimax_remote_worker_allowed_prefixes = ""
+            self.assertTrue(minimax_remote_worker_id_allowed("srv-d6o382rh46gs73a59h8g-x5jh7-1", settings))
+        finally:
+            self._restore(snapshot)
+
+    def test_remote_worker_id_allowed_rejects_local_hostname_in_prod(self) -> None:
+        snapshot = self._snapshot()
+        try:
+            settings.base_url = "https://formcheck-bot.onrender.com"
+            settings.test_mode = False
+            settings.minimax_remote_worker_allowed_ids = ""
+            settings.minimax_remote_worker_allowed_prefixes = ""
+            self.assertFalse(minimax_remote_worker_id_allowed("MacBook-Pro-de-achkan.local-60518", settings))
+        finally:
+            self._restore(snapshot)
+
+    def test_remote_worker_id_allowed_honors_explicit_ids(self) -> None:
+        snapshot = self._snapshot()
+        try:
+            settings.base_url = "https://formcheck-bot.onrender.com"
+            settings.test_mode = False
+            settings.minimax_remote_worker_allowed_ids = "worker-a,worker-b"
+            settings.minimax_remote_worker_allowed_prefixes = ""
+            self.assertTrue(minimax_remote_worker_id_allowed("worker-b", settings))
+            self.assertFalse(minimax_remote_worker_id_allowed("srv-d6o382rh46gs73a59h8g-x5jh7-1", settings))
+        finally:
+            self._restore(snapshot)
+
+    def test_remote_worker_id_allowed_allows_local_dev_base_url(self) -> None:
+        snapshot = self._snapshot()
+        try:
+            settings.base_url = "http://127.0.0.1:8000"
+            settings.test_mode = False
+            settings.minimax_remote_worker_allowed_ids = ""
+            settings.minimax_remote_worker_allowed_prefixes = ""
+            self.assertTrue(minimax_remote_worker_id_allowed("MacBook-Pro-de-achkan.local-60518", settings))
         finally:
             self._restore(snapshot)
 

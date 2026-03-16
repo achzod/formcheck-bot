@@ -496,6 +496,7 @@ try:
     from app.config import (
         minimax_internal_worker_token,
         minimax_remote_worker_effective_enabled,
+        minimax_remote_worker_id_allowed,
         settings,
     )
     from app.database import init_db
@@ -769,6 +770,9 @@ try:
         except Exception:
             payload = {}
         worker_id = str((payload or {}).get("worker_id", "") or "").strip() or "worker"
+        if not minimax_remote_worker_id_allowed(worker_id, settings):
+            logger.warning("Rejected MiniMax remote worker claim from disallowed worker_id=%s", worker_id)
+            raise HTTPException(status_code=403, detail="Worker not allowed")
         job = await db.claim_next_minimax_remote_job(worker_id)
         if not job:
             return {"job": None}

@@ -10,3 +10,4 @@
 - When the user says MiniMax must receive and analyze videos perfectly, audit the entire transport chain (download, video prep, browser upload, response validation, delivery), not only the report renderer.
 - Do not trust blueprint intent alone for operational readiness. Verify runtime flags from the running service and close config mismatches in code when feasible.
 - On Render workers, do not assume Docker CMD/entrypoint is the actual PID 1. Verify `/proc/1/cmdline` in prod when browser/Xvfb behavior matters.
+- When prod uses a shared internal worker token, do not trust any claimant by token alone. Gate MiniMax job claims by an allowed Render worker identity pattern, otherwise stale local workers can steal prod jobs.

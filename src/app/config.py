@@ -72,6 +72,8 @@ class Settings(BaseSettings):
     minimax_remote_job_stale_after_s: int = 600
     minimax_remote_max_pending_jobs: int = 40
     minimax_remote_avg_job_seconds: int = 150
+    minimax_remote_worker_allowed_ids: str = ""
+    minimax_remote_worker_allowed_prefixes: str = ""
     minimax_enable_cache: bool = True
     minimax_cache_ttl_hours: int = 168
     minimax_cache_path: str = "media/minimax_cache.sqlite"
@@ -156,3 +158,32 @@ def minimax_remote_worker_effective_enabled(cfg: Settings | None = None) -> bool
         and not fallback_local_enabled
         and token_present
     )
+
+
+def minimax_remote_worker_id_allowed(worker_id: str, cfg: Settings | None = None) -> bool:
+    runtime = cfg or settings
+    candidate = str(worker_id or "").strip()
+    if not candidate:
+        return False
+
+    base_url = str(runtime.base_url or "").strip().lower()
+    if runtime.test_mode or "localhost" in base_url or "127.0.0.1" in base_url:
+        return True
+
+    explicit_ids = tuple(
+        part.strip()
+        for part in str(runtime.minimax_remote_worker_allowed_ids or "").split(",")
+        if part.strip()
+    )
+    if explicit_ids:
+        return candidate in explicit_ids
+
+    explicit_prefixes = tuple(
+        part.strip()
+        for part in str(runtime.minimax_remote_worker_allowed_prefixes or "").split(",")
+        if part.strip()
+    )
+    if explicit_prefixes:
+        return any(candidate.startswith(prefix) for prefix in explicit_prefixes)
+
+    return candidate.startswith("srv-")
