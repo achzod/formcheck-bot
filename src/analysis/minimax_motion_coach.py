@@ -3688,6 +3688,23 @@ def _safe_page_wait(page: Any, delay_ms: int) -> None:
         time.sleep(max(delay_ms, 0) / 1000.0)
 
 
+def _video_attachment_wait_ms(video_path: str, timeout_ms: int) -> int:
+    """Scale attachment binding waits with file size.
+
+    MiniMax can keep the composer visually ready while the uploaded file is
+    still being attached in the background. A short fixed wait is brittle on
+    larger clips and leads to downstream send/polling failures that look like a
+    silent MiniMax timeout.
+    """
+    try:
+        size_bytes = max(0, int(Path(video_path).stat().st_size))
+    except Exception:
+        size_bytes = 0
+    size_mb = size_bytes / (1024.0 * 1024.0)
+    scaled_ms = int(9000 + (size_mb * 900))
+    return max(9000, min(timeout_ms, scaled_ms))
+
+
 def _role_locator_exists(page: Any, role: str, name: Any = None) -> bool:
     try:
         return page.get_by_role(role, name=name).count() > 0
@@ -3849,6 +3866,44 @@ def _wait_for_page_condition(page: Any, predicate: Any, timeout_ms: int, step_ms
         return bool(predicate())
     except Exception:
         return False
+
+
+def _maybe_refresh_sent_chat(page: Any, state: dict[str, Any], *, timeout_ms: int) -> bool:
+    """Actively reload the sent MiniMax chat when the UI goes quiet.
+
+    AI Motion Coach does not always keep polling the result stream reliably
+    after a send. If the page stops emitting chat-detail responses and no DOM
+    candidate appears for a while, we reopen the specific chat to resume the
+    result flow instead of waiting for a global timeout.
+    """
+    sent_chat_id = str(state.get("sent_chat_id", "") or "").strip()
+    if not sent_chat_id:
+        return False
+
+    now = time.monotonic()
+    refresh_interval_s = max(20.0, min(45.0, float(getattr(settings, "minimax_poll_interval_s", 2.0) or 2.0) * 12.0))
+    last_signal_at = float(state.get("last_signal_at", 0.0) or 0.0)
+    last_refresh_at = float(state.get("last_refresh_at", 0.0) or 0.0)
+
+    if last_refresh_at and (now - last_refresh_at) < refresh_interval_s:
+        return False
+    if last_signal_at and (now - last_signal_at) < refresh_interval_s:
+        return False
+
+    refreshed = _goto_minimax_page(
+        page,
+        _chat_page_url(sent_chat_id),
+        min(timeout_ms, 15000),
+        label="motion_coach_wait_refresh",
+        raise_on_error=False,
+    )
+    state["last_refresh_at"] = now
+    if not refreshed:
+        return False
+
+    state["wait_refreshes"] = int(state.get("wait_refreshes", 0) or 0) + 1
+    _safe_page_wait(page, 900)
+    return True
 
 
 def _page_is_motion_coach_chat(page: Any) -> bool:
@@ -4431,10 +4486,11 @@ def _populate_browser_message(
 
     # Wait briefly for upload attachment binding.
     file_name = Path(video_path).name
+    attachment_wait_ms = _video_attachment_wait_ms(video_path, timeout_ms)
     try:
-        page.locator("text={}".format(file_name)).first.wait_for(timeout=8000)
+        page.locator("text={}".format(file_name)).first.wait_for(timeout=attachment_wait_ms)
     except Exception:
-        page.wait_for_timeout(1300)
+        page.wait_for_timeout(min(attachment_wait_ms, 2200))
 
     if _login_modal_visible(page):
         dismissed = _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
@@ -4533,7 +4589,7 @@ def _send_button_enabled(page: Any) -> bool:
 def _send_browser_message(page: Any, timeout_ms: int) -> None:
     if _blanket_overlay_visible(page):
         _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
-    send_ready = _wait_for_page_condition(page, lambda: _send_button_enabled(page), timeout_ms=min(timeout_ms, 8000), step_ms=200)
+    send_ready = _wait_for_page_condition(page, lambda: _send_button_enabled(page), timeout_ms=min(timeout_ms, 15000), step_ms=200)
     if not send_ready:
         try:
             editor = page.locator(".tiptap-editor").first
@@ -4543,7 +4599,7 @@ def _send_browser_message(page: Any, timeout_ms: int) -> None:
                 send_ready = _wait_for_page_condition(
                     page,
                     lambda: _send_button_enabled(page),
-                    timeout_ms=min(timeout_ms, 8000),
+                    timeout_ms=min(timeout_ms, 15000),
                     step_ms=200,
                 )
         except Exception:
@@ -4921,6 +4977,9 @@ def _run_minimax_browser_only_once(
         "task_failed_retries": 0,
         "page_report": "",
         "timeout_debug": {},
+        "wait_refreshes": 0,
+        "last_signal_at": time.monotonic(),
+        "last_refresh_at": 0.0,
     }
 
     def _on_response(response: Any) -> None:
@@ -4942,6 +5001,7 @@ def _run_minimax_browser_only_once(
             return
         state["responses_seen"] = int(state.get("responses_seen", 0) or 0) + 1
         state["chat_status_known"] = True
+        state["last_signal_at"] = time.monotonic()
         chat_name = _extract_chat_name(payload)
         if chat_name and not state.get("chat_name"):
             state["chat_name"] = chat_name
@@ -5032,11 +5092,13 @@ def _run_minimax_browser_only_once(
                 password=password,
             )
             state["sent"] = True
+            state["last_signal_at"] = time.monotonic()
             state["known_ids"] = set(state.get("baseline_ids", set()))
             if _wait_for_page_condition(page, lambda: bool(str(state.get("sent_chat_id", "")).strip()), timeout_ms=8000, step_ms=250):
                 sent_chat_id = str(state.get("sent_chat_id", "") or "").strip()
                 if sent_chat_id:
                     _goto_minimax_page(page, _chat_page_url(sent_chat_id), timeout_ms, label="motion_coach_sent_chat")
+                    state["last_refresh_at"] = time.monotonic()
                     state["dom_baseline"] = set(_collect_dom_analysis_candidates(page))
 
             deadline = time.monotonic() + timeout_s_effective
@@ -5044,6 +5106,11 @@ def _run_minimax_browser_only_once(
             while time.monotonic() < deadline:
                 if _blanket_overlay_visible(page):
                     _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
+                if _maybe_refresh_sent_chat(page, state, timeout_ms=timeout_ms):
+                    refreshed_report = _collect_page_report_candidate(page)
+                    if refreshed_report:
+                        state["page_report"] = refreshed_report
+                        state["last_signal_at"] = time.monotonic()
                 if state.get("best_text") and (
                     state.get("done")
                     or (
@@ -5077,6 +5144,7 @@ def _run_minimax_browser_only_once(
                 if dom_candidate:
                     state["dom_fallback_used"] = True
                     state["latest_text"] = dom_candidate
+                    state["last_signal_at"] = time.monotonic()
                     if dom_candidate == state.get("best_text", ""):
                         state["stable_rounds"] = int(state.get("stable_rounds", 0) or 0) + 1
                     else:
@@ -5090,10 +5158,12 @@ def _run_minimax_browser_only_once(
                         state["dom_fallback_used"] = True
                         state["latest_text"] = page_report
                         state["best_text"] = page_report
+                        state["last_signal_at"] = time.monotonic()
                         state["done"] = True
                 page_report_snapshot = _collect_page_report_candidate(page)
                 if page_report_snapshot:
                     state["page_report"] = page_report_snapshot
+                    state["last_signal_at"] = time.monotonic()
 
         finally:
             if page is not None and not str(state.get("best_text", "") or "").strip():
@@ -5151,6 +5221,7 @@ def _run_minimax_browser_only_once(
                     "dom_fallback_used": True,
                     "dom_candidates_seen": int(state.get("dom_candidates_seen", 0) or 0),
                     "task_failed_retries": int(state.get("task_failed_retries", 0) or 0),
+                    "wait_refreshes": int(state.get("wait_refreshes", 0) or 0),
                 }
             )
             return analysis
@@ -5184,6 +5255,7 @@ def _run_minimax_browser_only_once(
             "responses_seen": int(state.get("responses_seen", 0) or 0),
             "dom_fallback_used": bool(state.get("dom_fallback_used")),
             "dom_candidates_seen": int(state.get("dom_candidates_seen", 0) or 0),
+            "wait_refreshes": int(state.get("wait_refreshes", 0) or 0),
             "cache_hit": False,
             "video_hash": video_hash,
             "prompt_hash": prompt_hash,
@@ -5328,7 +5400,7 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
     timeout_s = max(30, int(settings.minimax_timeout_s or 180))
     max_effective_timeout_s = max(
         timeout_s,
-        int(getattr(settings, "minimax_max_effective_timeout_s", 300) or 300),
+        int(getattr(settings, "minimax_max_effective_timeout_s", 900) or 900),
     )
     poll_interval = max(0.8, float(settings.minimax_poll_interval_s or 2.0))
 
@@ -5339,7 +5411,11 @@ def run_minimax_motion_coach(video_path: str) -> MiniMaxAnalysis:
         float(prepared.prepared_duration_s or 0.0),
         float(prepared.source_duration_s or 0.0),
     )
-    adaptive_timeout_s = int(180 + (base_duration_s * 5.0))
+    source_size_mb = max(
+        float(prepared.source_size_bytes or 0.0),
+        float(prepared.prepared_size_bytes or 0.0),
+    ) / (1024.0 * 1024.0)
+    adaptive_timeout_s = int(180 + (base_duration_s * 6.0) + (source_size_mb * 3.0))
     timeout_s_effective = max(timeout_s, min(max_effective_timeout_s, adaptive_timeout_s))
     analysis: MiniMaxAnalysis | None = None
     prompt_variants = [

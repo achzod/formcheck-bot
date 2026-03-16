@@ -14,28 +14,20 @@
 - [x] Identifier pourquoi le worker live ne consomme pas la queue
 - [x] Identifier pourquoi un job worker valide echoue en `404 /video`
 - [x] Identifier pourquoi le dernier job crash sur le profil navigateur MiniMax
-- [ ] Verifier que le job en queue est bien repris par le worker Render live
+- [x] Verifier que le job en queue est bien repris par le worker Render live
 - [x] Verifier le dernier test utilisateur apres fix profil navigateur
 - [x] Identifier pourquoi le dernier run MiniMax timeoute alors que la queue est saine
 - [x] Corriger le nouveau bloqueur overlay MiniMax `MaxClaw Team Mode`
 - [x] Ajouter la regression test associee
-- [ ] Deployer le fix overlay et recontroler le prochain run
+- [x] Deployer le fix overlay et recontroler le prochain run
+- [x] Inspecter le run prod casse apres deploy overlay
+- [x] Identifier la panne active restante
+- [x] Corriger le code ou la config necessaire
+- [ ] Revalider localement, deployer, puis suivre un run prod sain
 
 ## Review
-- Cause racine 1 confirmee: un worker local `MacBook-Pro-de-achkan.local-*` utilisait encore le token interne et claimait la queue prod.
-- Cause racine 2 confirmee: le worker Render recevait `MINIMAX_REMOTE_WORKER_ID=auto`, ce qui le faisait lui aussi rejeter apres le garde-fou serveur.
-- Cause racine 3 confirmee: le worker Render utilisait un secret interne different de celui accepte par le web (`Invalid internal token`), alors que l architecture supporte a la fois `MINIMAX_REMOTE_WORKER_TOKEN` et `RENDER_API_KEY`.
-- Cause racine 4 confirmee: le wrapper `xvfb-run` peut laisser le service Render `live` alors que le vrai process Python worker n est plus present, ce qui vide la queue sans consumer.
-- Cause racine 5 confirmee: la video source des jobs MiniMax etait stockee sous `media/videos/...` hors disque persistant web. Un redeploiement web pouvait donc faire disparaitre le fichier avant le `GET /internal/minimax/jobs/{id}/video`.
-- Cause racine 6 confirmee: Chromium etait lance sur un profil persistant partage MiniMax, ce qui exposait les runs suivants a un verrou `profile appears to be in use by another Chromium process`.
-- Correctifs appliques: garde-fou serveur sur les `worker_id`, fallback du worker Render sur son hostname `srv-*` quand l env vaut `auto`, acceptation cote web des deux secrets internes valides, demarrage direct de `Xvfb` depuis le process Python worker au lieu d un reexec `xvfb-run`, stockage des medias sous `/app/state/media` quand le disque persistant Render est disponible, puis workspace navigateur temporaire par run clone depuis le seed MiniMax avec purge des locks Chromium.
-- Verification du dernier test utilisateur: la video inbound du `2026-03-16 10:07:18` a bien cree `analysis_id=17` puis `job_id=8`, le worker Render l a bien claim, puis le job a echoue a `2026-03-16 10:13:17` avec `MiniMax global analysis timeout reached`.
-- Conclusion actuelle: la queue prod et le worker ne sont plus bloques; le defaut actif est maintenant dans le temps d analyse MiniMax sur certaines videos.
-- Nouveau diagnostic live sur le test suivant:
-  - video inbound `2026-03-16 10:53:03`
-  - `analysis_id=18`, `job_id=9`
-  - worker a bien charge la video a `10:53:05`
-  - logs worker a `10:53:24`: `MiniMax blanket overlay detected` avec promo `MaxClaw Team Mode is here`
-- Cause racine 7 confirmee: le browser MiniMax etait capable de detecter un overlay promo `MaxClaw`, mais la suppression DOM etait trop specifique (`MaxClaw is here`) et la boucle d attente apres send ne purgeait pas cet overlay.
-- Correctif applique: suppression DOM elargie a la variante `MaxClaw Team Mode` et purge active de l overlay dans la boucle de polling post-envoi.
-- Validation locale: `166 passed, 2 skipped`.
+- Incident repris apres le deploy `2637bdf`: la queue Render et le worker etaient sains, mais certains runs MiniMax partaient en timeout alors que l envoi video avait bien eu lieu.
+- Cause racine retenue: la strategie d attente browser etait trop passive pour les videos longues/lourdes. Si l UI MiniMax cessait de rafraichir activement le chat apres l envoi, le worker attendait jusqu au timeout global sans reouvrir le chat cible.
+- Correctif local: attente d attachement video adaptee a la taille du fichier, attente du bouton d envoi plus tolerante, refresh actif du chat envoye quand l UI devient silencieuse, timeout effectif adapte a la duree et a la taille de la video, traces de `wait_refreshes` ajoutees au metadata.
+- Validation locale: `pytest -q tests/test_minimax_motion_coach.py` -> `94 passed`, `pytest -q tests/test_remote_minimax_worker_flow.py tests/test_runtime_config.py` -> `26 passed`, `pytest -q` -> `169 passed, 2 skipped`.
+- Reste a faire: pousser le correctif, verifier le deploy Render, puis suivre un run prod sain sur une nouvelle video WhatsApp.
