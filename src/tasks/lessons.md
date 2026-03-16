@@ -12,3 +12,4 @@
 - On Render workers, do not assume Docker CMD/entrypoint is the actual PID 1. Verify `/proc/1/cmdline` in prod when browser/Xvfb behavior matters.
 - When prod uses a shared internal worker token, do not trust any claimant by token alone. Gate MiniMax job claims by an allowed Render worker identity pattern, otherwise stale local workers can steal prod jobs.
 - Treat sentinel env values like `auto` as part of runtime contract, not as literal identities. When a worker id env is meant to say "derive automatically", normalize it before security checks rely on it.
+- If the web and worker both support `MINIMAX_REMOTE_WORKER_TOKEN` and `RENDER_API_KEY`, the web must accept any configured valid internal token, not only the first one. Otherwise a Render env drift can freeze the queue with `Invalid internal token` even when both services are healthy.

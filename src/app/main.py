@@ -495,6 +495,7 @@ try:
     from app import database as db
     from app.config import (
         minimax_internal_worker_token,
+        minimax_internal_worker_tokens,
         minimax_remote_worker_effective_enabled,
         minimax_remote_worker_id_allowed,
         settings,
@@ -712,14 +713,14 @@ try:
         return minimax_internal_worker_token(settings)
 
     def _require_internal_worker_token(request: Request) -> None:
-        expected = _internal_worker_token()
-        if not minimax_remote_worker_effective_enabled(settings) or not expected:
+        expected_tokens = minimax_internal_worker_tokens(settings)
+        if not minimax_remote_worker_effective_enabled(settings) or not expected_tokens:
             raise HTTPException(status_code=503, detail="Remote worker disabled")
         provided = (
             request.headers.get("X-Formcheck-Internal-Token", "")
             or request.query_params.get("token", "")
         ).strip()
-        if provided != expected:
+        if provided not in expected_tokens:
             raise HTTPException(status_code=403, detail="Invalid internal token")
 
     def _require_internal_admin_token(request: Request) -> str:

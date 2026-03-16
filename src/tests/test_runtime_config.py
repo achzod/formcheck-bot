@@ -4,6 +4,7 @@ import unittest
 
 from app.config import (
     minimax_internal_worker_token,
+    minimax_internal_worker_tokens,
     minimax_remote_worker_effective_enabled,
     minimax_remote_worker_id_allowed,
     settings,
@@ -36,6 +37,23 @@ class MiniMaxRuntimeConfigTests(unittest.TestCase):
             settings.minimax_remote_worker_token = "worker-token"
             settings.render_api_key = "render-token"
             self.assertEqual(minimax_internal_worker_token(settings), "worker-token")
+        finally:
+            self._restore(snapshot)
+
+    def test_internal_worker_tokens_include_render_api_key_without_duplicates(self) -> None:
+        snapshot = self._snapshot()
+        try:
+            settings.minimax_remote_worker_token = "worker-token"
+            settings.render_api_key = "render-token"
+            self.assertEqual(
+                minimax_internal_worker_tokens(settings),
+                ("worker-token", "render-token"),
+            )
+            settings.render_api_key = "worker-token"
+            self.assertEqual(
+                minimax_internal_worker_tokens(settings),
+                ("worker-token",),
+            )
         finally:
             self._restore(snapshot)
 

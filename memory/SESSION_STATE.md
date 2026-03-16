@@ -1,23 +1,26 @@
-# SESSION STATE — 2026-03-06
+# Session State
 
-## Dernière action
-Debug live du blocage `analyse en cours` sur WhatsApp. Le webhook Render reçoit bien la vidéo et la prod est configurée en `MiniMax browser-only` strict avec `remote_worker_enabled=true`, mais aucun process `app.minimax_remote_worker` n'était lancé sur la machine locale pour consommer la queue interne.
+*Mise a jour : 2026-03-16 13:10 GST*
 
-## Validation effectuée
-- `GET /health/debug`: `browser_only=true`, `strict_source=true`, `fallback_to_local=false`, `remote_worker_enabled=true`
-- Dashboard Render `Environment`: variables critiques présentes côté prod, notamment `MINIMAX_REMOTE_WORKER_TOKEN`, `MINIMAX_BROWSER_EMAIL`, `MINIMAX_BROWSER_PASSWORD`
-- Vérification locale des process: aucun worker MiniMax en cours
-- Vérification locale des artefacts browser: profils Playwright et dumps `localStorage`/`sessionStorage` MiniMax disponibles dans `tmp/`
+## Tache en cours
+Deblocage final de la queue MiniMax prod: le worker Render live est sain, mais son claim est refuse par le web avec `Invalid internal token`.
 
-## Cause retenue
-Le statut reste bloqué sur `analyse en cours` parce que la web app publie des jobs MiniMax distants, mais aucun worker browser-only ne les réclame et ne les traite actuellement.
+## Contexte immediat
+1. Le worker local Mac est maintenant bloque cote serveur par le filtre `worker_id`.
+2. Le worker Render derive maintenant correctement un `worker_id` de type `srv-*` quand son env vaut `auto`.
+3. Les deploys Render live au moment du diagnostic:
+   - worker `8374f41` live
+   - web `8374f41` encore en `update_in_progress`
+4. Le shell worker Render confirme:
+   - `DERIVED_ID=srv-d6o382rh46gs73a59h8g-8644669cc5-jgc2l-29`
+   - claim manuel => `403 {"detail":"Invalid internal token"}`
+5. Cause racine courante: le web n accepte qu un seul token interne effectif, alors que l architecture supporte a la fois `MINIMAX_REMOTE_WORKER_TOKEN` et `RENDER_API_KEY`.
 
-## Travail en cours
-1. Démarrer un worker local persistant relié à Render avec le token interne.
-2. Le configurer avec le compte MiniMax navigateur et le profil Playwright déjà validé.
-3. Vérifier dans les logs qu'il consomme le job en attente et débloque la réponse WhatsApp.
+## Plan actif
+1. Autoriser cote web tous les tokens internes valides configures.
+2. Couvrir le drift token par tests.
+3. Push + deploy.
+4. Revalider depuis le shell worker puis verifier que le job queue passe en `processing` ou `completed`.
 
-## Fichiers de contexte
-- `app/minimax_remote_worker.py`
-- `analysis/minimax_motion_coach.py`
-- `../memory/2026-03-06.md`
+## Prochaine action immediate
+Attendre le deploy du correctif token, puis retester le `claim` depuis le shell worker Render.

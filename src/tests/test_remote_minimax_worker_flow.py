@@ -459,6 +459,52 @@ class RemoteMiniMaxClaimEndpointGuardTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json().get("detail"), "Worker not allowed")
 
+    def test_claim_endpoint_accepts_render_api_key_when_worker_token_drifts(self) -> None:
+        client = TestClient(main.app)
+        token_snapshot = main.settings.minimax_remote_worker_token
+        render_snapshot = main.settings.render_api_key
+        enabled_snapshot = main.settings.minimax_remote_worker_enabled
+        base_url_snapshot = main.settings.base_url
+        test_mode_snapshot = main.settings.test_mode
+        allowed_ids_snapshot = main.settings.minimax_remote_worker_allowed_ids
+        allowed_prefixes_snapshot = main.settings.minimax_remote_worker_allowed_prefixes
+        original_claim = main.db.claim_next_minimax_remote_job
+        try:
+            main.settings.minimax_remote_worker_token = "worker-token"
+            main.settings.render_api_key = "render-token"
+            main.settings.minimax_remote_worker_enabled = True
+            main.settings.base_url = "https://formcheck-bot.onrender.com"
+            main.settings.test_mode = False
+            main.settings.minimax_remote_worker_allowed_ids = ""
+            main.settings.minimax_remote_worker_allowed_prefixes = ""
+
+            async def fake_claim(worker_id: str):
+                return SimpleNamespace(
+                    id=6,
+                    analysis_id=15,
+                    phone="+33600000000",
+                    worker_id=worker_id,
+                )
+
+            main.db.claim_next_minimax_remote_job = fake_claim
+            response = client.post(
+                "/internal/minimax/jobs/claim",
+                headers={"X-Formcheck-Internal-Token": "render-token"},
+                json={"worker_id": "srv-d6o382rh46gs73a59h8g-jgc2l-29"},
+            )
+        finally:
+            main.db.claim_next_minimax_remote_job = original_claim
+            main.settings.minimax_remote_worker_token = token_snapshot
+            main.settings.render_api_key = render_snapshot
+            main.settings.minimax_remote_worker_enabled = enabled_snapshot
+            main.settings.base_url = base_url_snapshot
+            main.settings.test_mode = test_mode_snapshot
+            main.settings.minimax_remote_worker_allowed_ids = allowed_ids_snapshot
+            main.settings.minimax_remote_worker_allowed_prefixes = allowed_prefixes_snapshot
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["job"]["id"], 6)
+
 
 @unittest.skipIf(minimax_remote_worker is None, "app deps unavailable: {}".format(_HANDLERS_IMPORT_ERROR))
 class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):

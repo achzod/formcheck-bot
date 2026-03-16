@@ -126,13 +126,22 @@ class Settings(BaseSettings):
 settings = Settings()  # type: ignore[call-arg]
 
 
-def minimax_internal_worker_token(cfg: Settings | None = None) -> str:
+def minimax_internal_worker_tokens(cfg: Settings | None = None) -> tuple[str, ...]:
     runtime = cfg or settings
-    return str(
-        runtime.minimax_remote_worker_token
-        or runtime.render_api_key
-        or ""
-    ).strip()
+    tokens: list[str] = []
+    for raw in (
+        runtime.minimax_remote_worker_token,
+        runtime.render_api_key,
+    ):
+        token = str(raw or "").strip()
+        if token and token not in tokens:
+            tokens.append(token)
+    return tuple(tokens)
+
+
+def minimax_internal_worker_token(cfg: Settings | None = None) -> str:
+    tokens = minimax_internal_worker_tokens(cfg)
+    return tokens[0] if tokens else ""
 
 
 def minimax_remote_worker_effective_enabled(cfg: Settings | None = None) -> bool:
@@ -149,7 +158,7 @@ def minimax_remote_worker_effective_enabled(cfg: Settings | None = None) -> bool
 
     strict_minimax_source = bool(runtime.minimax_enabled and runtime.minimax_strict_source)
     fallback_local_enabled = bool(runtime.minimax_enabled and runtime.minimax_fallback_to_local)
-    token_present = bool(minimax_internal_worker_token(runtime))
+    token_present = bool(minimax_internal_worker_tokens(runtime))
 
     return bool(
         runtime.minimax_enabled
