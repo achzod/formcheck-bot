@@ -3170,6 +3170,19 @@ def _chat_page_url(chat_id: str) -> str:
     return "https://agent.minimax.io/chat?id={}".format(str(chat_id).strip())
 
 
+def _preferred_motion_coach_result_url(page: Any, state: dict[str, Any]) -> str:
+    """Prefer the expert AI Motion Coach route for result collection.
+
+    MiniMax can return a generic `chat_id` after send, but the high-fidelity
+    result stream for the AI Motion Coach expert is anchored to the expert chat
+    page itself. Navigating away to `/chat?id=...` can drop the expert context
+    and leave the run timing out on the wrong surface. We therefore keep the
+    browser pinned to the expert page and use that route for refreshes.
+    """
+    _ = page, state
+    return _motion_coach_expert_url()
+
+
 def _browser_launch_options(headless: bool) -> dict[str, Any]:
     options: dict[str, Any] = {
         "headless": headless,
@@ -3890,9 +3903,10 @@ def _maybe_refresh_sent_chat(page: Any, state: dict[str, Any], *, timeout_ms: in
     if last_signal_at and (now - last_signal_at) < refresh_interval_s:
         return False
 
+    refresh_url = _preferred_motion_coach_result_url(page, state)
     refreshed = _goto_minimax_page(
         page,
-        _chat_page_url(sent_chat_id),
+        refresh_url,
         min(timeout_ms, 15000),
         label="motion_coach_wait_refresh",
         raise_on_error=False,
@@ -5097,9 +5111,7 @@ def _run_minimax_browser_only_once(
             if _wait_for_page_condition(page, lambda: bool(str(state.get("sent_chat_id", "")).strip()), timeout_ms=8000, step_ms=250):
                 sent_chat_id = str(state.get("sent_chat_id", "") or "").strip()
                 if sent_chat_id:
-                    _goto_minimax_page(page, _chat_page_url(sent_chat_id), timeout_ms, label="motion_coach_sent_chat")
                     state["last_refresh_at"] = time.monotonic()
-                    state["dom_baseline"] = set(_collect_dom_analysis_candidates(page))
 
             deadline = time.monotonic() + timeout_s_effective
             sleep_ms = max(300, int(max(0.8, poll_interval) * 1000))

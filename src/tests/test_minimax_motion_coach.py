@@ -2022,7 +2022,7 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
         original_valid = mm._analysis_is_valid_final_output
         dismiss_calls: list[str] = []
         dom_calls = {"count": 0}
-        overlay_states = iter([True, False, False, False])
+        overlay_states = iter([True, False, False, False, False, False])
         candidate = "<FORMCHECK_REPORT_MD>## Resume\\nSerie propre\\n</FORMCHECK_REPORT_MD>"
         try:
             sys.modules["playwright.sync_api"] = fake_module
@@ -2048,7 +2048,7 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
 
             mm._collect_dom_analysis_candidates = _fake_collect_dom  # type: ignore[assignment]
             mm._collect_page_report_candidate = lambda *_args, **_kwargs: ""  # type: ignore[assignment]
-            mm._blanket_overlay_visible = lambda *_args, **_kwargs: next(overlay_states)  # type: ignore[assignment]
+            mm._blanket_overlay_visible = lambda *_args, **_kwargs: next(overlay_states, False)  # type: ignore[assignment]
             mm._dismiss_browser_blanket_overlay = lambda *_args, **_kwargs: dismiss_calls.append("dismiss") or True  # type: ignore[assignment]
             mm._parse_analysis_payload = lambda text: MiniMaxAnalysis(  # type: ignore[assignment]
                 exercise_slug="machine_chest_press",
@@ -2189,6 +2189,7 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
         original_valid = mm._analysis_is_valid_final_output
         original_monotonic = mm.time.monotonic
         goto_labels: list[str] = []
+        goto_urls: list[str] = []
         refresh_seen = {"value": False}
         candidate = "<FORMCHECK_REPORT_MD>## RESUME\\nAnalyse recuperee apres refresh actif.\\n</FORMCHECK_REPORT_MD>"
         ticks = {"value": 0.0}
@@ -2204,6 +2205,7 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
 
             def _fake_goto(_page, _url, _timeout_ms, *, label, raise_on_error=True):
                 goto_labels.append(label)
+                goto_urls.append(_url)
                 if label == "motion_coach_wait_refresh":
                     refresh_seen["value"] = True
                 return True
@@ -2273,6 +2275,9 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
             mm.time.monotonic = original_monotonic  # type: ignore[assignment]
 
         self.assertIn("motion_coach_wait_refresh", goto_labels)
+        self.assertNotIn("motion_coach_sent_chat", goto_labels)
+        self.assertTrue(all("/chat?id=" not in url for url in goto_urls))
+        self.assertIn(mm._motion_coach_expert_url(), goto_urls)
         self.assertEqual(out.metadata.get("wait_refreshes"), 1)
         self.assertIn("refresh actif", out.report_text.lower())
 

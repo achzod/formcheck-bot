@@ -23,11 +23,21 @@
 - [x] Inspecter le run prod casse apres deploy overlay
 - [x] Identifier la panne active restante
 - [x] Corriger le code ou la config necessaire
-- [ ] Revalider localement, deployer, puis suivre un run prod sain
+- [x] Tracer le job prod courant signale en file d attente / processing
+- [x] Identifier la cause racine active actuelle
+- [x] Corriger proprement la panne active avec tests
+- [ ] Deployer et revalider sur un run prod sain
 
 ## Review
-- Incident repris apres le deploy `2637bdf`: la queue Render et le worker etaient sains, mais certains runs MiniMax partaient en timeout alors que l envoi video avait bien eu lieu.
-- Cause racine retenue: la strategie d attente browser etait trop passive pour les videos longues/lourdes. Si l UI MiniMax cessait de rafraichir activement le chat apres l envoi, le worker attendait jusqu au timeout global sans reouvrir le chat cible.
-- Correctif local: attente d attachement video adaptee a la taille du fichier, attente du bouton d envoi plus tolerante, refresh actif du chat envoye quand l UI devient silencieuse, timeout effectif adapte a la duree et a la taille de la video, traces de `wait_refreshes` ajoutees au metadata.
-- Validation locale: `pytest -q tests/test_minimax_motion_coach.py` -> `94 passed`, `pytest -q tests/test_remote_minimax_worker_flow.py tests/test_runtime_config.py` -> `26 passed`, `pytest -q` -> `169 passed, 2 skipped`.
-- Reste a faire: pousser le correctif, verifier le deploy Render, puis suivre un run prod sain sur une nouvelle video WhatsApp.
+- Trace prod confirmee sur le job `id=10`: la video a bien ete recue, le worker a claim le job, MiniMax a bien lance l analyse, puis le job a echoue en `MiniMax global analysis timeout reached` a `2026-03-16 14:53:19 UTC`.
+- Le symptome n etait donc pas une file d attente bloquee, mais un timeout browser apres envoi.
+- Cause racine retenue apres audit de code: le flux browser quittait la page expert `AI Motion Coach` juste apres l envoi pour naviguer vers `https://agent.minimax.io/chat?id=...`. Cette navigation pouvait casser le contexte expert MiniMax et faire attendre la mauvaise surface jusqu au timeout.
+- Correctif code applique dans `analysis/minimax_motion_coach.py`:
+  - plus de navigation post-send vers `chat?id=`
+  - refreshs de resultat forces sur la page expert `AI Motion Coach`
+  - conservation du baseline DOM pre-send pour ne pas masquer un premier resultat deja rendu
+- Regressions ajoutees/ajustees dans `tests/test_minimax_motion_coach.py` pour garantir que le flux reste sur la route expert MiniMax.
+- Validation locale apres correctif:
+  - `pytest -q tests/test_minimax_motion_coach.py` -> `94 passed`
+  - `pytest -q tests/test_remote_minimax_worker_flow.py tests/test_runtime_config.py tests/test_html_report_personalized.py` -> `35 passed`
+  - `pytest -q` -> `169 passed, 2 skipped`
