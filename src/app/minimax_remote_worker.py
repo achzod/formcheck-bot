@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import atexit
 import asyncio
 import logging
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,7 @@ import analysis.minimax_motion_coach as minimax_motion_coach
 from analysis.minimax_motion_coach import _analysis_to_payload, run_minimax_motion_coach
 
 logger = logging.getLogger("formcheck.minimax_remote_worker")
+_XVFB_PROCESS: subprocess.Popen[str] | None = None
 
 _JOB_BROWSER_SETTING_TYPES: dict[str, type] = {
     "minimax_browser_email": str,
@@ -103,15 +107,30 @@ def _headers() -> dict[str, str]:
     return {"X-Formcheck-Internal-Token": token}
 
 
-def _maybe_reexec_under_xvfb() -> None:
-    """Ensure headed Playwright runs with an X server even if Render bypasses CMD.
+def _stop_xvfb() -> None:
+    global _XVFB_PROCESS
+    proc = _XVFB_PROCESS
+    _XVFB_PROCESS = None
+    if proc is None:
+        return
+    try:
+        proc.terminate()
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
-    Render workers should normally start through `xvfb-run` via the Docker
-    entrypoint. In practice, some worker runtimes end up invoking
-    `python -m app.minimax_remote_worker` directly, leaving `DISPLAY` unset.
-    When that happens, Playwright headed Chromium crashes before MiniMax sees
-    the video. Re-exec the current process under `xvfb-run` so the worker can
-    self-heal from runtime command drift.
+
+def _ensure_display_for_headed_browser() -> None:
+    """Start Xvfb in-process when headed Playwright has no DISPLAY.
+
+    Render currently runs the worker with a plain docker command, so relying on
+    an outer `xvfb-run` wrapper is brittle: the wrapper can stay alive while the
+    actual Python worker dies, leaving the service marked live but no queue
+    consumer running. Starting Xvfb from the worker process keeps the lifetime
+    coupled to the real Python loop.
     """
 
     headless = _as_bool(os.getenv("MINIMAX_BROWSER_HEADLESS", "true"))
@@ -122,32 +141,56 @@ def _maybe_reexec_under_xvfb() -> None:
     if display:
         return
 
-    if _as_bool(os.getenv("FORMCHECK_XVFB_REEXEC", "false")):
+    global _XVFB_PROCESS
+    if _XVFB_PROCESS is not None and _XVFB_PROCESS.poll() is None:
+        os.environ["DISPLAY"] = str(os.getenv("DISPLAY") or ":99")
+        return
+
+    xvfb_bin = shutil.which("Xvfb")
+    if not xvfb_bin:
         raise RuntimeError(
-            "DISPLAY is still missing after xvfb re-exec; headed MiniMax worker cannot start"
+            "Xvfb is not installed while headed MiniMax worker requires a virtual display"
         )
 
-    xvfb_run = shutil.which("xvfb-run")
-    if not xvfb_run:
-        raise RuntimeError(
-            "xvfb-run is not installed while headed MiniMax worker requires a virtual display"
+    last_error = ""
+    for display_num in range(99, 111):
+        candidate = f":{display_num}"
+        proc = subprocess.Popen(
+            [
+                xvfb_bin,
+                candidate,
+                "-screen",
+                "0",
+                "1920x1080x24",
+                "-nolisten",
+                "tcp",
+                "-ac",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
         )
+        time.sleep(0.3)
+        if proc.poll() is None:
+            _XVFB_PROCESS = proc
+            os.environ["DISPLAY"] = candidate
+            atexit.register(_stop_xvfb)
+            logger.warning(
+                "DISPLAY missing for headed MiniMax worker; started Xvfb on %s (pid=%s)",
+                candidate,
+                proc.pid,
+            )
+            return
+        try:
+            last_error = (proc.stderr.read() or "").strip()
+        except Exception:
+            last_error = ""
 
-    cmd = [
-        xvfb_run,
-        "-a",
-        "-s",
-        "-screen 0 1920x1080x24",
-        sys.executable,
-        "-m",
-        "app.minimax_remote_worker",
-    ]
-    env = os.environ.copy()
-    env["FORMCHECK_XVFB_REEXEC"] = "true"
-    logger.warning(
-        "DISPLAY missing for headed MiniMax worker; re-executing under xvfb-run"
+    raise RuntimeError(
+        "Failed to start Xvfb for headed MiniMax worker{}".format(
+            f": {last_error}" if last_error else ""
+        )
     )
-    os.execvpe(xvfb_run, cmd, env)
 
 
 def _as_bool(value: Any) -> bool:
@@ -323,7 +366,7 @@ async def run_worker() -> None:
     minimax_motion_coach.settings.minimax_browser_only = True
     minimax_motion_coach.settings.minimax_browser_headless = False
     minimax_motion_coach.settings.minimax_browser_channel = channel
-    _maybe_reexec_under_xvfb()
+    _ensure_display_for_headed_browser()
 
     worker_id = _worker_id()
     poll_s = _poll_interval_s()
