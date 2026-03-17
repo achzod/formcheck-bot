@@ -415,6 +415,23 @@ async def claim_next_minimax_remote_job(worker_id: str) -> MiniMaxRemoteJob | No
         return job
 
 
+async def heartbeat_minimax_remote_job(job_id: int, worker_id: str | None = None) -> bool:
+    async with async_session() as session:
+        job = await session.get(MiniMaxRemoteJob, job_id)
+        if not job:
+            return False
+        if str(job.status or "").strip().lower() != "processing":
+            return False
+        worker = str(worker_id or "").strip()[:120]
+        if worker and job.worker_id and str(job.worker_id).strip() != worker:
+            return False
+        job.updated_at = dt.datetime.utcnow()
+        if worker:
+            job.worker_id = worker
+        await session.commit()
+        return True
+
+
 async def get_minimax_remote_job(job_id: int) -> MiniMaxRemoteJob | None:
     async with async_session() as session:
         return await session.get(MiniMaxRemoteJob, job_id)

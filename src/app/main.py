@@ -817,6 +817,28 @@ try:
             raise HTTPException(status_code=404, detail="Job not found")
         return {"status": "ok"}
 
+    @app.post("/internal/minimax/jobs/{job_id}/heartbeat")
+    async def heartbeat_minimax_job(job_id: int, request: Request) -> dict:
+        _require_internal_worker_token(request)
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        worker_id = str((payload or {}).get("worker_id", "") or "").strip()
+        if worker_id and not minimax_remote_worker_id_allowed(worker_id, settings):
+            logger.warning(
+                "Rejected MiniMax remote worker heartbeat from disallowed worker_id=%s",
+                worker_id,
+            )
+            raise HTTPException(status_code=403, detail="Worker not allowed")
+        ok = await db.heartbeat_minimax_remote_job(
+            job_id,
+            worker_id=(worker_id or None),
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return {"status": "ok"}
+
     @app.post("/internal/minimax/jobs/{job_id}/fail")
     async def fail_minimax_job(job_id: int, request: Request) -> dict:
         _require_internal_worker_token(request)

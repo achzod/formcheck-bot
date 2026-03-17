@@ -415,6 +415,88 @@ class RemoteMiniMaxJobClaimTests(unittest.TestCase):
         self.assertIn("minimax_remote_jobs.status = 'processing'", sql)
         self.assertIn("minimax_remote_jobs.updated_at <", sql)
 
+    def test_heartbeat_job_touches_processing_job(self) -> None:
+        now = db.dt.datetime.utcnow()
+        job = SimpleNamespace(
+            id=12,
+            status="processing",
+            worker_id="worker-a",
+            updated_at=now - db.dt.timedelta(seconds=600),
+        )
+        captured = {}
+
+        class _FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def get(self, _model, job_id: int):
+                captured["job_id"] = job_id
+                return job
+
+            async def commit(self):
+                captured["committed"] = True
+
+        original_async_session = db.async_session
+        try:
+            db.async_session = lambda: _FakeSession()
+            ok = asyncio.run(db.heartbeat_minimax_remote_job(12, "worker-a"))
+        finally:
+            db.async_session = original_async_session
+
+        self.assertTrue(ok)
+        self.assertEqual(captured.get("job_id"), 12)
+        self.assertTrue(captured.get("committed"))
+        self.assertGreater(job.updated_at, now)
+
+
+@unittest.skipIf(main is None, "app deps unavailable: {}".format(_HANDLERS_IMPORT_ERROR))
+class RemoteMiniMaxHeartbeatEndpointTests(unittest.TestCase):
+    def test_heartbeat_endpoint_accepts_allowed_worker(self) -> None:
+        client = TestClient(main.app)
+        token_snapshot = main.settings.minimax_remote_worker_token
+        render_snapshot = main.settings.render_api_key
+        enabled_snapshot = main.settings.minimax_remote_worker_enabled
+        base_url_snapshot = main.settings.base_url
+        test_mode_snapshot = main.settings.test_mode
+        allowed_ids_snapshot = main.settings.minimax_remote_worker_allowed_ids
+        allowed_prefixes_snapshot = main.settings.minimax_remote_worker_allowed_prefixes
+        original_heartbeat = main.db.heartbeat_minimax_remote_job
+        try:
+            main.settings.minimax_remote_worker_token = "worker-token"
+            main.settings.render_api_key = ""
+            main.settings.minimax_remote_worker_enabled = True
+            main.settings.base_url = "https://formcheck-bot.onrender.com"
+            main.settings.test_mode = False
+            main.settings.minimax_remote_worker_allowed_ids = ""
+            main.settings.minimax_remote_worker_allowed_prefixes = ""
+
+            async def fake_heartbeat(job_id: int, worker_id: str | None = None):
+                self.assertEqual(job_id, 21)
+                self.assertEqual(worker_id, "srv-d6o382rh46gs73a59h8g-jgc2l-29")
+                return True
+
+            main.db.heartbeat_minimax_remote_job = fake_heartbeat
+            response = client.post(
+                "/internal/minimax/jobs/21/heartbeat",
+                headers={"X-Formcheck-Internal-Token": "worker-token"},
+                json={"worker_id": "srv-d6o382rh46gs73a59h8g-jgc2l-29"},
+            )
+        finally:
+            main.db.heartbeat_minimax_remote_job = original_heartbeat
+            main.settings.minimax_remote_worker_token = token_snapshot
+            main.settings.render_api_key = render_snapshot
+            main.settings.minimax_remote_worker_enabled = enabled_snapshot
+            main.settings.base_url = base_url_snapshot
+            main.settings.test_mode = test_mode_snapshot
+            main.settings.minimax_remote_worker_allowed_ids = allowed_ids_snapshot
+            main.settings.minimax_remote_worker_allowed_prefixes = allowed_prefixes_snapshot
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok"})
+
 
 @unittest.skipIf(main is None, "app deps unavailable: {}".format(_HANDLERS_IMPORT_ERROR))
 class RemoteMiniMaxClaimEndpointGuardTests(unittest.TestCase):
@@ -752,6 +834,27 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
         )
         self.assertFalse(should_continue)
 
+    def test_subprocess_browser_detection_ignores_driver_only_and_crashpad(self) -> None:
+        original_descendants = minimax_remote_worker._descendant_cmdlines
+        try:
+            minimax_remote_worker._descendant_cmdlines = lambda _pid: [
+                "/ms-playwright/driver/node cli.js run-driver",
+                "/chrome_crashpad_handler --monitor-self",
+            ]
+            self.assertFalse(minimax_remote_worker._subprocess_has_live_browser_descendants(123))
+        finally:
+            minimax_remote_worker._descendant_cmdlines = original_descendants
+
+    def test_subprocess_browser_detection_accepts_real_chrome_process(self) -> None:
+        original_descendants = minimax_remote_worker._descendant_cmdlines
+        try:
+            minimax_remote_worker._descendant_cmdlines = lambda _pid: [
+                "/ms-playwright/chromium-1161/chrome-linux64/chrome --type=zygote --no-zygote-sandbox",
+            ]
+            self.assertTrue(minimax_remote_worker._subprocess_has_live_browser_descendants(123))
+        finally:
+            minimax_remote_worker._descendant_cmdlines = original_descendants
+
     def test_process_job_uses_subprocess_payload_and_completes(self) -> None:
         payload = _analysis_to_payload(
             MiniMaxAnalysis(
@@ -768,6 +871,7 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
         original_run_subprocess = minimax_remote_worker._run_analysis_subprocess
         original_complete = minimax_remote_worker._complete_job
         original_fail = minimax_remote_worker._fail_job
+        original_heartbeat_loop = minimax_remote_worker._job_heartbeat_loop
         original_unlink = minimax_remote_worker.Path.unlink
 
         async def fake_download(_client, job_id: int, video_url: str):
@@ -785,6 +889,10 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
         async def fake_fail(_client, job_id: int, error: str):
             events.append(("fail", job_id, error))
 
+        async def fake_heartbeat_loop(_client, *, job_id: int, worker_id: str, stop_event: asyncio.Event):
+            events.append(("heartbeat_loop", job_id, worker_id))
+            await stop_event.wait()
+
         def fake_unlink(self, missing_ok: bool = False):
             events.append(("unlink", str(self), missing_ok))
 
@@ -793,11 +901,13 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
             minimax_remote_worker._run_analysis_subprocess = fake_run_subprocess
             minimax_remote_worker._complete_job = fake_complete
             minimax_remote_worker._fail_job = fake_fail
+            minimax_remote_worker._job_heartbeat_loop = fake_heartbeat_loop
             minimax_remote_worker.Path.unlink = fake_unlink
             asyncio.run(
                 minimax_remote_worker._process_job(
                     object(),
                     {"id": 21, "video_url": "https://example.com/video.mp4"},
+                    "worker-123",
                 )
             )
         finally:
@@ -805,11 +915,13 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
             minimax_remote_worker._run_analysis_subprocess = original_run_subprocess
             minimax_remote_worker._complete_job = original_complete
             minimax_remote_worker._fail_job = original_fail
+            minimax_remote_worker._job_heartbeat_loop = original_heartbeat_loop
             minimax_remote_worker.Path.unlink = original_unlink
 
-        self.assertEqual(events[0], ("complete", 21, payload))
-        self.assertEqual(events[1], ("unlink", "/tmp/fake-video.mp4", True))
-        self.assertEqual(len(events), 2)
+        self.assertIn(("heartbeat_loop", 21, "worker-123"), events)
+        self.assertIn(("complete", 21, payload), events)
+        self.assertIn(("unlink", "/tmp/fake-video.mp4", True), events)
+        self.assertEqual(len(events), 3)
 
 
 if __name__ == "__main__":

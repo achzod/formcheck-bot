@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     minimax_remote_worker_enabled: bool = False
     minimax_remote_worker_token: str = ""
     minimax_remote_worker_poll_interval_s: int = 5
-    minimax_remote_job_stale_after_s: int = 600
+    minimax_remote_job_stale_after_s: int = 180
     minimax_remote_max_pending_jobs: int = 40
     minimax_remote_avg_job_seconds: int = 150
     minimax_remote_worker_allowed_ids: str = ""

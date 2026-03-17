@@ -111,6 +111,13 @@ def _analysis_browser_stall_after_s() -> int:
     return max(30, int(os.getenv("MINIMAX_REMOTE_BROWSER_STALL_AFTER_S", "45") or 45))
 
 
+def _job_heartbeat_interval_s() -> float:
+    try:
+        return max(10.0, float(os.getenv("MINIMAX_REMOTE_JOB_HEARTBEAT_INTERVAL_S", "30") or 30))
+    except Exception:
+        return 30.0
+
+
 def _analysis_subprocess_should_abort_early(
     *,
     elapsed_s: float,
@@ -371,8 +378,15 @@ def _subprocess_has_live_browser_descendants(root_pid: int) -> bool:
         if "chrome_crashpad_handler" in low:
             continue
         if "playwright/driver/node" in low:
-            return True
-        if "chrome-linux64/chrome" in low:
+            continue
+        if (
+            "chrome-linux64/chrome" in low
+            or "/chrome --" in low
+            or "/chrome " in low
+            or "ms-playwright/chromium" in low
+            or "/chromium --" in low
+            or "/chromium " in low
+        ):
             return True
     return False
 
@@ -504,6 +518,15 @@ async def _complete_job(client: httpx.AsyncClient, job_id: int, analysis_payload
     response.raise_for_status()
 
 
+async def _heartbeat_job(client: httpx.AsyncClient, job_id: int, worker_id: str) -> None:
+    response = await client.post(
+        _base_url() + "/internal/minimax/jobs/{}/heartbeat".format(job_id),
+        headers=_headers(),
+        json={"worker_id": worker_id},
+    )
+    response.raise_for_status()
+
+
 async def _fail_job(client: httpx.AsyncClient, job_id: int, error: str) -> None:
     response = await client.post(
         _base_url() + "/internal/minimax/jobs/{}/fail".format(job_id),
@@ -513,10 +536,48 @@ async def _fail_job(client: httpx.AsyncClient, job_id: int, error: str) -> None:
     response.raise_for_status()
 
 
-async def _process_job(client: httpx.AsyncClient, job: dict) -> None:
+async def _job_heartbeat_loop(
+    client: httpx.AsyncClient,
+    *,
+    job_id: int,
+    worker_id: str,
+    stop_event: asyncio.Event,
+) -> None:
+    interval_s = _job_heartbeat_interval_s()
+    while True:
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_s)
+            return
+        except asyncio.TimeoutError:
+            pass
+        if stop_event.is_set():
+            return
+        try:
+            await _heartbeat_job(client, job_id, worker_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                "MiniMax remote worker heartbeat failed (job_id=%s worker_id=%s)",
+                job_id,
+                worker_id,
+                exc_info=True,
+            )
+
+
+async def _process_job(client: httpx.AsyncClient, job: dict, worker_id: str) -> None:
     job_id = int(job["id"])
     video_url = str(job["video_url"])
     video_path: Path | None = None
+    heartbeat_stop = asyncio.Event()
+    heartbeat_task = asyncio.create_task(
+        _job_heartbeat_loop(
+            client,
+            job_id=job_id,
+            worker_id=worker_id,
+            stop_event=heartbeat_stop,
+        )
+    )
     try:
         applied_context = _apply_job_browser_context(job)
         if applied_context:
@@ -546,6 +607,13 @@ async def _process_job(client: httpx.AsyncClient, job: dict) -> None:
         except Exception:
             logger.exception("Failed to report remote worker error (job_id=%s)", job_id)
     finally:
+        heartbeat_stop.set()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("MiniMax remote job heartbeat loop crashed (job_id=%s)", job_id, exc_info=True)
         if video_path is not None:
             try:
                 video_path.unlink(missing_ok=True)
@@ -589,7 +657,7 @@ async def run_worker() -> None:
                     await asyncio.sleep(poll_s)
                     continue
                 try:
-                    await _process_job(client, job)
+                    await _process_job(client, job, worker_id)
                 finally:
                     _restore_runtime_browser_context(base_runtime_context)
             except asyncio.CancelledError:

@@ -68,7 +68,7 @@ services:
   - type: worker
     name: formcheck-minimax-worker
     runtime: docker
-    plan: standard
+    plan: pro
     autoDeploy: true
     dockerfilePath: ./Dockerfile
     dockerContext: .
@@ -85,6 +85,8 @@ services:
         sync: false
       - key: MINIMAX_REMOTE_WORKER_POLL_INTERVAL_S
         value: "5"
+      - key: MINIMAX_REMOTE_JOB_HEARTBEAT_INTERVAL_S
+        value: "30"
       - key: MINIMAX_BROWSER_ONLY
         value: "true"
       - key: MINIMAX_BROWSER_HEADLESS
