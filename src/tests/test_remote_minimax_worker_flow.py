@@ -706,6 +706,80 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     minimax_remote_worker._ensure_display_for_headed_browser()
 
+    def test_analysis_subprocess_timeout_uses_max_effective_plus_grace(self) -> None:
+        runtime_settings = minimax_remote_worker.minimax_motion_coach.settings
+        original_max_effective = getattr(runtime_settings, "minimax_max_effective_timeout_s", None)
+        original_grace = os.environ.get("MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S")
+        try:
+            runtime_settings.minimax_max_effective_timeout_s = 900
+            os.environ["MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S"] = "180"
+            self.assertEqual(minimax_remote_worker._analysis_subprocess_timeout_s(), 1080)
+        finally:
+            runtime_settings.minimax_max_effective_timeout_s = original_max_effective
+            if original_grace is None:
+                os.environ.pop("MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S", None)
+            else:
+                os.environ["MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S"] = original_grace
+
+    def test_process_job_uses_subprocess_payload_and_completes(self) -> None:
+        payload = _analysis_to_payload(
+            MiniMaxAnalysis(
+                exercise_slug="lat_pulldown",
+                exercise_display="Lat Pulldown",
+                score=81,
+                reps_total=9,
+                intensity_score=77,
+                report_text="Rapport MiniMax",
+            )
+        )
+        events: list[tuple[str, object]] = []
+        original_download = minimax_remote_worker._download_video
+        original_run_subprocess = minimax_remote_worker._run_analysis_subprocess
+        original_complete = minimax_remote_worker._complete_job
+        original_fail = minimax_remote_worker._fail_job
+        original_unlink = minimax_remote_worker.Path.unlink
+
+        async def fake_download(_client, job_id: int, video_url: str):
+            self.assertEqual(job_id, 21)
+            self.assertEqual(video_url, "https://example.com/video.mp4")
+            return minimax_remote_worker.Path("/tmp/fake-video.mp4")
+
+        async def fake_run_subprocess(video_path):
+            self.assertEqual(str(video_path), "/tmp/fake-video.mp4")
+            return payload
+
+        async def fake_complete(_client, job_id: int, analysis_payload: str):
+            events.append(("complete", job_id, analysis_payload))
+
+        async def fake_fail(_client, job_id: int, error: str):
+            events.append(("fail", job_id, error))
+
+        def fake_unlink(self, missing_ok: bool = False):
+            events.append(("unlink", str(self), missing_ok))
+
+        try:
+            minimax_remote_worker._download_video = fake_download
+            minimax_remote_worker._run_analysis_subprocess = fake_run_subprocess
+            minimax_remote_worker._complete_job = fake_complete
+            minimax_remote_worker._fail_job = fake_fail
+            minimax_remote_worker.Path.unlink = fake_unlink
+            asyncio.run(
+                minimax_remote_worker._process_job(
+                    object(),
+                    {"id": 21, "video_url": "https://example.com/video.mp4"},
+                )
+            )
+        finally:
+            minimax_remote_worker._download_video = original_download
+            minimax_remote_worker._run_analysis_subprocess = original_run_subprocess
+            minimax_remote_worker._complete_job = original_complete
+            minimax_remote_worker._fail_job = original_fail
+            minimax_remote_worker.Path.unlink = original_unlink
+
+        self.assertEqual(events[0], ("complete", 21, payload))
+        self.assertEqual(events[1], ("unlink", "/tmp/fake-video.mp4", True))
+        self.assertEqual(len(events), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -16,7 +17,6 @@ from typing import Any
 import httpx
 
 import analysis.minimax_motion_coach as minimax_motion_coach
-from analysis.minimax_motion_coach import _analysis_to_payload, run_minimax_motion_coach
 
 logger = logging.getLogger("formcheck.minimax_remote_worker")
 _XVFB_PROCESS: subprocess.Popen[str] | None = None
@@ -96,6 +96,15 @@ def _worker_id() -> str:
     if raw and raw.lower() not in {"auto", "render-auto"}:
         return raw[:120]
     return "{}-{}".format(socket.gethostname(), os.getpid())[:120]
+
+
+def _analysis_subprocess_timeout_s() -> int:
+    max_effective = max(
+        60,
+        int(getattr(minimax_motion_coach.settings, "minimax_max_effective_timeout_s", 900) or 900),
+    )
+    grace_s = max(60, int(os.getenv("MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S", "180") or 180))
+    return max_effective + grace_s
 
 
 def _headers() -> dict[str, str]:
@@ -296,6 +305,80 @@ async def _download_video(client: httpx.AsyncClient, job_id: int, video_url: str
         return Path(handle.name)
 
 
+async def _run_analysis_subprocess(video_path: Path) -> str:
+    timeout_s = _analysis_subprocess_timeout_s()
+    with tempfile.NamedTemporaryFile(
+        prefix="formcheck-minimax-result-",
+        suffix=".json",
+        delete=False,
+    ) as handle:
+        result_path = Path(handle.name)
+
+    runner = (
+        "from pathlib import Path\n"
+        "import sys\n"
+        "from analysis.minimax_motion_coach import _analysis_to_payload, run_minimax_motion_coach\n"
+        "video_path = Path(sys.argv[1])\n"
+        "result_path = Path(sys.argv[2])\n"
+        "analysis = run_minimax_motion_coach(str(video_path))\n"
+        "result_path.write_text(_analysis_to_payload(analysis), encoding='utf-8')\n"
+    )
+    env = os.environ.copy()
+    cwd = str(Path(__file__).resolve().parents[1])
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        runner,
+        str(video_path),
+        str(result_path),
+        cwd=cwd,
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+
+    def _cleanup_result_file() -> None:
+        try:
+            result_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=float(timeout_s))
+    except asyncio.TimeoutError as exc:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except Exception:
+            proc.kill()
+        try:
+            await proc.communicate()
+        except Exception:
+            pass
+        _cleanup_result_file()
+        raise TimeoutError(
+            "MiniMax worker hard timeout reached after {}s".format(int(timeout_s))
+        ) from exc
+
+    if proc.returncode != 0:
+        stderr_text = (stderr or b"").decode("utf-8", "ignore").strip()
+        stdout_text = (stdout or b"").decode("utf-8", "ignore").strip()
+        detail = stderr_text or stdout_text or "unknown subprocess failure"
+        _cleanup_result_file()
+        raise RuntimeError("MiniMax worker subprocess failed: {}".format(detail[-1600:]))
+    if not result_path.exists():
+        raise RuntimeError("MiniMax worker subprocess exited without result payload")
+
+    try:
+        payload = result_path.read_text(encoding="utf-8").strip()
+    finally:
+        _cleanup_result_file()
+
+    if not payload:
+        raise RuntimeError("MiniMax worker subprocess returned empty payload")
+    return payload
+
+
 async def _complete_job(client: httpx.AsyncClient, job_id: int, analysis_payload: str) -> None:
     response = await client.post(
         _base_url() + "/internal/minimax/jobs/{}/complete".format(job_id),
@@ -327,7 +410,8 @@ async def _process_job(client: httpx.AsyncClient, job: dict) -> None:
                 ",".join(sorted(applied_context.keys())),
             )
         video_path = await _download_video(client, job_id, video_url)
-        analysis = await asyncio.to_thread(run_minimax_motion_coach, str(video_path))
+        analysis_payload = await _run_analysis_subprocess(video_path)
+        analysis = minimax_motion_coach._parse_analysis_payload(analysis_payload)
         logger.info(
             "MiniMax remote job analysis summary (job_id=%s exercise_slug=%s exercise_display=%s score=%s reps_total=%s intensity_score=%s)",
             job_id,
@@ -337,7 +421,7 @@ async def _process_job(client: httpx.AsyncClient, job: dict) -> None:
             getattr(analysis, "reps_total", 0),
             getattr(analysis, "intensity_score", 0),
         )
-        await _complete_job(client, job_id, _analysis_to_payload(analysis))
+        await _complete_job(client, job_id, analysis_payload)
         logger.info("MiniMax remote job completed (job_id=%s)", job_id)
     except Exception as exc:
         logger.exception("MiniMax remote job failed (job_id=%s)", job_id)

@@ -22,3 +22,5 @@
 - Before changing the analysis pipeline again, prove that a fresh user attempt actually reached the upstream provider and created a new job. If Twilio and the app show no new inbound after the reported test, the failure is upstream of Formcheck and a pipeline fix would be cargo cult.
 - Quand un outil tiers expose une page expert specialisee, ne jamais supposer qu un `chat_id` generique renvoie au meme flux. Rester sur la surface expert validee tant qu une preuve contraire n existe pas, sinon on cree nous-memes des timeouts artificiels.
 - Promo overlays from third-party UIs that reappear via client-side rendering must be handled with a persistent DOM killer (observer + CSS), not only a one-shot close/remove attempt.
+
+- When a third-party browser automation can hang inside Playwright/Chromium, do not run it inline in the long-lived worker process. Isolate each job in a killable subprocess with a hard timeout so one frozen run cannot block the whole queue.
