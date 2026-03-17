@@ -721,6 +721,37 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
             else:
                 os.environ["MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S"] = original_grace
 
+    def test_analysis_subprocess_abort_helper_detects_browserless_stall(self) -> None:
+        should_abort = minimax_remote_worker._analysis_subprocess_should_abort_early(
+            elapsed_s=52.0,
+            result_size_bytes=0,
+            browser_alive=False,
+            browser_seen=False,
+            idle_without_browser_s=52.0,
+            stall_after_s=45.0,
+        )
+        self.assertTrue(should_abort)
+
+        should_abort_after_exit = minimax_remote_worker._analysis_subprocess_should_abort_early(
+            elapsed_s=90.0,
+            result_size_bytes=0,
+            browser_alive=False,
+            browser_seen=True,
+            idle_without_browser_s=50.0,
+            stall_after_s=45.0,
+        )
+        self.assertTrue(should_abort_after_exit)
+
+        should_continue = minimax_remote_worker._analysis_subprocess_should_abort_early(
+            elapsed_s=30.0,
+            result_size_bytes=0,
+            browser_alive=False,
+            browser_seen=False,
+            idle_without_browser_s=30.0,
+            stall_after_s=45.0,
+        )
+        self.assertFalse(should_continue)
+
     def test_process_job_uses_subprocess_payload_and_completes(self) -> None:
         payload = _analysis_to_payload(
             MiniMaxAnalysis(

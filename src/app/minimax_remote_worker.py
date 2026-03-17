@@ -107,6 +107,30 @@ def _analysis_subprocess_timeout_s() -> int:
     return max_effective + grace_s
 
 
+def _analysis_browser_stall_after_s() -> int:
+    return max(30, int(os.getenv("MINIMAX_REMOTE_BROWSER_STALL_AFTER_S", "45") or 45))
+
+
+def _analysis_subprocess_should_abort_early(
+    *,
+    elapsed_s: float,
+    result_size_bytes: int,
+    browser_alive: bool,
+    browser_seen: bool,
+    idle_without_browser_s: float,
+    stall_after_s: float,
+) -> bool:
+    if result_size_bytes > 0:
+        return False
+    if browser_alive:
+        return False
+    if elapsed_s < stall_after_s:
+        return False
+    if not browser_seen:
+        return True
+    return idle_without_browser_s >= stall_after_s
+
+
 def _headers() -> dict[str, str]:
     token = _token()
     if not token:
@@ -305,8 +329,57 @@ async def _download_video(client: httpx.AsyncClient, job_id: int, video_url: str
         return Path(handle.name)
 
 
+def _descendant_cmdlines(root_pid: int) -> list[str]:
+    try:
+        proc_entries = [entry for entry in os.listdir("/proc") if entry.isdigit()]
+    except Exception:
+        return []
+
+    parent_by_pid: dict[int, int] = {}
+    cmd_by_pid: dict[int, str] = {}
+    for entry in proc_entries:
+        pid = int(entry)
+        try:
+            with open(f"/proc/{pid}/stat", encoding="utf-8") as handle:
+                parent_by_pid[pid] = int(handle.read().split()[3])
+            with open(f"/proc/{pid}/cmdline", "rb") as handle:
+                cmd_by_pid[pid] = handle.read().replace(b"\x00", b" ").decode("utf-8", "ignore").strip()
+        except Exception:
+            continue
+
+    descendants: list[str] = []
+    stack = [root_pid]
+    seen: set[int] = set()
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        for pid, parent_pid in parent_by_pid.items():
+            if parent_pid != current or pid in seen:
+                continue
+            stack.append(pid)
+            cmd = str(cmd_by_pid.get(pid, "") or "").strip()
+            if cmd:
+                descendants.append(cmd)
+    return descendants
+
+
+def _subprocess_has_live_browser_descendants(root_pid: int) -> bool:
+    for cmd in _descendant_cmdlines(root_pid):
+        low = cmd.lower()
+        if "chrome_crashpad_handler" in low:
+            continue
+        if "playwright/driver/node" in low:
+            return True
+        if "chrome-linux64/chrome" in low:
+            return True
+    return False
+
+
 async def _run_analysis_subprocess(video_path: Path) -> str:
     timeout_s = _analysis_subprocess_timeout_s()
+    browser_stall_after_s = _analysis_browser_stall_after_s()
     with tempfile.NamedTemporaryFile(
         prefix="formcheck-minimax-result-",
         suffix=".json",
@@ -344,21 +417,64 @@ async def _run_analysis_subprocess(video_path: Path) -> str:
         except Exception:
             pass
 
+    start = time.monotonic()
+    browser_seen = False
+    last_browser_alive_at = start
+    communicate_task = asyncio.create_task(proc.communicate())
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=float(timeout_s))
-    except asyncio.TimeoutError as exc:
+        while True:
+            now = time.monotonic()
+            remaining_s = float(timeout_s) - (now - start)
+            if remaining_s <= 0:
+                raise asyncio.TimeoutError()
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    asyncio.shield(communicate_task),
+                    timeout=min(2.0, remaining_s),
+                )
+                break
+            except asyncio.TimeoutError:
+                browser_alive = _subprocess_has_live_browser_descendants(proc.pid)
+                if browser_alive:
+                    browser_seen = True
+                    last_browser_alive_at = now
+                result_size_bytes = 0
+                try:
+                    if result_path.exists():
+                        result_size_bytes = int(result_path.stat().st_size or 0)
+                except Exception:
+                    result_size_bytes = 0
+                if _analysis_subprocess_should_abort_early(
+                    elapsed_s=(now - start),
+                    result_size_bytes=result_size_bytes,
+                    browser_alive=browser_alive,
+                    browser_seen=browser_seen,
+                    idle_without_browser_s=max(0.0, now - last_browser_alive_at),
+                    stall_after_s=float(browser_stall_after_s),
+                ):
+                    raise RuntimeError(
+                        "MiniMax worker subprocess stalled without active browser after {}s".format(
+                            int(now - start)
+                        )
+                    )
+    except (asyncio.TimeoutError, RuntimeError) as exc:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except Exception:
             proc.kill()
         try:
-            await proc.communicate()
+            await asyncio.wait_for(asyncio.shield(communicate_task), timeout=10.0)
         except Exception:
             pass
         _cleanup_result_file()
-        raise TimeoutError(
-            "MiniMax worker hard timeout reached after {}s".format(int(timeout_s))
-        ) from exc
+        if isinstance(exc, asyncio.TimeoutError):
+            raise TimeoutError(
+                "MiniMax worker hard timeout reached after {}s".format(int(timeout_s))
+            ) from exc
+        raise
+    finally:
+        if not communicate_task.done():
+            communicate_task.cancel()
 
     if proc.returncode != 0:
         stderr_text = (stderr or b"").decode("utf-8", "ignore").strip()
