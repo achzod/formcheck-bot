@@ -31,6 +31,7 @@ _JOB_BROWSER_SETTING_TYPES: dict[str, type] = {
     "minimax_prompt_template": str,
     "minimax_browser_timeout_s": int,
     "minimax_timeout_s": int,
+    "minimax_max_effective_timeout_s": int,
     "minimax_poll_interval_s": float,
     "minimax_browser_only": bool,
     "minimax_browser_headless": bool,
@@ -45,6 +46,7 @@ _SETTING_TO_ENV: dict[str, str] = {
     "minimax_prompt_template": "MINIMAX_PROMPT_TEMPLATE",
     "minimax_browser_timeout_s": "MINIMAX_BROWSER_TIMEOUT_S",
     "minimax_timeout_s": "MINIMAX_TIMEOUT_S",
+    "minimax_max_effective_timeout_s": "MINIMAX_MAX_EFFECTIVE_TIMEOUT_S",
     "minimax_poll_interval_s": "MINIMAX_POLL_INTERVAL_S",
     "minimax_browser_only": "MINIMAX_BROWSER_ONLY",
     "minimax_browser_headless": "MINIMAX_BROWSER_HEADLESS",
@@ -101,10 +103,11 @@ def _worker_id() -> str:
 def _analysis_subprocess_timeout_s() -> int:
     max_effective = max(
         60,
-        int(getattr(minimax_motion_coach.settings, "minimax_max_effective_timeout_s", 900) or 900),
+        int(getattr(minimax_motion_coach.settings, "minimax_max_effective_timeout_s", 420) or 420),
     )
-    grace_s = max(60, int(os.getenv("MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S", "180") or 180))
-    return max_effective + grace_s
+    grace_s = max(30, int(os.getenv("MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S", "60") or 60))
+    hard_cap_s = max(120, int(os.getenv("MINIMAX_REMOTE_JOB_MAX_TIMEOUT_S", "540") or 540))
+    return min(max_effective + grace_s, hard_cap_s)
 
 
 def _analysis_browser_stall_after_s() -> int:

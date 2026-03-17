@@ -788,13 +788,18 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     minimax_remote_worker._ensure_display_for_headed_browser()
 
-    def test_analysis_subprocess_timeout_uses_max_effective_plus_grace(self) -> None:
+    def test_analysis_subprocess_timeout_respects_hard_cap(self) -> None:
         runtime_settings = minimax_remote_worker.minimax_motion_coach.settings
         original_max_effective = getattr(runtime_settings, "minimax_max_effective_timeout_s", None)
         original_grace = os.environ.get("MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S")
+        original_cap = os.environ.get("MINIMAX_REMOTE_JOB_MAX_TIMEOUT_S")
         try:
             runtime_settings.minimax_max_effective_timeout_s = 900
             os.environ["MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S"] = "180"
+            os.environ["MINIMAX_REMOTE_JOB_MAX_TIMEOUT_S"] = "540"
+            self.assertEqual(minimax_remote_worker._analysis_subprocess_timeout_s(), 540)
+
+            os.environ["MINIMAX_REMOTE_JOB_MAX_TIMEOUT_S"] = "2000"
             self.assertEqual(minimax_remote_worker._analysis_subprocess_timeout_s(), 1080)
         finally:
             runtime_settings.minimax_max_effective_timeout_s = original_max_effective
@@ -802,6 +807,10 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
                 os.environ.pop("MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S", None)
             else:
                 os.environ["MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S"] = original_grace
+            if original_cap is None:
+                os.environ.pop("MINIMAX_REMOTE_JOB_MAX_TIMEOUT_S", None)
+            else:
+                os.environ["MINIMAX_REMOTE_JOB_MAX_TIMEOUT_S"] = original_cap
 
     def test_analysis_subprocess_abort_helper_detects_browserless_stall(self) -> None:
         should_abort = minimax_remote_worker._analysis_subprocess_should_abort_early(

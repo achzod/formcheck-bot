@@ -32,3 +32,19 @@ Review:
 - Verification shell worker: PID 1 etait `xvfb-run` et il ne restait plus aucun process `python -m app.minimax_remote_worker`; seul `Xvfb` tournait.
 - Cause racine corrigee: `bin/service_entrypoint.sh` lance maintenant le worker Python directement en PID 1, sans wrapper `xvfb-run` persistant.
 - Validation locale: `pytest -q tests/test_remote_minimax_worker_flow.py tests/test_runtime_config.py` -> `33 passed`.
+
+## 2026-03-17 Incident job MiniMax interminable
+
+- [x] Verifier les logs worker en live et confirmer le pattern de blocage
+- [x] Corriger le timeout effectif maximal pour empecher les jobs qui restent en heartbeat sans fin utile
+- [x] Propager le plafond de timeout via le contexte web -> worker
+- [x] Aligner la config Render (web + worker) sur le nouveau plafond
+- [x] Executer les tests unitaires impactes
+- [ ] Deployer et verifier l etat runtime (health + logs worker)
+
+Review:
+- Logs Render confirms: job `11` reste en `heartbeat` continu sans `complete`/`fail` pendant de longues minutes.
+- Correctif code: timeout effectif MiniMax passe par defaut a `420s`, grace worker reduite a `60s`, et hard-cap worker ajoute (`MINIMAX_REMOTE_JOB_MAX_TIMEOUT_S`, defaut `540s`).
+- Correctif orchestration: web transmet maintenant aussi `minimax_max_effective_timeout_s` au worker par job context.
+- Correctif infra: `render.yaml` aligne web+worker avec `MINIMAX_MAX_EFFECTIVE_TIMEOUT_S=420`, et worker avec `MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S=60` + `MINIMAX_REMOTE_JOB_MAX_TIMEOUT_S=540`.
+- Validation locale: `pytest -q tests/test_remote_minimax_worker_flow.py tests/test_runtime_config.py` -> `33 passed`.

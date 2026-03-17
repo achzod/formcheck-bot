@@ -28,3 +28,4 @@
 - If a background worker can crash under load, add explicit job heartbeats before tightening stale reclaim. Faster reclaim without heartbeats risks duplicate long analyses; heartbeats let you shorten recovery time safely.
 - When a blueprint-managed Render service needs an urgent infra fix, apply the dashboard change immediately if authorized, then push the same change into render.yaml so prod and repo do not drift.
 - On Render worker services, never keep `xvfb-run` as PID 1 in the entrypoint. If the Python child dies, `xvfb-run` and `Xvfb` can remain alive, the service looks healthy, but the queue is dead. PID 1 must be the Python worker, and Xvfb must be managed inside the worker.
+- For MiniMax browser automation in production, never allow extremely long effective timeouts without a worker-level hard cap. A single hung run can monopolize the queue even when heartbeats are healthy; enforce both a bounded effective timeout and a subprocess wall-clock cap.

@@ -758,6 +758,9 @@ try:
             "minimax_prompt_template": str(settings.minimax_prompt_template or "").strip(),
             "minimax_browser_timeout_s": int(settings.minimax_browser_timeout_s or 120),
             "minimax_timeout_s": int(settings.minimax_timeout_s or 180),
+            "minimax_max_effective_timeout_s": int(
+                getattr(settings, "minimax_max_effective_timeout_s", 420) or 420
+            ),
             "minimax_poll_interval_s": float(settings.minimax_poll_interval_s or 2.0),
             "minimax_browser_only": True,
             "minimax_browser_headless": False,

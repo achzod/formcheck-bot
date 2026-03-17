@@ -50,6 +50,10 @@ services:
         value: "false"
       - key: MINIMAX_REMOTE_WORKER_ENABLED
         value: "true"
+      - key: MINIMAX_TIMEOUT_S
+        value: "180"
+      - key: MINIMAX_MAX_EFFECTIVE_TIMEOUT_S
+        value: "420"
       - key: MINIMAX_REMOTE_WORKER_TOKEN
         sync: false
       - key: RENDER_API_KEY
@@ -93,6 +97,14 @@ services:
         value: "false"
       - key: MINIMAX_BROWSER_TIMEOUT_S
         value: "180"
+      - key: MINIMAX_TIMEOUT_S
+        value: "180"
+      - key: MINIMAX_MAX_EFFECTIVE_TIMEOUT_S
+        value: "420"
+      - key: MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S
+        value: "60"
+      - key: MINIMAX_REMOTE_JOB_MAX_TIMEOUT_S
+        value: "540"
       - key: MINIMAX_BROWSER_EMAIL
         sync: false
       - key: MINIMAX_BROWSER_PASSWORD
