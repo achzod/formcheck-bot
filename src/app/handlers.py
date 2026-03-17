@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime as dt
 from dataclasses import dataclass, field
 import logging
 import os
@@ -202,8 +203,62 @@ def _build_whatsapp_report_message(
     return primary, minimal
 
 
-async def _send_existing_queue_status(phone: str) -> None:
+def _remote_phone_job_block_timeout_s() -> int:
+    explicit = int(getattr(app_settings, "minimax_remote_phone_job_block_timeout_s", 0) or 0)
+    if explicit > 0:
+        return max(120, explicit)
+    max_effective = max(
+        60,
+        int(getattr(app_settings, "minimax_max_effective_timeout_s", 420) or 420),
+    )
+    # Auto mode: allow normal long analyses, but do not let one old job
+    # block fresh uploads for too long.
+    return max(600, max_effective + 180)
+
+
+def _job_age_seconds(created_at: dt.datetime | None) -> int:
+    if not isinstance(created_at, dt.datetime):
+        return 0
+    now = dt.datetime.utcnow()
+    if created_at.tzinfo is not None:
+        now = dt.datetime.now(dt.timezone.utc)
+    return max(0, int((now - created_at).total_seconds()))
+
+
+async def _get_blocking_remote_job_for_phone(phone: str) -> db.MiniMaxRemoteJob | None:
     open_job = await db.get_open_minimax_remote_job_for_phone(phone)
+    if not open_job:
+        return None
+
+    max_block_s = _remote_phone_job_block_timeout_s()
+    age_s = _job_age_seconds(getattr(open_job, "created_at", None))
+    if age_s <= max_block_s:
+        return open_job
+
+    status = str(getattr(open_job, "status", "") or "").strip().lower() or "processing"
+    logger.warning(
+        "Auto-expiring stale remote job for phone=%s job_id=%s status=%s age_s=%s max_block_s=%s",
+        phone,
+        getattr(open_job, "id", "?"),
+        status,
+        age_s,
+        max_block_s,
+    )
+    await db.fail_minimax_remote_job(
+        int(open_job.id),
+        "Auto-expired {} job after {}s while receiving a newer upload".format(status, age_s),
+    )
+    _active_analyses.pop(phone, None)
+    try:
+        cleanup_video(str(open_job.video_path))
+    except Exception:
+        logger.warning("Failed to cleanup stale remote-job video path", exc_info=True)
+    return None
+
+
+async def _send_existing_queue_status(phone: str, open_job: db.MiniMaxRemoteJob | None = None) -> None:
+    if open_job is None:
+        open_job = await db.get_open_minimax_remote_job_for_phone(phone)
     if not open_job:
         await wa.send_text(phone, msg.RATE_LIMIT)
         return
@@ -715,9 +770,9 @@ async def handle_video(user: db.User, data: dict) -> None:
             return
 
         if _is_remote_worker_mode_enabled():
-            existing_job = await db.get_open_minimax_remote_job_for_phone(phone)
+            existing_job = await _get_blocking_remote_job_for_phone(phone)
             if existing_job:
-                await _send_existing_queue_status(phone)
+                await _send_existing_queue_status(phone, existing_job)
                 return
 
         # Download video from Twilio (media_url from webhook)
@@ -863,9 +918,9 @@ async def enqueue_uploaded_video(phone: str, video_path: str) -> tuple[bool, str
             return False, "no_credits"
 
         if _is_remote_worker_mode_enabled():
-            existing_job = await db.get_open_minimax_remote_job_for_phone(phone)
+            existing_job = await _get_blocking_remote_job_for_phone(phone)
             if existing_job:
-                await _send_existing_queue_status(phone)
+                await _send_existing_queue_status(phone, existing_job)
                 return False, "already_queued"
 
         has_morpho = await db.has_morpho_profile(user.id)
@@ -1033,6 +1088,14 @@ async def complete_remote_minimax_job(job_id: int, analysis_payload: str) -> boo
     job = await db.get_minimax_remote_job(job_id)
     if not job:
         return False
+    current_status = str(getattr(job, "status", "") or "").strip().lower()
+    if current_status != "processing":
+        logger.warning(
+            "Ignoring remote MiniMax completion for non-processing job (job_id=%s status=%s)",
+            job_id,
+            current_status or "unknown",
+        )
+        return True
     analysis = _analysis_from_payload(analysis_payload)
     if analysis is None:
         raise ValueError("invalid MiniMax analysis payload")
@@ -1055,7 +1118,13 @@ async def complete_remote_minimax_job(job_id: int, analysis_payload: str) -> boo
         result.reps.total_reps if result.reps else 0,
     )
 
-    await db.complete_minimax_remote_job(job_id, analysis_payload)
+    completed = await db.complete_minimax_remote_job(job_id, analysis_payload)
+    if not completed or str(getattr(completed, "status", "") or "").strip().lower() != "completed":
+        logger.warning(
+            "Ignoring remote MiniMax completion because DB status is not completed (job_id=%s)",
+            job_id,
+        )
+        return True
     try:
         await _deliver_pipeline_success(
             phone=job.phone,
@@ -1080,6 +1149,17 @@ async def complete_remote_minimax_job(job_id: int, analysis_payload: str) -> boo
 
 
 async def fail_remote_minimax_job(job_id: int, error: str) -> bool:
+    current_job = await db.get_minimax_remote_job(job_id)
+    if not current_job:
+        return False
+    current_status = str(getattr(current_job, "status", "") or "").strip().lower()
+    if current_status in {"failed", "completed"}:
+        logger.info(
+            "Ignoring duplicate remote MiniMax fail callback (job_id=%s status=%s)",
+            job_id,
+            current_status,
+        )
+        return True
     job = await db.fail_minimax_remote_job(job_id, error)
     if not job:
         return False
@@ -1183,16 +1263,13 @@ async def _run_analysis(
                 _active_analyses.pop(phone, None)
                 return
 
-            await db.create_minimax_remote_job(
+            queued_job = await db.create_minimax_remote_job(
                 analysis_id=analysis_id,
                 user_id=user_id,
                 phone=phone,
                 video_path=video_path,
             )
-            queued_job = await db.get_open_minimax_remote_job_for_phone(phone)
-            queue_position = 1
-            if queued_job:
-                queue_position = max(1, await db.get_minimax_remote_job_position(queued_job.id))
+            queue_position = max(1, await db.get_minimax_remote_job_position(queued_job.id))
             await wa.send_text(
                 phone,
                 msg.remote_queue_status(

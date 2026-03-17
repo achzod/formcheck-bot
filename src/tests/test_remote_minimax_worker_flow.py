@@ -48,6 +48,7 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
             user_id=3,
             phone="+33600000000",
             video_path="/tmp/test-video.mp4",
+            status="processing",
         )
         captured: dict[str, object] = {}
 
@@ -64,7 +65,9 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
         async def fake_complete(job_id: int, result_payload: str):
             self.assertEqual(job_id, 7)
             self.assertEqual(result_payload, payload)
-            return job
+            data = dict(job.__dict__)
+            data["status"] = "completed"
+            return SimpleNamespace(**data)
 
         async def fake_deliver(**kwargs):
             captured.update(kwargs)
@@ -111,6 +114,7 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
             user_id=5,
             phone="+33622222222",
             video_path="/tmp/test-video-fail-delivery.mp4",
+            status="processing",
         )
         events: list[str] = []
         cleaned: list[str] = []
@@ -130,7 +134,9 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
             self.assertEqual(job_id, 17)
             self.assertEqual(result_payload, payload)
             events.append("complete")
-            return job
+            data = dict(job.__dict__)
+            data["status"] = "completed"
+            return SimpleNamespace(**data)
 
         async def fake_deliver(**kwargs):
             events.append("deliver")
@@ -158,6 +164,61 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
         self.assertEqual(cleaned, [job.video_path])
         self.assertNotIn(job.phone, handlers._active_analyses)
 
+    def test_complete_remote_minimax_job_ignores_non_processing_callback(self) -> None:
+        payload = _analysis_to_payload(
+            MiniMaxAnalysis(
+                exercise_slug="machine_chest_press",
+                exercise_display="Machine Chest Press",
+                exercise_confidence=0.93,
+                score=82,
+                reps_total=8,
+                reps_complete=8,
+                intensity_score=74,
+                intensity_label="elevee",
+                avg_inter_rep_rest_s=1.1,
+                positives=["Trajectoire stable"],
+                report_text="Rapport MiniMax",
+            )
+        )
+        job = SimpleNamespace(
+            id=27,
+            analysis_id=62,
+            user_id=9,
+            phone="+33655555555",
+            video_path="/tmp/stale-complete.mp4",
+            status="failed",
+        )
+
+        original_get = handlers.db.get_minimax_remote_job
+        original_complete = handlers.db.complete_minimax_remote_job
+        original_deliver = handlers._deliver_pipeline_success
+        original_active = dict(handlers._active_analyses)
+        handlers._active_analyses[job.phone] = time.time()
+
+        async def fake_get(job_id: int):
+            self.assertEqual(job_id, 27)
+            return job
+
+        async def fake_complete(_job_id: int, _result_payload: str):
+            raise AssertionError("complete_minimax_remote_job must not be called for non-processing jobs")
+
+        async def fake_deliver(**_kwargs):
+            raise AssertionError("_deliver_pipeline_success must not run for stale completion callbacks")
+
+        try:
+            handlers.db.get_minimax_remote_job = fake_get
+            handlers.db.complete_minimax_remote_job = fake_complete
+            handlers._deliver_pipeline_success = fake_deliver
+            ok = asyncio.run(handlers.complete_remote_minimax_job(27, payload))
+        finally:
+            handlers.db.get_minimax_remote_job = original_get
+            handlers.db.complete_minimax_remote_job = original_complete
+            handlers._deliver_pipeline_success = original_deliver
+            handlers._active_analyses.clear()
+            handlers._active_analyses.update(original_active)
+
+        self.assertTrue(ok)
+
     def test_fail_remote_minimax_job_notifies_and_cleans_up(self) -> None:
         job = SimpleNamespace(
             id=8,
@@ -170,15 +231,20 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
         cleaned: list[str] = []
 
         original_fail = handlers.db.fail_minimax_remote_job
+        original_get = handlers.db.get_minimax_remote_job
         original_send = handlers.wa.send_text
         original_cleanup = handlers.cleanup_video
         original_active = dict(handlers._active_analyses)
         handlers._active_analyses[job.phone] = time.time()
 
+        async def fake_get(job_id: int):
+            self.assertEqual(job_id, 8)
+            return SimpleNamespace(**job.__dict__, status="processing")
+
         async def fake_fail(job_id: int, error: str):
             self.assertEqual(job_id, 8)
             self.assertIn("blocked", error)
-            return job
+            return SimpleNamespace(**job.__dict__, status="failed")
 
         async def fake_send_text(phone: str, text: str):
             sent.append((phone, text))
@@ -187,11 +253,13 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
             cleaned.append(path)
 
         try:
+            handlers.db.get_minimax_remote_job = fake_get
             handlers.db.fail_minimax_remote_job = fake_fail
             handlers.wa.send_text = fake_send_text
             handlers.cleanup_video = fake_cleanup
             ok = asyncio.run(handlers.fail_remote_minimax_job(8, "blocked by anti-bot"))
         finally:
+            handlers.db.get_minimax_remote_job = original_get
             handlers.db.fail_minimax_remote_job = original_fail
             handlers.wa.send_text = original_send
             handlers.cleanup_video = original_cleanup
@@ -216,10 +284,15 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
         cleaned: list[str] = []
 
         original_fail = handlers.db.fail_minimax_remote_job
+        original_get = handlers.db.get_minimax_remote_job
         original_send = handlers.wa.send_text
         original_cleanup = handlers.cleanup_video
         original_active = dict(handlers._active_analyses)
         handlers._active_analyses[job.phone] = time.time()
+
+        async def fake_get(job_id: int):
+            self.assertEqual(job_id, 18)
+            return job
 
         async def fake_fail(job_id: int, error: str):
             self.assertEqual(job_id, 18)
@@ -233,11 +306,13 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
             cleaned.append(path)
 
         try:
+            handlers.db.get_minimax_remote_job = fake_get
             handlers.db.fail_minimax_remote_job = fake_fail
             handlers.wa.send_text = fake_send_text
             handlers.cleanup_video = fake_cleanup
             ok = asyncio.run(handlers.fail_remote_minimax_job(18, "already completed upstream"))
         finally:
+            handlers.db.get_minimax_remote_job = original_get
             handlers.db.fail_minimax_remote_job = original_fail
             handlers.wa.send_text = original_send
             handlers.cleanup_video = original_cleanup
@@ -248,6 +323,135 @@ class RemoteMiniMaxWorkerFlowTests(unittest.TestCase):
         self.assertEqual(sent, [])
         self.assertEqual(cleaned, [])
         self.assertNotIn(job.phone, handlers._active_analyses)
+
+    def test_fail_remote_minimax_job_ignores_duplicate_failed_callback(self) -> None:
+        job = SimpleNamespace(
+            id=28,
+            analysis_id=101,
+            user_id=6,
+            phone="+33666666666",
+            video_path="/tmp/already-failed-video.mp4",
+            status="failed",
+        )
+        sent: list[tuple[str, str]] = []
+
+        original_get = handlers.db.get_minimax_remote_job
+        original_fail = handlers.db.fail_minimax_remote_job
+        original_send = handlers.wa.send_text
+        original_active = dict(handlers._active_analyses)
+        handlers._active_analyses[job.phone] = time.time()
+
+        async def fake_get(job_id: int):
+            self.assertEqual(job_id, 28)
+            return job
+
+        async def fake_fail(_job_id: int, _error: str):
+            raise AssertionError("fail_minimax_remote_job must not run on duplicate failed callbacks")
+
+        async def fake_send_text(phone: str, text: str):
+            sent.append((phone, text))
+
+        try:
+            handlers.db.get_minimax_remote_job = fake_get
+            handlers.db.fail_minimax_remote_job = fake_fail
+            handlers.wa.send_text = fake_send_text
+            ok = asyncio.run(handlers.fail_remote_minimax_job(28, "duplicate fail callback"))
+        finally:
+            handlers.db.get_minimax_remote_job = original_get
+            handlers.db.fail_minimax_remote_job = original_fail
+            handlers.wa.send_text = original_send
+            handlers._active_analyses.clear()
+            handlers._active_analyses.update(original_active)
+
+        self.assertTrue(ok)
+        self.assertEqual(sent, [])
+
+    def test_get_blocking_remote_job_for_phone_auto_expires_old_job(self) -> None:
+        phone = "+33677777777"
+        stale_job = SimpleNamespace(
+            id=31,
+            phone=phone,
+            status="processing",
+            video_path="/tmp/stale-remote-job.mp4",
+            created_at=db.dt.datetime.utcnow() - db.dt.timedelta(seconds=3600),
+        )
+        events: list[tuple[str, object]] = []
+
+        original_timeout = handlers.app_settings.minimax_remote_phone_job_block_timeout_s
+        original_get_open = handlers.db.get_open_minimax_remote_job_for_phone
+        original_fail = handlers.db.fail_minimax_remote_job
+        original_cleanup = handlers.cleanup_video
+        original_active = dict(handlers._active_analyses)
+        handlers._active_analyses[phone] = time.time()
+
+        async def fake_get_open(_phone: str):
+            self.assertEqual(_phone, phone)
+            return stale_job
+
+        async def fake_fail(job_id: int, error: str):
+            events.append(("fail", job_id, error))
+            return stale_job
+
+        def fake_cleanup(path: str):
+            events.append(("cleanup", path))
+
+        try:
+            handlers.app_settings.minimax_remote_phone_job_block_timeout_s = 120
+            handlers.db.get_open_minimax_remote_job_for_phone = fake_get_open
+            handlers.db.fail_minimax_remote_job = fake_fail
+            handlers.cleanup_video = fake_cleanup
+            result = asyncio.run(handlers._get_blocking_remote_job_for_phone(phone))
+        finally:
+            handlers.app_settings.minimax_remote_phone_job_block_timeout_s = original_timeout
+            handlers.db.get_open_minimax_remote_job_for_phone = original_get_open
+            handlers.db.fail_minimax_remote_job = original_fail
+            handlers.cleanup_video = original_cleanup
+            handlers._active_analyses.clear()
+            handlers._active_analyses.update(original_active)
+
+        self.assertIsNone(result)
+        self.assertTrue(any(evt[0] == "fail" and evt[1] == 31 for evt in events))
+        self.assertTrue(any(evt[0] == "cleanup" and evt[1] == "/tmp/stale-remote-job.mp4" for evt in events))
+        self.assertNotIn(phone, handlers._active_analyses)
+
+    def test_get_blocking_remote_job_for_phone_keeps_fresh_job(self) -> None:
+        phone = "+33688888888"
+        fresh_job = SimpleNamespace(
+            id=32,
+            phone=phone,
+            status="processing",
+            video_path="/tmp/fresh-remote-job.mp4",
+            created_at=db.dt.datetime.utcnow() - db.dt.timedelta(seconds=30),
+        )
+
+        original_timeout = handlers.app_settings.minimax_remote_phone_job_block_timeout_s
+        original_get_open = handlers.db.get_open_minimax_remote_job_for_phone
+        original_fail = handlers.db.fail_minimax_remote_job
+        original_cleanup = handlers.cleanup_video
+
+        async def fake_get_open(_phone: str):
+            self.assertEqual(_phone, phone)
+            return fresh_job
+
+        async def fake_fail(_job_id: int, _error: str):
+            raise AssertionError("fresh job must not be auto-expired")
+
+        def fake_cleanup(_path: str):
+            raise AssertionError("fresh job video must not be cleaned")
+
+        try:
+            handlers.app_settings.minimax_remote_phone_job_block_timeout_s = 600
+            handlers.db.get_open_minimax_remote_job_for_phone = fake_get_open
+            handlers.db.fail_minimax_remote_job = fake_fail
+            handlers.cleanup_video = fake_cleanup
+            result = asyncio.run(handlers._get_blocking_remote_job_for_phone(phone))
+        finally:
+            handlers.app_settings.minimax_remote_phone_job_block_timeout_s = original_timeout
+            handlers.db.get_open_minimax_remote_job_for_phone = original_get_open
+            handlers.db.fail_minimax_remote_job = original_fail
+            handlers.cleanup_video = original_cleanup
+
+        self.assertIs(result, fresh_job)
 
     def test_deliver_pipeline_success_falls_back_to_text_when_html_generation_fails(self) -> None:
         result = SimpleNamespace(

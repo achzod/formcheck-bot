@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     minimax_remote_worker_token: str = ""
     minimax_remote_worker_poll_interval_s: int = 5
     minimax_remote_job_stale_after_s: int = 180
+    # Anti-blockage par client: un job "open" (queued/processing) trop ancien
+    # n'empeche plus l'envoi d'une nouvelle video.
+    # 0 = auto (derive du timeout MiniMax effectif).
+    minimax_remote_phone_job_block_timeout_s: int = 0
     minimax_remote_max_pending_jobs: int = 40
     minimax_remote_avg_job_seconds: int = 150
     minimax_remote_worker_allowed_ids: str = ""
