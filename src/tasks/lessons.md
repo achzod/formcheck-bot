@@ -24,3 +24,7 @@
 - Promo overlays from third-party UIs that reappear via client-side rendering must be handled with a persistent DOM killer (observer + CSS), not only a one-shot close/remove attempt.
 
 - When a third-party browser automation can hang inside Playwright/Chromium, do not run it inline in the long-lived worker process. Isolate each job in a killable subprocess with a hard timeout so one frozen run cannot block the whole queue.
+- When a browser watchdog reasons about live descendants, do not count Playwright driver or Chrome crashpad helper as a live browser. Only a real Chromium process should keep the run alive.
+- If a background worker can crash under load, add explicit job heartbeats before tightening stale reclaim. Faster reclaim without heartbeats risks duplicate long analyses; heartbeats let you shorten recovery time safely.
+- When a blueprint-managed Render service needs an urgent infra fix, apply the dashboard change immediately if authorized, then push the same change into render.yaml so prod and repo do not drift.
+- On Render worker services, never keep `xvfb-run` as PID 1 in the entrypoint. If the Python child dies, `xvfb-run` and `Xvfb` can remain alive, the service looks healthy, but the queue is dead. PID 1 must be the Python worker, and Xvfb must be managed inside the worker.
