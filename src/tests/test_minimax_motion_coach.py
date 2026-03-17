@@ -1946,6 +1946,19 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
         self.assertIn("multi-agent collaboration", page.script.lower())
         self.assertIn("team mode", page.script.lower())
 
+    def test_arm_maxclaw_promo_overlay_killer_installs_mutation_observer(self) -> None:
+        class _FakePage:
+            def evaluate(self, script: str):
+                self.script = script
+                return True
+
+        page = _FakePage()
+        self.assertTrue(mm._arm_maxclaw_promo_overlay_killer(page))
+        lowered = page.script.lower()
+        self.assertIn("mutationobserver", lowered)
+        self.assertIn("data-formcheck-maxclaw-hidden", lowered)
+        self.assertIn("get maxclaw", lowered)
+
     def test_run_browser_only_dismisses_blanket_overlay_during_polling(self) -> None:
         class _FakePage:
             def __init__(self):
@@ -2018,9 +2031,11 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
         original_collect_page = mm._collect_page_report_candidate
         original_blanket_visible = mm._blanket_overlay_visible
         original_dismiss_blanket = mm._dismiss_browser_blanket_overlay
+        original_arm_killer = mm._arm_maxclaw_promo_overlay_killer
         original_parse = mm._parse_analysis_payload
         original_valid = mm._analysis_is_valid_final_output
         dismiss_calls: list[str] = []
+        killer_calls: list[str] = []
         dom_calls = {"count": 0}
         overlay_states = iter([True, False, False, False, False, False])
         candidate = "<FORMCHECK_REPORT_MD>## Resume\\nSerie propre\\n</FORMCHECK_REPORT_MD>"
@@ -2050,6 +2065,7 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
             mm._collect_page_report_candidate = lambda *_args, **_kwargs: ""  # type: ignore[assignment]
             mm._blanket_overlay_visible = lambda *_args, **_kwargs: next(overlay_states, False)  # type: ignore[assignment]
             mm._dismiss_browser_blanket_overlay = lambda *_args, **_kwargs: dismiss_calls.append("dismiss") or True  # type: ignore[assignment]
+            mm._arm_maxclaw_promo_overlay_killer = lambda *_args, **_kwargs: killer_calls.append("arm") or True  # type: ignore[assignment]
             mm._parse_analysis_payload = lambda text: MiniMaxAnalysis(  # type: ignore[assignment]
                 exercise_slug="machine_chest_press",
                 exercise_display="Presse Pectorale Machine",
@@ -2088,10 +2104,12 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
             mm._collect_page_report_candidate = original_collect_page  # type: ignore[assignment]
             mm._blanket_overlay_visible = original_blanket_visible  # type: ignore[assignment]
             mm._dismiss_browser_blanket_overlay = original_dismiss_blanket  # type: ignore[assignment]
+            mm._arm_maxclaw_promo_overlay_killer = original_arm_killer  # type: ignore[assignment]
             mm._parse_analysis_payload = original_parse  # type: ignore[assignment]
             mm._analysis_is_valid_final_output = original_valid  # type: ignore[assignment]
 
         self.assertGreaterEqual(len(dismiss_calls), 1)
+        self.assertGreaterEqual(len(killer_calls), 1)
         self.assertEqual(out.exercise_display, "Presse Pectorale Machine")
 
     def test_run_browser_only_refreshes_sent_chat_when_ui_stalls(self) -> None:

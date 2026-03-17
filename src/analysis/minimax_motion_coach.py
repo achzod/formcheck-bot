@@ -3741,11 +3741,136 @@ def _blanket_overlay_visible(page: Any) -> bool:
     return any(_locator_is_visible(page, selector, timeout_ms=500) for selector in selectors)
 
 
+def _arm_maxclaw_promo_overlay_killer(page: Any) -> bool:
+    try:
+        return bool(
+            page.evaluate(
+                """() => {
+                    const markers = [
+                        'maxclaw',
+                        'team mode',
+                        'get maxclaw',
+                        'multi-agent collaboration',
+                        'build your ai workgroup',
+                        'running continuously in the cloud',
+                    ];
+                    const killerId = '__formcheck_maxclaw_overlay_killer';
+                    const hiddenAttr = 'data-formcheck-maxclaw-hidden';
+
+                    const normalize = (value) => String(value || '').toLowerCase();
+                    const isPromoText = (value) => {
+                        const low = normalize(value);
+                        return low.includes('maxclaw') && markers.slice(1).some((marker) => low.includes(marker));
+                    };
+                    const isOverlayShell = (node) => {
+                        if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+                        const cls = normalize(node.className);
+                        return cls.includes('bg-utility_blanket')
+                            || (cls.includes('fixed') && cls.includes('inset-0'))
+                            || normalize(node.getAttribute && node.getAttribute('role')).includes('dialog')
+                            || normalize(node.getAttribute && node.getAttribute('data-radix-portal')).length > 0;
+                    };
+                    const hideNode = (node) => {
+                        if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+                        let changed = false;
+                        let target = node;
+                        for (let depth = 0; depth < 3 && target && target.parentElement; depth += 1) {
+                            const parent = target.parentElement;
+                            if (!isOverlayShell(parent) || !isPromoText(parent.textContent || '')) break;
+                            target = parent;
+                        }
+                        const nodes = new Set([target, node]);
+                        for (const current of nodes) {
+                            if (!current || current.nodeType !== Node.ELEMENT_NODE) continue;
+                            current.setAttribute(hiddenAttr, '1');
+                            current.style.setProperty('display', 'none', 'important');
+                            current.style.setProperty('visibility', 'hidden', 'important');
+                            current.style.setProperty('opacity', '0', 'important');
+                            current.style.setProperty('pointer-events', 'none', 'important');
+                            changed = true;
+                        }
+                        return changed;
+                    };
+                    const collectCandidates = (root) => {
+                        const base = root && root.querySelectorAll ? root : document;
+                        const selectors = [
+                            '[class*="bg-utility_blanket"]',
+                            'div.fixed.inset-0',
+                            '[role="dialog"]',
+                            '[data-radix-portal]',
+                            'button',
+                        ];
+                        const nodes = [];
+                        for (const selector of selectors) {
+                            try {
+                                nodes.push(...Array.from(base.querySelectorAll(selector)));
+                            } catch (_err) {
+                                continue;
+                            }
+                        }
+                        if (root && root.nodeType === Node.ELEMENT_NODE) {
+                            nodes.push(root);
+                        }
+                        return nodes;
+                    };
+                    const sweep = (root) => {
+                        let changed = false;
+                        for (const node of collectCandidates(root)) {
+                            if (!node || node.nodeType !== Node.ELEMENT_NODE) continue;
+                            const text = String(node.textContent || '');
+                            if (!isPromoText(text)) continue;
+                            changed = hideNode(node) || changed;
+                        }
+                        if (document.documentElement) {
+                            document.documentElement.style.removeProperty('overflow');
+                        }
+                        if (document.body) {
+                            document.body.style.removeProperty('overflow');
+                            document.body.style.removeProperty('pointer-events');
+                        }
+                        return changed;
+                    };
+
+                    let style = document.getElementById(killerId);
+                    if (!style && document.head) {
+                        style = document.createElement('style');
+                        style.id = killerId;
+                        style.textContent = `[${hiddenAttr}="1"]{display:none !important;visibility:hidden !important;opacity:0 !important;pointer-events:none !important;}`;
+                        document.head.appendChild(style);
+                    }
+
+                    if (!window.__formcheckMaxClawObserver && document.documentElement) {
+                        window.__formcheckMaxClawObserver = new MutationObserver((mutations) => {
+                            for (const mutation of mutations) {
+                                if (mutation.type === 'attributes' && mutation.target) {
+                                    sweep(mutation.target);
+                                }
+                                for (const node of Array.from(mutation.addedNodes || [])) {
+                                    sweep(node);
+                                }
+                            }
+                        });
+                        window.__formcheckMaxClawObserver.observe(document.documentElement, {
+                            subtree: true,
+                            childList: true,
+                            attributes: true,
+                        });
+                    }
+
+                    return sweep(document.documentElement || document.body || document);
+                }"""
+            )
+        )
+    except Exception:
+        return False
+
+
 def _dismiss_browser_blanket_overlay(page: Any, timeout_ms: int) -> bool:
     try:
         logger.warning("MiniMax blanket overlay detected: %s", _overlay_debug_summary(page))
     except Exception:
         pass
+    _arm_maxclaw_promo_overlay_killer(page)
     if _remove_maxclaw_promo_overlay(page):
         _safe_page_wait(page, 200)
     close_selectors = (
@@ -4472,6 +4597,7 @@ def _populate_browser_message(
     password: str = "",
 ) -> None:
     page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
+    _arm_maxclaw_promo_overlay_killer(page)
     if _blanket_overlay_visible(page):
         _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
 
@@ -4601,6 +4727,7 @@ def _send_button_enabled(page: Any) -> bool:
 
 
 def _send_browser_message(page: Any, timeout_ms: int) -> None:
+    _arm_maxclaw_promo_overlay_killer(page)
     if _blanket_overlay_visible(page):
         _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
     send_ready = _wait_for_page_condition(page, lambda: _send_button_enabled(page), timeout_ms=min(timeout_ms, 15000), step_ms=200)
@@ -4647,6 +4774,7 @@ def _upload_and_send_via_browser(
     last_exc: Exception | None = None
     for attempt in range(2):
         try:
+            _arm_maxclaw_promo_overlay_killer(page)
             if _blanket_overlay_visible(page):
                 _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
             if _login_modal_visible(page):
@@ -5091,6 +5219,7 @@ def _run_minimax_browser_only_once(
             _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
             _open_motion_coach_chat(page, timeout_ms=timeout_ms, email=email, password=password)
             state["motion_coach_opened"] = True
+            _arm_maxclaw_promo_overlay_killer(page)
 
             # Baseline collection window.
             page.wait_for_timeout(1400)
@@ -5116,6 +5245,7 @@ def _run_minimax_browser_only_once(
             deadline = time.monotonic() + timeout_s_effective
             sleep_ms = max(300, int(max(0.8, poll_interval) * 1000))
             while time.monotonic() < deadline:
+                _arm_maxclaw_promo_overlay_killer(page)
                 if _blanket_overlay_visible(page):
                     _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
                 if _maybe_refresh_sent_chat(page, state, timeout_ms=timeout_ms):

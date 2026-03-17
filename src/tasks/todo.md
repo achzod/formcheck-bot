@@ -1,43 +1,4 @@
-# Todo
-
-- [x] Reconstituer le symptome prod MiniMax (logs/runtime/endpoints)
-- [x] Auditer la queue job -> worker -> MiniMax browser -> livraison WhatsApp
-- [x] Identifier la cause racine du dernier echec
-- [x] Corriger le code ou la configuration minimale necessaire
-- [x] Verifier par tests + checks prod + audit final
-- [x] Inspecter le nouveau test en attente dans la prod
-- [x] Identifier ou le job bloque (webhook, queue, claim, browser, completion, livraison)
-- [x] Bloquer cote serveur les workers non Render sur le claim MiniMax
-- [x] Ajouter les tests de regression associes
-- [x] Deployer et verifier que la queue prod n est plus parasitee
-- [x] Corriger la derive d auth interne web/worker sur les endpoints MiniMax
-- [x] Identifier pourquoi le worker live ne consomme pas la queue
-- [x] Identifier pourquoi un job worker valide echoue en `404 /video`
-- [x] Identifier pourquoi le dernier job crash sur le profil navigateur MiniMax
-- [x] Verifier que le job en queue est bien repris par le worker Render live
-- [x] Verifier le dernier test utilisateur apres fix profil navigateur
-- [x] Identifier pourquoi le dernier run MiniMax timeoute alors que la queue est saine
-- [x] Corriger le nouveau bloqueur overlay MiniMax `MaxClaw Team Mode`
-- [x] Ajouter la regression test associee
-- [x] Deployer le fix overlay et recontroler le prochain run
-- [x] Inspecter le run prod casse apres deploy overlay
-- [x] Identifier la panne active restante
-- [x] Corriger le code ou la config necessaire
-- [x] Tracer le job prod courant signale en file d attente / processing
-- [x] Identifier la cause racine active actuelle
-- [x] Corriger proprement la panne active avec tests
-- [ ] Deployer et revalider sur un run prod sain
-
-## Review
-- Trace prod confirmee sur le job `id=10`: la video a bien ete recue, le worker a claim le job, MiniMax a bien lance l analyse, puis le job a echoue en `MiniMax global analysis timeout reached` a `2026-03-16 14:53:19 UTC`.
-- Le symptome n etait donc pas une file d attente bloquee, mais un timeout browser apres envoi.
-- Cause racine retenue apres audit de code: le flux browser quittait la page expert `AI Motion Coach` juste apres l envoi pour naviguer vers `https://agent.minimax.io/chat?id=...`. Cette navigation pouvait casser le contexte expert MiniMax et faire attendre la mauvaise surface jusqu au timeout.
-- Correctif code applique dans `analysis/minimax_motion_coach.py`:
-  - plus de navigation post-send vers `chat?id=`
-  - refreshs de resultat forces sur la page expert `AI Motion Coach`
-  - conservation du baseline DOM pre-send pour ne pas masquer un premier resultat deja rendu
-- Regressions ajoutees/ajustees dans `tests/test_minimax_motion_coach.py` pour garantir que le flux reste sur la route expert MiniMax.
-- Validation locale apres correctif:
-  - `pytest -q tests/test_minimax_motion_coach.py` -> `94 passed`
-  - `pytest -q tests/test_remote_minimax_worker_flow.py tests/test_runtime_config.py tests/test_html_report_personalized.py` -> `35 passed`
-  - `pytest -q` -> `169 passed, 2 skipped`
+- [x] Verifier le run utilisateur signale comme sans reponse
+- [x] Tracer reception Twilio/webhook -> creation analyse -> job MiniMax -> worker -> delivery WhatsApp
+- [x] Identifier la cause racine precise et corriger
+- [ ] Valider par tests + checks prod + mettre a jour revue
