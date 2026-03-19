@@ -67,6 +67,30 @@ _BROWSER_PROFILE_LOCK_NAMES = (
     "SingletonCookie",
     "SingletonSocket",
 )
+_BROWSER_PROFILE_HEAVY_DIR_NAMES = (
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "ShaderCache",
+    "GrShaderCache",
+    "DawnCache",
+    "Crashpad",
+    "Crash Reports",
+    "component_crx_cache",
+    "Safe Browsing",
+    "OptimizationHints",
+    "Subresource Filter",
+    "OnDeviceHeadSuggestModel",
+    "WidevineCdm",
+)
+_BROWSER_PROFILE_HEAVY_PATH_PARTS = (
+    "Service Worker/CacheStorage",
+    "Default/Service Worker/CacheStorage",
+    "Default/Code Cache",
+    "Default/Cache",
+    "Default/GPUCache",
+    "Default/blob_storage",
+)
 
 _DEFAULT_ANALYSIS_PROMPT = (
     "Analyse uniquement la video jointe comme AI Motion Coach expert en biomecanique de la musculation.\n"
@@ -3125,6 +3149,32 @@ def _scrub_browser_profile_locks(path: Path) -> None:
             )
 
 
+def _browser_profile_copy_required() -> bool:
+    """Clone the seed profile only when it is the sole auth source.
+
+    When cookies/local storage/session storage are already injected into the
+    runtime worker, copying a full Chromium profile mostly duplicates caches and
+    pushes memory usage up without adding auth value.
+    """
+    if str(getattr(settings, "minimax_cookie", "") or "").strip():
+        return False
+    if _normalized_storage_dump(getattr(settings, "minimax_browser_local_storage_json", ""), label="localStorage"):
+        return False
+    if _normalized_storage_dump(getattr(settings, "minimax_browser_session_storage_json", ""), label="sessionStorage"):
+        return False
+    return _browser_profile_seed_available()
+
+
+def _should_skip_browser_profile_copy(path: Path) -> bool:
+    name = path.name
+    if name in _BROWSER_PROFILE_LOCK_NAMES:
+        return True
+    if name in _BROWSER_PROFILE_HEAVY_DIR_NAMES:
+        return True
+    path_str = path.as_posix()
+    return any(part in path_str for part in _BROWSER_PROFILE_HEAVY_PATH_PARTS)
+
+
 def _prepare_browser_profile_workspace() -> tuple[Path, callable]:
     seed_dir = _browser_profile_dir()
     runtime_root = seed_dir.parent / f"{seed_dir.name}_runtime"
@@ -3132,13 +3182,17 @@ def _prepare_browser_profile_workspace() -> tuple[Path, callable]:
     workspace = Path(tempfile.mkdtemp(prefix="session-", dir=str(runtime_root)))
 
     try:
-        if seed_dir.exists():
-            shutil.copytree(
-                seed_dir,
-                workspace,
-                dirs_exist_ok=True,
-                ignore=shutil.ignore_patterns(*_BROWSER_PROFILE_LOCK_NAMES),
-            )
+        if seed_dir.exists() and _browser_profile_copy_required():
+            for source in seed_dir.rglob("*"):
+                relative = source.relative_to(seed_dir)
+                if _should_skip_browser_profile_copy(relative):
+                    continue
+                target = workspace / relative
+                if source.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
     except Exception:
         logger.warning(
             "Failed to clone MiniMax browser profile seed into workspace %s",

@@ -72,7 +72,7 @@ services:
   - type: worker
     name: formcheck-minimax-worker
     runtime: docker
-    plan: pro
+    plan: "pro plus"
     autoDeploy: true
     dockerfilePath: ./Dockerfile
     dockerContext: .

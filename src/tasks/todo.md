@@ -49,3 +49,18 @@ Review:
 - Correctif infra: `render.yaml` aligne web+worker avec `MINIMAX_MAX_EFFECTIVE_TIMEOUT_S=420`, et worker avec `MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S=60` + `MINIMAX_REMOTE_JOB_MAX_TIMEOUT_S=540`.
 - Validation locale: `pytest -q tests/test_remote_minimax_worker_flow.py tests/test_runtime_config.py` -> `33 passed`.
 - Validation prod: web et worker `live` sur `5254f0a`; `/health` et `/health/debug` renvoient `200`; logs worker montrent un polling `claim` sain en continu apres redeploy (plus de job zombie en heartbeat infini apres restart).
+
+## 2026-03-19 Audit live test utilisateur
+
+- [x] Charger le contexte workspace et relire les traces de la passe precedente
+- [x] Verifier le run utilisateur courant via logs web
+- [x] Recroiser avec les logs worker pour confirmer claim, analyse et livraison
+- [x] Corriger uniquement la cause racine si un nouvel echec est confirme
+- [ ] Revalider localement et reverifier le runtime Render
+- [ ] Auditer le rapport final recu apres le run
+
+Review:
+- Cause racine confirmee sur le run courant: le worker Render redemarre pendant `job_id=12` a cause de plusieurs OOM consecutifs (>4 GB), avant tout callback `complete` ou `fail`.
+- Signal cle de confirmation: logs worker avec `runtime context applied`, `GET /internal/minimax/jobs/12/video`, un unique heartbeat, puis evenements Render `Instance failed ... Ran out of memory (used over 4GB)` suivis de nouveaux bootstraps et reclaims du meme job.
+- Correctif code applique: le browser MiniMax ne clone plus un profil Chromium complet quand l auth est deja injectee par cookie ou storage; en mode profile-only, les caches lourds sont exclus du clone.
+- Correctif infra versionne: blueprint worker passe de `Pro 4 GB` a `Pro Plus 8 GB`.

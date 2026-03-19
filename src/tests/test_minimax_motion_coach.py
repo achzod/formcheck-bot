@@ -898,6 +898,64 @@ class MiniMaxBrowserConfigValidationTests(unittest.TestCase):
             finally:
                 minimax_settings.minimax_browser_profile_dir = original_profile_dir
 
+    def test_prepare_browser_profile_workspace_skips_profile_clone_when_cookie_seed_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "profile"
+            default_dir = profile_dir / "Default"
+            default_dir.mkdir(parents=True)
+            (default_dir / "Preferences").write_text("{}", encoding="utf-8")
+            original = {
+                "profile_dir": minimax_settings.minimax_browser_profile_dir,
+                "cookie": minimax_settings.minimax_cookie,
+            }
+            try:
+                minimax_settings.minimax_browser_profile_dir = str(profile_dir)
+                minimax_settings.minimax_cookie = "session=abc"
+                workspace, cleanup = mm._prepare_browser_profile_workspace()
+                try:
+                    self.assertFalse((workspace / "Default" / "Preferences").exists())
+                finally:
+                    cleanup()
+            finally:
+                minimax_settings.minimax_browser_profile_dir = original["profile_dir"]
+                minimax_settings.minimax_cookie = original["cookie"]
+
+    def test_prepare_browser_profile_workspace_ignores_heavy_cache_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "profile"
+            default_dir = profile_dir / "Default"
+            cache_dir = default_dir / "Cache"
+            gpu_cache_dir = default_dir / "GPUCache"
+            default_dir.mkdir(parents=True)
+            cache_dir.mkdir(parents=True)
+            gpu_cache_dir.mkdir(parents=True)
+            (default_dir / "Preferences").write_text("{}", encoding="utf-8")
+            (cache_dir / "data_0").write_text("cache", encoding="utf-8")
+            (gpu_cache_dir / "index").write_text("gpu", encoding="utf-8")
+            original = {
+                "profile_dir": minimax_settings.minimax_browser_profile_dir,
+                "cookie": minimax_settings.minimax_cookie,
+                "local": minimax_settings.minimax_browser_local_storage_json,
+                "session": minimax_settings.minimax_browser_session_storage_json,
+            }
+            try:
+                minimax_settings.minimax_browser_profile_dir = str(profile_dir)
+                minimax_settings.minimax_cookie = ""
+                minimax_settings.minimax_browser_local_storage_json = ""
+                minimax_settings.minimax_browser_session_storage_json = ""
+                workspace, cleanup = mm._prepare_browser_profile_workspace()
+                try:
+                    self.assertTrue((workspace / "Default" / "Preferences").exists())
+                    self.assertFalse((workspace / "Default" / "Cache").exists())
+                    self.assertFalse((workspace / "Default" / "GPUCache").exists())
+                finally:
+                    cleanup()
+            finally:
+                minimax_settings.minimax_browser_profile_dir = original["profile_dir"]
+                minimax_settings.minimax_cookie = original["cookie"]
+                minimax_settings.minimax_browser_local_storage_json = original["local"]
+                minimax_settings.minimax_browser_session_storage_json = original["session"]
+
     def test_parse_labeled_output_embedded_in_thinking_process(self) -> None:
         text = (
             "Thinking Process The user wants me to analyze a workout video. "
