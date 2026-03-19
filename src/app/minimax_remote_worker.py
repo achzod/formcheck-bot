@@ -199,10 +199,10 @@ def _worker_id() -> str:
 def _analysis_subprocess_timeout_s() -> int:
     max_effective = max(
         60,
-        int(getattr(minimax_motion_coach.settings, "minimax_max_effective_timeout_s", 420) or 420),
+        int(getattr(minimax_motion_coach.settings, "minimax_max_effective_timeout_s", 900) or 900),
     )
-    grace_s = max(30, int(os.getenv("MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S", "60") or 60))
-    hard_cap_s = max(120, int(os.getenv("MINIMAX_REMOTE_JOB_MAX_TIMEOUT_S", "540") or 540))
+    grace_s = max(30, int(os.getenv("MINIMAX_REMOTE_JOB_TIMEOUT_GRACE_S", "120") or 120))
+    hard_cap_s = max(120, int(os.getenv("MINIMAX_REMOTE_JOB_MAX_TIMEOUT_S", "1200") or 1200))
     return min(max_effective + grace_s, hard_cap_s)
 
 

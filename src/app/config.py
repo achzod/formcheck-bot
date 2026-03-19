@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     minimax_timezone_offset: int = 0
     minimax_timeout_s: int = 180
     minimax_poll_interval_s: float = 2.0
-    minimax_max_effective_timeout_s: int = 420
+    minimax_max_effective_timeout_s: int = 900
     minimax_prompt_retry_enabled: bool = False
     minimax_model_option: int = 0
     minimax_prompt_template: str = ""

@@ -209,7 +209,7 @@ def _remote_phone_job_block_timeout_s() -> int:
         return max(120, explicit)
     max_effective = max(
         60,
-        int(getattr(app_settings, "minimax_max_effective_timeout_s", 420) or 420),
+        int(getattr(app_settings, "minimax_max_effective_timeout_s", 900) or 900),
     )
     # Auto mode: allow normal long analyses, but do not let one old job
     # block fresh uploads for too long.
