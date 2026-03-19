@@ -93,6 +93,102 @@ def _poll_interval_s() -> float:
         return 5.0
 
 
+def _download_chunk_size_bytes() -> int:
+    try:
+        raw_mb = float(os.getenv("MINIMAX_REMOTE_VIDEO_DOWNLOAD_CHUNK_MB", "2") or 2.0)
+    except Exception:
+        raw_mb = 2.0
+    return max(256 * 1024, int(raw_mb * 1024 * 1024))
+
+
+def _download_max_bytes() -> int:
+    try:
+        raw_mb = float(os.getenv("MINIMAX_REMOTE_VIDEO_MAX_MB", "512") or 512.0)
+    except Exception:
+        raw_mb = 512.0
+    # Keep a safe lower bound while allowing long/heavy clips when configured.
+    return max(32 * 1024 * 1024, int(raw_mb * 1024 * 1024))
+
+
+def _download_timeout_s() -> float:
+    try:
+        return max(120.0, float(os.getenv("MINIMAX_REMOTE_VIDEO_DOWNLOAD_TIMEOUT_S", "900") or 900.0))
+    except Exception:
+        return 900.0
+
+
+def _orphan_cleanup_interval_s() -> float:
+    try:
+        return max(10.0, float(os.getenv("MINIMAX_REMOTE_ORPHAN_CLEANUP_INTERVAL_S", "90") or 90.0))
+    except Exception:
+        return 90.0
+
+
+def _is_browser_cmdline(cmdline: str) -> bool:
+    low = str(cmdline or "").strip().lower()
+    if not low:
+        return False
+    markers = (
+        "ms-playwright/chromium",
+        "chrome-linux64/chrome",
+        "playwright/driver/node",
+        "chrome_crashpad_handler",
+        "/chromium ",
+        "/chromium --",
+        "/chrome ",
+        "/chrome --",
+    )
+    return any(marker in low for marker in markers)
+
+
+def _kill_orphan_browser_processes() -> int:
+    """Best-effort cleanup of stale browser processes left by crashed runs."""
+    current_pid = os.getpid()
+    killed = 0
+    try:
+        proc_entries = [entry for entry in os.listdir("/proc") if entry.isdigit()]
+    except Exception:
+        return 0
+
+    for entry in proc_entries:
+        pid = int(entry)
+        if pid == current_pid:
+            continue
+        cmdline = ""
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as handle:
+                cmdline = handle.read().replace(b"\x00", b" ").decode("utf-8", "ignore").strip()
+        except Exception:
+            continue
+        if not _is_browser_cmdline(cmdline):
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            continue
+        except Exception:
+            continue
+        time.sleep(0.05)
+        still_alive = True
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            still_alive = False
+        except Exception:
+            still_alive = True
+        if still_alive:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except Exception:
+                continue
+        killed += 1
+    return killed
+
+
 def _worker_id() -> str:
     raw = str(os.getenv("MINIMAX_REMOTE_WORKER_ID", "") or "").strip()
     if raw and raw.lower() not in {"auto", "render-auto"}:
@@ -331,12 +427,55 @@ async def _claim_job(client: httpx.AsyncClient, worker_id: str) -> dict | None:
 
 
 async def _download_video(client: httpx.AsyncClient, job_id: int, video_url: str) -> Path:
-    response = await client.get(video_url, headers=_headers())
-    response.raise_for_status()
     suffix = Path(video_url).suffix or ".mp4"
-    with tempfile.NamedTemporaryFile(prefix="formcheck-minimax-", suffix=suffix, delete=False) as handle:
-        handle.write(response.content)
-        return Path(handle.name)
+    max_bytes = _download_max_bytes()
+    chunk_size = _download_chunk_size_bytes()
+    timeout_s = _download_timeout_s()
+    tmp_path: Path | None = None
+
+    try:
+        async with client.stream(
+            "GET",
+            video_url,
+            headers=_headers(),
+            timeout=timeout_s,
+        ) as response:
+            response.raise_for_status()
+            content_length_raw = str(response.headers.get("content-length", "") or "").strip()
+            if content_length_raw.isdigit() and int(content_length_raw) > max_bytes:
+                raise RuntimeError(
+                    "MiniMax remote video too large ({} bytes > {} bytes cap)".format(
+                        int(content_length_raw),
+                        max_bytes,
+                    )
+                )
+            with tempfile.NamedTemporaryFile(
+                prefix="formcheck-minimax-",
+                suffix=suffix,
+                delete=False,
+            ) as handle:
+                tmp_path = Path(handle.name)
+                downloaded = 0
+                async for chunk in response.aiter_bytes(chunk_size=chunk_size):
+                    if not chunk:
+                        continue
+                    downloaded += len(chunk)
+                    if downloaded > max_bytes:
+                        raise RuntimeError(
+                            "MiniMax remote video exceeded size cap during download ({} bytes > {} bytes cap)"
+                            .format(downloaded, max_bytes)
+                        )
+                    handle.write(chunk)
+        if tmp_path is None:
+            raise RuntimeError("MiniMax remote video download failed: no temp file created")
+        return tmp_path
+    except Exception:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+        raise
 
 
 def _descendant_cmdlines(root_pid: int) -> list[str]:
@@ -641,6 +780,8 @@ async def run_worker() -> None:
 
     worker_id = _worker_id()
     poll_s = _poll_interval_s()
+    orphan_cleanup_interval_s = _orphan_cleanup_interval_s()
+    last_orphan_cleanup_at = 0.0
     timeout = httpx.Timeout(120.0, connect=20.0)
     base_runtime_context = _capture_runtime_browser_context()
 
@@ -655,6 +796,15 @@ async def run_worker() -> None:
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         while True:
             try:
+                now = time.monotonic()
+                if (now - last_orphan_cleanup_at) >= orphan_cleanup_interval_s:
+                    killed = _kill_orphan_browser_processes()
+                    if killed:
+                        logger.warning(
+                            "Killed %s orphan MiniMax browser process(es) before claim loop",
+                            killed,
+                        )
+                    last_orphan_cleanup_at = now
                 job = await _claim_job(client, worker_id)
                 if not job:
                     await asyncio.sleep(poll_s)
@@ -663,6 +813,12 @@ async def run_worker() -> None:
                     await _process_job(client, job, worker_id)
                 finally:
                     _restore_runtime_browser_context(base_runtime_context)
+                    killed = _kill_orphan_browser_processes()
+                    if killed:
+                        logger.warning(
+                            "Killed %s orphan MiniMax browser process(es) after job cleanup",
+                            killed,
+                        )
             except asyncio.CancelledError:
                 raise
             except Exception:

@@ -1068,6 +1068,154 @@ class RemoteMiniMaxWorkerBootstrapTests(unittest.TestCase):
         finally:
             minimax_remote_worker._descendant_cmdlines = original_descendants
 
+    def test_download_video_streams_to_disk_and_respects_chunking(self) -> None:
+        class FakeStreamResponse:
+            def __init__(self) -> None:
+                self.headers = {"content-length": "12"}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def raise_for_status(self) -> None:
+                return None
+
+            async def aiter_bytes(self, chunk_size: int = 0):
+                self.chunk_size = chunk_size
+                yield b"abc"
+                yield b"defgh"
+                yield b"ijkl"
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, dict, float]] = []
+                self.response = FakeStreamResponse()
+
+            def stream(self, method: str, url: str, headers: dict, timeout: float):
+                self.calls.append((method, url, headers, timeout))
+                return self.response
+
+        client = FakeClient()
+        original_headers = minimax_remote_worker._headers
+        original_chunk_env = os.environ.get("MINIMAX_REMOTE_VIDEO_DOWNLOAD_CHUNK_MB")
+        original_max_env = os.environ.get("MINIMAX_REMOTE_VIDEO_MAX_MB")
+        original_timeout_env = os.environ.get("MINIMAX_REMOTE_VIDEO_DOWNLOAD_TIMEOUT_S")
+        downloaded_path = None
+
+        try:
+            minimax_remote_worker._headers = lambda: {"X-Test": "1"}
+            os.environ["MINIMAX_REMOTE_VIDEO_DOWNLOAD_CHUNK_MB"] = "1"
+            os.environ["MINIMAX_REMOTE_VIDEO_MAX_MB"] = "64"
+            os.environ["MINIMAX_REMOTE_VIDEO_DOWNLOAD_TIMEOUT_S"] = "321"
+            downloaded_path = asyncio.run(
+                minimax_remote_worker._download_video(
+                    client,
+                    42,
+                    "https://example.com/demo.mp4",
+                )
+            )
+            self.assertTrue(downloaded_path.exists())
+            self.assertEqual(downloaded_path.read_bytes(), b"abcdefghijkl")
+            self.assertEqual(client.calls[0][0], "GET")
+            self.assertEqual(client.calls[0][1], "https://example.com/demo.mp4")
+            self.assertEqual(client.calls[0][2], {"X-Test": "1"})
+            self.assertEqual(client.calls[0][3], 321.0)
+            self.assertEqual(client.response.chunk_size, 1024 * 1024)
+        finally:
+            minimax_remote_worker._headers = original_headers
+            if downloaded_path is not None:
+                downloaded_path.unlink(missing_ok=True)
+            if original_chunk_env is None:
+                os.environ.pop("MINIMAX_REMOTE_VIDEO_DOWNLOAD_CHUNK_MB", None)
+            else:
+                os.environ["MINIMAX_REMOTE_VIDEO_DOWNLOAD_CHUNK_MB"] = original_chunk_env
+            if original_max_env is None:
+                os.environ.pop("MINIMAX_REMOTE_VIDEO_MAX_MB", None)
+            else:
+                os.environ["MINIMAX_REMOTE_VIDEO_MAX_MB"] = original_max_env
+            if original_timeout_env is None:
+                os.environ.pop("MINIMAX_REMOTE_VIDEO_DOWNLOAD_TIMEOUT_S", None)
+            else:
+                os.environ["MINIMAX_REMOTE_VIDEO_DOWNLOAD_TIMEOUT_S"] = original_timeout_env
+
+    def test_download_video_rejects_oversized_content_length(self) -> None:
+        class FakeStreamResponse:
+            def __init__(self) -> None:
+                self.headers = {"content-length": str(128 * 1024 * 1024)}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def raise_for_status(self) -> None:
+                return None
+
+            async def aiter_bytes(self, chunk_size: int = 0):
+                if False:
+                    yield b""
+
+        class FakeClient:
+            def stream(self, method: str, url: str, headers: dict, timeout: float):
+                return FakeStreamResponse()
+
+        original_headers = minimax_remote_worker._headers
+        original_max_env = os.environ.get("MINIMAX_REMOTE_VIDEO_MAX_MB")
+        try:
+            minimax_remote_worker._headers = lambda: {"X-Test": "1"}
+            os.environ["MINIMAX_REMOTE_VIDEO_MAX_MB"] = "32"
+            with self.assertRaises(RuntimeError):
+                asyncio.run(
+                    minimax_remote_worker._download_video(
+                        FakeClient(),
+                        77,
+                        "https://example.com/heavy.mp4",
+                    )
+                )
+        finally:
+            minimax_remote_worker._headers = original_headers
+            if original_max_env is None:
+                os.environ.pop("MINIMAX_REMOTE_VIDEO_MAX_MB", None)
+            else:
+                os.environ["MINIMAX_REMOTE_VIDEO_MAX_MB"] = original_max_env
+
+    def test_kill_orphan_browser_processes_targets_only_browser_like_cmdlines(self) -> None:
+        open_original = open
+        cmdlines = {
+            "/proc/111/cmdline": b"/usr/bin/python worker.py",
+            "/proc/222/cmdline": b"/ms-playwright/chromium-1161/chrome-linux64/chrome --type=renderer",
+            "/proc/333/cmdline": b"/chrome_crashpad_handler --monitor-self",
+        }
+        killed: list[tuple[int, int]] = []
+
+        def fake_open(path: str, mode: str = "r", *args, **kwargs):
+            if path in cmdlines:
+                return mock.mock_open(read_data=cmdlines[path]).return_value
+            return open_original(path, mode, *args, **kwargs)
+
+        with mock.patch.object(minimax_remote_worker.os, "listdir", return_value=["111", "222", "333"]):
+            with mock.patch.object(minimax_remote_worker.os, "getpid", return_value=999):
+                with mock.patch("builtins.open", side_effect=fake_open):
+                    with mock.patch.object(minimax_remote_worker.os, "kill", side_effect=lambda pid, sig: killed.append((pid, sig))):
+                        with mock.patch.object(minimax_remote_worker.time, "sleep", return_value=None):
+                            cleaned = minimax_remote_worker._kill_orphan_browser_processes()
+
+        self.assertEqual(cleaned, 2)
+        self.assertEqual(
+            killed,
+            [
+                (222, minimax_remote_worker.signal.SIGTERM),
+                (222, 0),
+                (222, minimax_remote_worker.signal.SIGKILL),
+                (333, minimax_remote_worker.signal.SIGTERM),
+                (333, 0),
+                (333, minimax_remote_worker.signal.SIGKILL),
+            ],
+        )
+
     def test_process_job_uses_subprocess_payload_and_completes(self) -> None:
         payload = _analysis_to_payload(
             MiniMaxAnalysis(
