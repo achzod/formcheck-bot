@@ -95,16 +95,15 @@ _BROWSER_PROFILE_HEAVY_PATH_PARTS = (
 _DEFAULT_ANALYSIS_PROMPT = (
     "Analyse uniquement la video jointe comme AI Motion Coach expert en biomecanique de la musculation.\n"
     "Reponds UNIQUEMENT en francais.\n"
-    "Pas de preambule. Pas de workflow. Pas de thinking process.\n"
-    "Tu t'adresses directement au client, tu le tutoies, tu es critique, didactique, detaille, minutieux et precis.\n"
-    "Ecris comme un coach humain: phrases concretes, directes, sans formules scolaires ou meta ('dans cette analyse', 'il est important de noter').\n"
-    "Interdit: auto-commentaires ('je vais analyser', 'voici mon analyse'), disclaimers generiques et langue robotique.\n"
+    "Pas de preambule. Pas de workflow. Pas de thinking process. Pas de texte hors balises.\n"
+    "Tu t'adresses directement au client, tu le tutoies, tu es critique, didactique, concret et precis.\n"
+    "Style coach humain: phrases utiles, pas de meta-commentaires, pas de langue robotique.\n"
     "Detection exo: ne devine jamais. Utilise d'abord les indices visuels les plus discriminants: machine, banc, poulie, Smith, position du corps, segments qui bougent et trajectoire de charge.\n"
-    "Nomme l'exercice exact observe, pas une famille generique. Exemple: `Presse Pectorale Machine`, `Lat Pulldown (Tirage Vertical)`, `Developpe Militaire a la Smith`, `Tirage Poulie Basse`, `Leg Press`, `Fente Bulgare`.\n"
+    "Nomme l'exercice exact observe, pas une famille generique.\n"
     "Anti-confusion obligatoire: ne confonds pas chest press/developpe (bras qui poussent) avec leg press (jambes qui poussent), lat pulldown avec lunge/squat, shoulder press avec upright row, seated cable row avec barbell row.\n"
-    "Si l'exercice est ambigu, mets Exercice: Exercice non identifie et Exercice slug: unknown.\n"
+    "Si le doute est reel, mets Exercice: Exercice non identifie et Exercice slug: unknown.\n"
     "Le score global doit etre coherent avec les 4 sous-scores.\n"
-    "Le message final doit etre UNIQUEMENT un rapport Markdown place entre les balises exactes suivantes:\n"
+    "Le message final doit etre UNIQUEMENT un rapport Markdown entre les balises exactes suivantes:\n"
     "{start}\n"
     "...rapport markdown...\n"
     "{end}\n"
@@ -112,7 +111,7 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "Rapport Markdown attendu:\n"
     "# FORMCHECK\n"
     "- Exercice: nom exact en francais\n"
-    "- Exercice slug: slug court et stable, le plus proche possible d'une famille interne classique (par exemple machine_chest_press, bench_press, incline_bench, decline_bench, ohp, lat_pulldown, cable_row, squat, leg_press, bulgarian_split_squat, deadlift, rdl, hip_thrust, curl, tricep_extension, lateral_raise, face_pull, pullover, leg_extension, leg_curl)\n"
+    "- Exercice slug: slug court et stable, proche d'une famille classique (par exemple machine_chest_press, bench_press, ohp, lat_pulldown, cable_row, squat, leg_press, bulgarian_split_squat, deadlift, rdl, hip_thrust, curl, tricep_extension)\n"
     "- Confiance exercice: 0.00 a 1.00\n"
     "- Score global: 0/100\n"
     "- Repetitions detectees: 0\n"
@@ -128,9 +127,7 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "## ANALYSE DU TEMPO ET DES PHASES\n"
     "## ANALYSE REP PAR REP\n"
     "1. Rep 1 | 00:00 - 00:00 | commentaire bref, critique et concret\n"
-    "Fais exactement une ligne numerotee par rep detectee, sans en sauter.\n"
-    "Pour chaque rep, mentionne au minimum la plage temporelle, la vitesse relative, la proprete technique, "
-    "la fatigue, les pauses notables entre reps et toute degradation de trajectoire, d'amplitude ou d'alignement.\n"
+    "Fais exactement une ligne numerotee par rep detectee, sans en sauter. Pour chaque rep, mentionne la plage temporelle, la vitesse relative, la proprete technique, la fatigue et les pauses notables.\n"
     "Si une pause entre deux reps depasse environ 1.5 seconde, signale-la explicitement.\n"
     "## INTENSITE DE SERIE\n"
     "## COMPENSATIONS ET BIOMECANIQUE AVANCEE\n"
@@ -152,7 +149,6 @@ _FALLBACK_ANALYSIS_PROMPT = (
     "Analyse uniquement la video jointe.\n"
     "Reponds UNIQUEMENT en francais, en tutoyant.\n"
     "Style coach humain direct, concret, sans meta-commentaire.\n"
-    "Interdit: auto-commentaires ('je vais analyser', 'voici mon analyse') et phrases de template.\n"
     "Detection exo: ne devine jamais. Utilise d'abord les indices visuels les plus discriminants: machine, banc, poulie, Smith, position du corps, segments qui bougent et trajectoire de charge.\n"
     "Nomme l'exercice exact observe, pas une famille generique.\n"
     "Anti-confusion obligatoire: ne confonds pas chest press/developpe (bras qui poussent) avec leg press (jambes qui poussent), lat pulldown avec lunge/squat, shoulder press avec upright row, seated cable row avec barbell row.\n"
@@ -3094,6 +3090,8 @@ def _browser_profile_seed_available() -> bool:
 
 
 def _browser_auth_seed_available() -> bool:
+    if not _browser_auth_seed_matches_configured_email():
+        return False
     if str(getattr(settings, "minimax_cookie", "") or "").strip():
         return True
     if _normalized_storage_dump(getattr(settings, "minimax_browser_local_storage_json", ""), label="localStorage"):
@@ -3354,7 +3352,78 @@ def _normalized_storage_dump(raw: Any, *, label: str) -> dict[str, str]:
     return normalized
 
 
+def _decode_unverified_jwt_payload(token: str) -> dict[str, Any]:
+    raw = str(token or "").strip()
+    if not raw or "." not in raw:
+        return {}
+    try:
+        payload = raw.split(".", 2)[1]
+        padding = "=" * (-len(payload) % 4)
+        decoded = base64.urlsafe_b64decode((payload + padding).encode("utf-8"))
+        data = json.loads(decoded.decode("utf-8"))
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        return {}
+    return {}
+
+
+def _browser_seed_user_email() -> str:
+    local_storage = _normalized_storage_dump(
+        getattr(settings, "minimax_browser_local_storage_json", ""),
+        label="localStorage",
+    )
+    if not local_storage:
+        return ""
+
+    for key in ("userMail", "user_email", "email"):
+        value = str(local_storage.get(key) or "").strip().lower()
+        if value and "@" in value:
+            return value
+
+    user_detail_raw = str(local_storage.get("user_detail_agent", "") or "").strip()
+    if user_detail_raw:
+        try:
+            parsed = json.loads(user_detail_raw)
+        except Exception:
+            parsed = {}
+        if isinstance(parsed, dict):
+            for key in ("userMail", "email", "mail"):
+                value = str(parsed.get(key) or "").strip().lower()
+                if value and "@" in value:
+                    return value
+
+    token_payload = _decode_unverified_jwt_payload(str(local_storage.get("_token", "") or ""))
+    user_payload = token_payload.get("user") if isinstance(token_payload, dict) else {}
+    if isinstance(user_payload, dict):
+        for key in ("email", "mail", "userMail"):
+            value = str(user_payload.get(key) or "").strip().lower()
+            if value and "@" in value:
+                return value
+    return ""
+
+
+def _browser_auth_seed_matches_configured_email() -> bool:
+    configured_email = str(getattr(settings, "minimax_browser_email", "") or "").strip().lower()
+    if not configured_email:
+        return True
+    seeded_email = _browser_seed_user_email()
+    if not seeded_email:
+        return True
+    if seeded_email == configured_email:
+        return True
+    logger.warning(
+        "MiniMax browser auth seed email mismatch: configured=%s seeded=%s",
+        configured_email,
+        seeded_email,
+    )
+    return False
+
+
 def _inject_browser_storage(context: Any) -> None:
+    if not _browser_auth_seed_matches_configured_email():
+        logger.warning("MiniMax browser storage injection skipped: auth seed email mismatch")
+        return
     local_storage = _normalized_storage_dump(
         getattr(settings, "minimax_browser_local_storage_json", ""),
         label="localStorage",

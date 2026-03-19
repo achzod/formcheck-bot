@@ -35,3 +35,5 @@
 
 - In browser-driven MiniMax flows, mark the send phase as active before the upload/send helper returns; otherwise early `get_chat_detail` responses can be misclassified as baseline traffic and the first valid analysis is lost.
 - Do not wait for chat status transitions or repeated stable rounds once MiniMax has already emitted a parseable final report. Exit on the first valid final output and keep UI refreshes lightweight.
+- When a third-party browser session is seeded through localStorage/sessionStorage, verify that the seeded identity matches the configured account before treating it as valid auth. A stale seed from another account can silently keep the browser alive while every job times out.
+- If prod jobs time out with zero `result_payload`, inspect the job table directly before touching Twilio or report rendering. That pattern means the failure is upstream of delivery and often inside browser auth/session state.

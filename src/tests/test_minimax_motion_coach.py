@@ -878,6 +878,39 @@ class MiniMaxBrowserConfigValidationTests(unittest.TestCase):
                 minimax_settings.minimax_browser_session_storage_json = original["session"]
                 minimax_settings.minimax_cookie = original["cookie"]
 
+    def test_validate_settings_rejects_mismatched_local_storage_seed_without_password(self) -> None:
+        original = {
+            "email": minimax_settings.minimax_browser_email,
+            "password": minimax_settings.minimax_browser_password,
+            "profile_dir": minimax_settings.minimax_browser_profile_dir,
+            "local": minimax_settings.minimax_browser_local_storage_json,
+            "session": minimax_settings.minimax_browser_session_storage_json,
+            "cookie": minimax_settings.minimax_cookie,
+        }
+        try:
+            minimax_settings.minimax_browser_email = "achzodyt@gmail.com"
+            minimax_settings.minimax_browser_password = ""
+            minimax_settings.minimax_browser_profile_dir = ""
+            minimax_settings.minimax_browser_local_storage_json = json.dumps(
+                {
+                    "_token": "header.payload.sig",
+                    "user_detail_agent": json.dumps({"userMail": "coaching@achzodcoaching.com"}),
+                }
+            )
+            minimax_settings.minimax_browser_session_storage_json = '{"tab_device_id":"77"}'
+            minimax_settings.minimax_cookie = ""
+            self.assertEqual(
+                mm._validate_settings(),
+                ["minimax_browser_password_or_browser_auth_seed"],
+            )
+        finally:
+            minimax_settings.minimax_browser_email = original["email"]
+            minimax_settings.minimax_browser_password = original["password"]
+            minimax_settings.minimax_browser_profile_dir = original["profile_dir"]
+            minimax_settings.minimax_browser_local_storage_json = original["local"]
+            minimax_settings.minimax_browser_session_storage_json = original["session"]
+            minimax_settings.minimax_cookie = original["cookie"]
+
     def test_prepare_browser_profile_workspace_clones_seed_without_singleton_locks(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             profile_dir = Path(tmpdir) / "profile"
@@ -2594,6 +2627,34 @@ Analyse MiniMax deja exploitable.
         finally:
             minimax_settings.minimax_browser_local_storage_json = old_local
             minimax_settings.minimax_browser_session_storage_json = old_session
+
+        self.assertEqual(context.calls, 0)
+
+    def test_inject_browser_storage_skips_mismatched_seed_email(self) -> None:
+        class _FakeContext:
+            def __init__(self):
+                self.calls = 0
+
+            def add_init_script(self, script: str) -> None:
+                self.calls += 1
+
+        context = _FakeContext()
+        original = {
+            "email": minimax_settings.minimax_browser_email,
+            "local": minimax_settings.minimax_browser_local_storage_json,
+            "session": minimax_settings.minimax_browser_session_storage_json,
+        }
+        try:
+            minimax_settings.minimax_browser_email = "achzodyt@gmail.com"
+            minimax_settings.minimax_browser_local_storage_json = json.dumps(
+                {"user_detail_agent": json.dumps({"userMail": "coaching@achzodcoaching.com"})}
+            )
+            minimax_settings.minimax_browser_session_storage_json = '{"tab_device_id":"77"}'
+            mm._inject_browser_storage(context)
+        finally:
+            minimax_settings.minimax_browser_email = original["email"]
+            minimax_settings.minimax_browser_local_storage_json = original["local"]
+            minimax_settings.minimax_browser_session_storage_json = original["session"]
 
         self.assertEqual(context.calls, 0)
 

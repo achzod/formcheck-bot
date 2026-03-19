@@ -87,3 +87,19 @@ Review:
 - Latency fix applied: active sent-chat refresh now triggers sooner and skips unnecessary `networkidle` waiting on refresh navigations.
 - Validation completed: targeted browser regression tests passed, `python3 -m py_compile` passed, and worker/runtime suites remain green (`40 passed`).
 
+## 2026-03-19 MiniMax auth-seed mismatch triage
+
+- [x] Verify the live job state directly in `/app/state/formcheck.db`
+- [x] Confirm whether the latest failures are infra crashes or browser-side hard timeouts
+- [x] Inspect worker runtime env and compare configured MiniMax email vs injected browser seed identity
+- [x] Add a code guardrail to reject mismatched explicit browser auth seeds
+- [x] Shorten the default MiniMax prompt to reduce avoidable task overhead
+- [ ] Update the worker MiniMax auth seed on Render so it matches `achzodyt@gmail.com`
+- [ ] Run a fresh end-to-end WhatsApp test after the Render env fix
+
+Review:
+- The latest failed jobs are `12`, `13`, and `14`; all ended with hard timeout and empty `result_payload`.
+- Web service is healthy; delivery is not the current bottleneck.
+- Worker env mismatch confirmed in prod: `MINIMAX_BROWSER_EMAIL=achzodyt@gmail.com` while the injected `MINIMAX_BROWSER_LOCAL_STORAGE_JSON` still identifies `coaching@achzodcoaching.com`.
+- This mismatch is now guarded in code so an explicit stale auth seed is no longer silently accepted as valid browser auth.
+- Prompt size was reduced, but the main remaining prod action is operational: replace the Render worker auth seed with a coherent `achzodyt@gmail.com` MiniMax browser seed and retest.
