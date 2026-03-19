@@ -64,3 +64,26 @@ Review:
 - Signal cle de confirmation: logs worker avec `runtime context applied`, `GET /internal/minimax/jobs/12/video`, un unique heartbeat, puis evenements Render `Instance failed ... Ran out of memory (used over 4GB)` suivis de nouveaux bootstraps et reclaims du meme job.
 - Correctif code applique: le browser MiniMax ne clone plus un profil Chromium complet quand l auth est deja injectee par cookie ou storage; en mode profile-only, les caches lourds sont exclus du clone.
 - Correctif infra versionne: blueprint worker passe de `Pro 4 GB` a `Pro Plus 8 GB`.
+
+- [x] Confirm worker redeploy on `ce42e32` and plan bump to Pro Plus.
+- [ ] Observe a full `job 12` completion or explicit fail callback after redeploy; current state is steady processing with heartbeats and no OOM.
+
+- [x] Identify user-visible 'analyse indispo' root cause from live logs: hard timeout at 480s, not a fresh OOM.
+- [x] Raise shared MiniMax effective timeout defaults to 900s and worker hard cap/grace to 1200s/120s.
+- [x] Validate locally with targeted tests and py_compile.
+- [ ] Push and verify Render redeploy on worker/web.
+
+## 2026-03-19 MiniMax browser latency audit
+
+- [x] Inspect the MiniMax browser send/upload/extract flow and identify the exact over-wait path
+- [x] Return the first substantive MiniMax response instead of waiting for over-strict completion markers
+- [x] Validate with focused tests and compile checks
+- [ ] Push the fix and prepare prod verification on the next live WhatsApp run
+
+Review:
+- Root cause 1 confirmed: browser flow waited for `chat_status != 1` or repeated stable rounds even when MiniMax had already produced a valid final report.
+- Root cause 2 confirmed: if MiniMax emitted `get_chat_detail` during `_upload_and_send_via_browser`, the run still had `sent=False`, so that first valid answer was misclassified as baseline traffic and discarded.
+- Fix applied: browser flow now validates each candidate immediately and exits on the first valid final MiniMax output, with metadata showing the winning source.
+- Latency fix applied: active sent-chat refresh now triggers sooner and skips unnecessary `networkidle` waiting on refresh navigations.
+- Validation completed: targeted browser regression tests passed, `python3 -m py_compile` passed, and worker/runtime suites remain green (`40 passed`).
+

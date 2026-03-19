@@ -31,3 +31,7 @@
 - When a blueprint-managed Render service needs an urgent infra fix, apply the dashboard change immediately if authorized, then push the same change into render.yaml so prod and repo do not drift.
 - On Render worker services, never keep `xvfb-run` as PID 1 in the entrypoint. If the Python child dies, `xvfb-run` and `Xvfb` can remain alive, the service looks healthy, but the queue is dead. PID 1 must be the Python worker, and Xvfb must be managed inside the worker.
 - For MiniMax browser automation in production, never allow extremely long effective timeouts without a worker-level hard cap. A single hung run can monopolize the queue even when heartbeats are healthy; enforce both a bounded effective timeout and a subprocess wall-clock cap.
+- MiniMax remote failures can look like generic 'analyse indispo' even when infra is healthy; always check for worker-side hard timeout before chasing Render OOM again.
+
+- In browser-driven MiniMax flows, mark the send phase as active before the upload/send helper returns; otherwise early `get_chat_detail` responses can be misclassified as baseline traffic and the first valid analysis is lost.
+- Do not wait for chat status transitions or repeated stable rounds once MiniMax has already emitted a parseable final report. Exit on the first valid final output and keep UI refreshes lightweight.

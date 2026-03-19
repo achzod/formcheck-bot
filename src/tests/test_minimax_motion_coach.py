@@ -1143,6 +1143,24 @@ class MiniMaxMessageExtractionTests(unittest.TestCase):
         self.assertIn("11", ids)
         self.assertIn("Rapport MiniMax complet", text)
 
+    def test_extract_valid_final_analysis_text_rejects_process_text_and_accepts_tagged_report(self) -> None:
+        process_text = (
+            "Tu es un coach biomecanique expert. "
+            "Format de sortie obligatoire. "
+            "Je dois analyser la video envoyee."
+        )
+        tagged_report = """
+<FORMCHECK_REPORT_MD>
+# FORMCHECK
+- Exercice: Presse pectorale machine
+- Exercice slug: machine_chest_press
+- Score global: 80/100
+- Repetitions detectees: 8
+</FORMCHECK_REPORT_MD>
+        """.strip()
+        self.assertEqual(mm._extract_valid_final_analysis_text(process_text), "")
+        self.assertIn("Presse pectorale machine", mm._extract_valid_final_analysis_text(tagged_report))
+
 
 class MiniMaxTargetChatResolutionTests(unittest.TestCase):
     def test_motion_coach_keyword_match(self) -> None:
@@ -2279,7 +2297,7 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
             mm._inject_browser_cookies = lambda _context: None  # type: ignore[assignment]
             mm._inject_browser_storage = lambda _context: None  # type: ignore[assignment]
 
-            def _fake_goto(_page, _url, _timeout_ms, *, label, raise_on_error=True):
+            def _fake_goto(_page, _url, _timeout_ms, *, label, raise_on_error=True, wait_networkidle=True):
                 goto_labels.append(label)
                 goto_urls.append(_url)
                 if label == "motion_coach_wait_refresh":
@@ -2356,6 +2374,184 @@ class MiniMaxBrowserAuthFlowTests(unittest.TestCase):
         self.assertIn(mm._motion_coach_expert_url(), goto_urls)
         self.assertEqual(out.metadata.get("wait_refreshes"), 1)
         self.assertIn("refresh actif", out.report_text.lower())
+
+    def test_run_browser_only_returns_on_first_valid_network_response(self) -> None:
+        class _FakePage:
+            def __init__(self):
+                self.handlers = {}
+
+            def on(self, event: str, handler) -> None:
+                self.handlers[event] = handler
+
+            def off(self, event: str, handler) -> None:
+                if self.handlers.get(event) is handler:
+                    self.handlers.pop(event, None)
+
+            def wait_for_timeout(self, _ms: int) -> None:
+                return None
+
+        class _FakeContext:
+            def __init__(self, page):
+                self._page = page
+
+            def new_page(self):
+                return self._page
+
+            def set_extra_http_headers(self, _headers) -> None:
+                return None
+
+            def close(self) -> None:
+                return None
+
+        class _FakeChromium:
+            def __init__(self, context):
+                self._context = context
+
+            def launch_persistent_context(self, *_args, **_kwargs):
+                return self._context
+
+        class _FakePlaywright:
+            def __init__(self, context):
+                self.chromium = _FakeChromium(context)
+
+        class _FakeManager:
+            def __init__(self, context):
+                self._playwright = _FakePlaywright(context)
+
+            def __enter__(self):
+                return self._playwright
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class _FakeSendResponse:
+            url = "https://agent.minimax.io/matrix/api/v1/chat/send_msg"
+
+            @staticmethod
+            def json():
+                return {"chat_id": "chat-fast-1"}
+
+        class _FakeDetailResponse:
+            url = "https://agent.minimax.io/matrix/api/v1/chat/get_chat_detail"
+
+            @staticmethod
+            def json():
+                return {
+                    "data": {
+                        "chat_status": 1,
+                        "messages": [
+                            {
+                                "msg_id": "101",
+                                "msg_type": 2,
+                                "timestamp": 1,
+                                "msg_content": {
+                                    "text": """
+<FORMCHECK_REPORT_MD>
+# FORMCHECK
+- Exercice: Presse pectorale machine
+- Exercice slug: machine_chest_press
+- Score global: 82/100
+- Repetitions detectees: 8
+- Repetitions completes: 8
+- Intensite: 74/100 (elevee)
+
+## RESUME
+Analyse MiniMax deja exploitable.
+</FORMCHECK_REPORT_MD>
+                                    """.strip()
+                                },
+                            }
+                        ],
+                    }
+                }
+
+        fake_page = _FakePage()
+        fake_context = _FakeContext(fake_page)
+        fake_module = types.ModuleType("playwright.sync_api")
+        fake_module.sync_playwright = lambda: _FakeManager(fake_context)  # type: ignore[attr-defined]
+
+        old_module = sys.modules.get("playwright.sync_api")
+        old_email = minimax_settings.minimax_browser_email
+        old_password = minimax_settings.minimax_browser_password
+        original_prepare_workspace = mm._prepare_browser_profile_workspace
+        original_browser_launch = mm._browser_launch_options
+        original_install_stealth = mm._install_browser_stealth
+        original_inject_cookies = mm._inject_browser_cookies
+        original_inject_storage = mm._inject_browser_storage
+        original_goto = mm._goto_minimax_page
+        original_ensure_auth = mm._ensure_browser_authenticated
+        original_open_chat = mm._open_motion_coach_chat
+        original_upload_send = mm._upload_and_send_via_browser
+        original_wait_condition = mm._wait_for_page_condition
+        original_task_failed = mm._browser_task_failed_visible
+        original_collect_dom = mm._collect_dom_analysis_candidates
+        original_collect_page = mm._collect_page_report_candidate
+        original_blanket_visible = mm._blanket_overlay_visible
+        original_dismiss_blanket = mm._dismiss_browser_blanket_overlay
+        original_arm_killer = mm._arm_maxclaw_promo_overlay_killer
+        try:
+            sys.modules["playwright.sync_api"] = fake_module
+            minimax_settings.minimax_browser_email = "coaching@achzodcoaching.com"
+            minimax_settings.minimax_browser_password = "secret"
+            mm._prepare_browser_profile_workspace = lambda: (Path.cwd(), lambda: None)  # type: ignore[assignment]
+            mm._browser_launch_options = lambda headless=True: {}  # type: ignore[assignment]
+            mm._install_browser_stealth = lambda _context: None  # type: ignore[assignment]
+            mm._inject_browser_cookies = lambda _context: None  # type: ignore[assignment]
+            mm._inject_browser_storage = lambda _context: None  # type: ignore[assignment]
+            mm._goto_minimax_page = lambda *_args, **_kwargs: True  # type: ignore[assignment]
+            mm._ensure_browser_authenticated = lambda *_args, **_kwargs: None  # type: ignore[assignment]
+            mm._open_motion_coach_chat = lambda *_args, **_kwargs: None  # type: ignore[assignment]
+
+            def _fake_upload_send(page, *_args, **_kwargs):
+                handler = page.handlers.get("response")
+                if handler:
+                    handler(_FakeSendResponse())
+                    handler(_FakeDetailResponse())
+
+            mm._upload_and_send_via_browser = _fake_upload_send  # type: ignore[assignment]
+            mm._wait_for_page_condition = lambda _page, predicate, **_kwargs: bool(predicate())  # type: ignore[assignment]
+            mm._browser_task_failed_visible = lambda *_args, **_kwargs: False  # type: ignore[assignment]
+            mm._collect_dom_analysis_candidates = lambda *_args, **_kwargs: []  # type: ignore[assignment]
+            mm._collect_page_report_candidate = lambda *_args, **_kwargs: ""  # type: ignore[assignment]
+            mm._blanket_overlay_visible = lambda *_args, **_kwargs: False  # type: ignore[assignment]
+            mm._dismiss_browser_blanket_overlay = lambda *_args, **_kwargs: True  # type: ignore[assignment]
+            mm._arm_maxclaw_promo_overlay_killer = lambda *_args, **_kwargs: True  # type: ignore[assignment]
+
+            out = mm._run_minimax_browser_only_once(
+                prepared=mm._PreparedVideo(path="video.mp4"),
+                prompt="Analyse cette video",
+                poll_interval=0.1,
+                timeout_s_effective=30,
+                video_hash="vh",
+                prompt_hash="ph",
+            )
+        finally:
+            if old_module is not None:
+                sys.modules["playwright.sync_api"] = old_module
+            else:
+                sys.modules.pop("playwright.sync_api", None)
+            minimax_settings.minimax_browser_email = old_email
+            minimax_settings.minimax_browser_password = old_password
+            mm._prepare_browser_profile_workspace = original_prepare_workspace  # type: ignore[assignment]
+            mm._browser_launch_options = original_browser_launch  # type: ignore[assignment]
+            mm._install_browser_stealth = original_install_stealth  # type: ignore[assignment]
+            mm._inject_browser_cookies = original_inject_cookies  # type: ignore[assignment]
+            mm._inject_browser_storage = original_inject_storage  # type: ignore[assignment]
+            mm._goto_minimax_page = original_goto  # type: ignore[assignment]
+            mm._ensure_browser_authenticated = original_ensure_auth  # type: ignore[assignment]
+            mm._open_motion_coach_chat = original_open_chat  # type: ignore[assignment]
+            mm._upload_and_send_via_browser = original_upload_send  # type: ignore[assignment]
+            mm._wait_for_page_condition = original_wait_condition  # type: ignore[assignment]
+            mm._browser_task_failed_visible = original_task_failed  # type: ignore[assignment]
+            mm._collect_dom_analysis_candidates = original_collect_dom  # type: ignore[assignment]
+            mm._collect_page_report_candidate = original_collect_page  # type: ignore[assignment]
+            mm._blanket_overlay_visible = original_blanket_visible  # type: ignore[assignment]
+            mm._dismiss_browser_blanket_overlay = original_dismiss_blanket  # type: ignore[assignment]
+            mm._arm_maxclaw_promo_overlay_killer = original_arm_killer  # type: ignore[assignment]
+
+        self.assertEqual(out.exercise_display, "Presse pectorale machine")
+        self.assertEqual(out.metadata.get("final_source"), "network_response")
+        self.assertEqual(out.metadata.get("responses_seen"), 1)
 
     def test_inject_browser_storage_adds_init_script_for_agent_minimax_origin(self) -> None:
         class _FakeContext:

@@ -4060,6 +4060,19 @@ def _wait_for_page_condition(page: Any, predicate: Any, timeout_ms: int, step_ms
         return False
 
 
+def _extract_valid_final_analysis_text(text: str) -> str:
+    cleaned = _clean_markdown_report_text(str(text or ""))
+    if not cleaned or not _is_analysis_candidate_text(cleaned):
+        return ""
+    try:
+        analysis = _parse_analysis_payload(cleaned)
+    except Exception:
+        return ""
+    if _analysis_is_valid_final_output(analysis):
+        return cleaned
+    return ""
+
+
 def _maybe_refresh_sent_chat(page: Any, state: dict[str, Any], *, timeout_ms: int) -> bool:
     """Actively reload the sent MiniMax chat when the UI goes quiet.
 
@@ -4073,7 +4086,7 @@ def _maybe_refresh_sent_chat(page: Any, state: dict[str, Any], *, timeout_ms: in
         return False
 
     now = time.monotonic()
-    refresh_interval_s = max(20.0, min(45.0, float(getattr(settings, "minimax_poll_interval_s", 2.0) or 2.0) * 12.0))
+    refresh_interval_s = max(10.0, min(18.0, float(getattr(settings, "minimax_poll_interval_s", 2.0) or 2.0) * 6.0))
     last_signal_at = float(state.get("last_signal_at", 0.0) or 0.0)
     last_refresh_at = float(state.get("last_refresh_at", 0.0) or 0.0)
 
@@ -4089,6 +4102,7 @@ def _maybe_refresh_sent_chat(page: Any, state: dict[str, Any], *, timeout_ms: in
         min(timeout_ms, 15000),
         label="motion_coach_wait_refresh",
         raise_on_error=False,
+        wait_networkidle=False,
     )
     state["last_refresh_at"] = now
     if not refreshed:
@@ -4108,7 +4122,15 @@ def _page_is_motion_coach_chat(page: Any) -> bool:
     return bool(current_base) and current_base == target_base
 
 
-def _goto_minimax_page(page: Any, url: str, timeout_ms: int, *, label: str, raise_on_error: bool = True) -> bool:
+def _goto_minimax_page(
+    page: Any,
+    url: str,
+    timeout_ms: int,
+    *,
+    label: str,
+    raise_on_error: bool = True,
+    wait_networkidle: bool = True,
+) -> bool:
     try:
         page.goto(url, wait_until="commit", timeout=timeout_ms)
     except Exception as exc:
@@ -4131,10 +4153,11 @@ def _goto_minimax_page(page: Any, url: str, timeout_ms: int, *, label: str, rais
         page.wait_for_load_state("domcontentloaded", timeout=min(timeout_ms, 4000))
     except Exception:
         pass
-    try:
-        page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
-    except Exception:
-        pass
+    if wait_networkidle:
+        try:
+            page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 6000))
+        except Exception:
+            pass
     return True
 
 
@@ -5158,6 +5181,7 @@ def _run_minimax_browser_only_once(
         "done": False,
         "best_text": "",
         "latest_text": "",
+        "final_source": "",
         "stable_rounds": 0,
         "chat_status": 0,
         "chat_status_known": False,
@@ -5215,14 +5239,18 @@ def _run_minimax_browser_only_once(
         state["chat_status"] = chat_status
         if candidate:
             state["latest_text"] = candidate
+        final_text = _extract_valid_final_analysis_text(candidate)
+        if final_text:
+            state["best_text"] = final_text
+            state["done"] = True
+            state["final_source"] = "network_response"
+            return
         if candidate and _is_analysis_candidate_text(candidate):
             if candidate == state.get("best_text", ""):
                 state["stable_rounds"] = int(state.get("stable_rounds", 0) or 0) + 1
             else:
                 state["best_text"] = candidate
                 state["stable_rounds"] = 0
-            if chat_status != 1 or int(state.get("stable_rounds", 0) or 0) >= 2:
-                state["done"] = True
 
     with sync_playwright() as p:
         context = None
@@ -5280,6 +5308,7 @@ def _run_minimax_browser_only_once(
             state["known_ids"] = set(state.get("baseline_ids", set()))
             state["dom_baseline"] = set(_collect_dom_analysis_candidates(page))
 
+            state["sent"] = True
             _upload_and_send_via_browser(
                 page,
                 prepared.path,
@@ -5288,9 +5317,9 @@ def _run_minimax_browser_only_once(
                 email=email,
                 password=password,
             )
-            state["sent"] = True
             state["last_signal_at"] = time.monotonic()
-            state["known_ids"] = set(state.get("baseline_ids", set()))
+            if not state.get("known_ids"):
+                state["known_ids"] = set(state.get("baseline_ids", set()))
             if _wait_for_page_condition(page, lambda: bool(str(state.get("sent_chat_id", "")).strip()), timeout_ms=8000, step_ms=250):
                 sent_chat_id = str(state.get("sent_chat_id", "") or "").strip()
                 if sent_chat_id:
@@ -5307,12 +5336,14 @@ def _run_minimax_browser_only_once(
                     if refreshed_report:
                         state["page_report"] = refreshed_report
                         state["last_signal_at"] = time.monotonic()
+                        final_text = _extract_valid_final_analysis_text(refreshed_report)
+                        if final_text:
+                            state["best_text"] = final_text
+                            state["done"] = True
+                            state["final_source"] = "refresh_report"
+                            break
                 if state.get("best_text") and (
                     state.get("done")
-                    or (
-                        bool(state.get("chat_status_known"))
-                        and int(state.get("chat_status", 0) or 0) != 1
-                    )
                 ):
                     break
 
@@ -5320,9 +5351,12 @@ def _run_minimax_browser_only_once(
                     page_report = _collect_page_report_candidate(page)
                     if page_report:
                         state["latest_text"] = page_report
-                        state["best_text"] = page_report
-                        state["done"] = True
-                        break
+                        final_text = _extract_valid_final_analysis_text(page_report)
+                        if final_text:
+                            state["best_text"] = final_text
+                            state["done"] = True
+                            state["final_source"] = "task_failed_report"
+                            break
                     if int(state.get("task_failed_retries", 0) or 0) < 2 and _retry_browser_task(page, timeout_ms=timeout_ms):
                         state["task_failed_retries"] = int(state.get("task_failed_retries", 0) or 0) + 1
                         page.wait_for_timeout(2500)
@@ -5341,21 +5375,30 @@ def _run_minimax_browser_only_once(
                     state["dom_fallback_used"] = True
                     state["latest_text"] = dom_candidate
                     state["last_signal_at"] = time.monotonic()
+                    final_text = _extract_valid_final_analysis_text(dom_candidate)
+                    if final_text:
+                        state["best_text"] = final_text
+                        state["done"] = True
+                        state["final_source"] = "dom_candidate"
+                        break
                     if dom_candidate == state.get("best_text", ""):
                         state["stable_rounds"] = int(state.get("stable_rounds", 0) or 0) + 1
                     else:
                         state["best_text"] = dom_candidate
                         state["stable_rounds"] = 0
-                    if int(state.get("stable_rounds", 0) or 0) >= 2:
-                        state["done"] = True
                 elif not state.get("best_text"):
                     page_report = _collect_page_report_candidate(page)
                     if page_report:
                         state["dom_fallback_used"] = True
                         state["latest_text"] = page_report
-                        state["best_text"] = page_report
                         state["last_signal_at"] = time.monotonic()
-                        state["done"] = True
+                        final_text = _extract_valid_final_analysis_text(page_report)
+                        if final_text:
+                            state["best_text"] = final_text
+                            state["done"] = True
+                            state["final_source"] = "page_report"
+                            break
+                        state["best_text"] = page_report
                 page_report_snapshot = _collect_page_report_candidate(page)
                 if page_report_snapshot:
                     state["page_report"] = page_report_snapshot
@@ -5410,6 +5453,7 @@ def _run_minimax_browser_only_once(
                     "chat_name": str(state.get("chat_name", "") or "").strip(),
                     "motion_coach_validated": bool(state.get("motion_coach_opened")),
                     "motion_coach_validation_source": "expert_browser_flow",
+                    "final_source": str(state.get("final_source", "") or "").strip(),
                     "elapsed_s": round(elapsed, 2),
                     "timeout_s_effective": int(timeout_s_effective),
                     "chat_status": int(state.get("chat_status", 0) or 0),
@@ -5445,6 +5489,7 @@ def _run_minimax_browser_only_once(
             "motion_coach_validation_source": (
                 "expert_browser_flow" if bool(state.get("motion_coach_opened")) else "chat_label"
             ),
+            "final_source": str(state.get("final_source", "") or "").strip(),
             "elapsed_s": round(elapsed, 2),
             "timeout_s_effective": int(timeout_s_effective),
             "chat_status": int(state.get("chat_status", 0) or 0),
