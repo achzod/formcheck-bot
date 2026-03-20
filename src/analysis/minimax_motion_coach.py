@@ -3983,13 +3983,23 @@ def _arm_maxclaw_promo_overlay_killer(page: Any) -> bool:
                         'build your ai workgroup',
                         'running continuously in the cloud',
                     ];
+                    const promoPatterns = [
+                        'agent upgraded',
+                        'new model',
+                        "what's new",
+                        'powered by minimax',
+                        'try it now',
+                        'skills ecosystem',
+                        'office suite mastery',
+                    ];
                     const killerId = '__formcheck_maxclaw_overlay_killer';
                     const hiddenAttr = 'data-formcheck-maxclaw-hidden';
 
                     const normalize = (value) => String(value || '').toLowerCase();
                     const isPromoText = (value) => {
                         const low = normalize(value);
-                        return low.includes('maxclaw') && markers.slice(1).some((marker) => low.includes(marker));
+                        if (low.includes('maxclaw') && markers.slice(1).some((marker) => low.includes(marker))) return true;
+                        return promoPatterns.filter((p) => low.includes(p)).length >= 2;
                     };
                     const isOverlayShell = (node) => {
                         if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
@@ -4121,6 +4131,25 @@ def _dismiss_browser_blanket_overlay(page: Any, timeout_ms: int) -> bool:
         except Exception:
             pass
         _safe_page_wait(page, 250)
+    # Last resort: force-remove any remaining blanket overlays via JS
+    if _blanket_overlay_visible(page):
+        try:
+            page.evaluate("""() => {
+                document.querySelectorAll('[class*="bg-utility_blanket"], div.fixed.inset-0').forEach(el => {
+                    el.style.setProperty('display', 'none', 'important');
+                    el.style.setProperty('pointer-events', 'none', 'important');
+                });
+                if (document.body) {
+                    document.body.style.removeProperty('overflow');
+                    document.body.style.removeProperty('pointer-events');
+                }
+                if (document.documentElement) {
+                    document.documentElement.style.removeProperty('overflow');
+                }
+            }""")
+        except Exception:
+            pass
+        _safe_page_wait(page, 200)
     return not _blanket_overlay_visible(page)
 
 
