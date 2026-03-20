@@ -2617,18 +2617,24 @@ Analyse MiniMax deja exploitable.
             def add_init_script(self, script: str) -> None:
                 self.calls += 1
 
-        context = _FakeContext()
-        old_local = minimax_settings.minimax_browser_local_storage_json
-        old_session = minimax_settings.minimax_browser_session_storage_json
-        try:
-            minimax_settings.minimax_browser_local_storage_json = "{invalid"
-            minimax_settings.minimax_browser_session_storage_json = ""
-            mm._inject_browser_storage(context)
-        finally:
-            minimax_settings.minimax_browser_local_storage_json = old_local
-            minimax_settings.minimax_browser_session_storage_json = old_session
+        with tempfile.TemporaryDirectory() as tmpdir:
+            context = _FakeContext()
+            original = {
+                "profile_dir": minimax_settings.minimax_browser_profile_dir,
+                "local": minimax_settings.minimax_browser_local_storage_json,
+                "session": minimax_settings.minimax_browser_session_storage_json,
+            }
+            try:
+                minimax_settings.minimax_browser_profile_dir = str(Path(tmpdir) / "empty-profile")
+                minimax_settings.minimax_browser_local_storage_json = "{invalid"
+                minimax_settings.minimax_browser_session_storage_json = ""
+                mm._inject_browser_storage(context)
+            finally:
+                minimax_settings.minimax_browser_profile_dir = original["profile_dir"]
+                minimax_settings.minimax_browser_local_storage_json = original["local"]
+                minimax_settings.minimax_browser_session_storage_json = original["session"]
 
-        self.assertEqual(context.calls, 0)
+            self.assertEqual(context.calls, 0)
 
     def test_inject_browser_storage_skips_mismatched_seed_email(self) -> None:
         class _FakeContext:
@@ -2638,25 +2644,123 @@ Analyse MiniMax deja exploitable.
             def add_init_script(self, script: str) -> None:
                 self.calls += 1
 
-        context = _FakeContext()
-        original = {
-            "email": minimax_settings.minimax_browser_email,
-            "local": minimax_settings.minimax_browser_local_storage_json,
-            "session": minimax_settings.minimax_browser_session_storage_json,
-        }
-        try:
-            minimax_settings.minimax_browser_email = "achzodyt@gmail.com"
-            minimax_settings.minimax_browser_local_storage_json = json.dumps(
-                {"user_detail_agent": json.dumps({"userMail": "coaching@achzodcoaching.com"})}
-            )
-            minimax_settings.minimax_browser_session_storage_json = '{"tab_device_id":"77"}'
-            mm._inject_browser_storage(context)
-        finally:
-            minimax_settings.minimax_browser_email = original["email"]
-            minimax_settings.minimax_browser_local_storage_json = original["local"]
-            minimax_settings.minimax_browser_session_storage_json = original["session"]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            context = _FakeContext()
+            original = {
+                "email": minimax_settings.minimax_browser_email,
+                "profile_dir": minimax_settings.minimax_browser_profile_dir,
+                "local": minimax_settings.minimax_browser_local_storage_json,
+                "session": minimax_settings.minimax_browser_session_storage_json,
+            }
+            try:
+                minimax_settings.minimax_browser_email = "achzodyt@gmail.com"
+                minimax_settings.minimax_browser_profile_dir = str(Path(tmpdir) / "empty-profile")
+                minimax_settings.minimax_browser_local_storage_json = json.dumps(
+                    {"user_detail_agent": json.dumps({"userMail": "coaching@achzodcoaching.com"})}
+                )
+                minimax_settings.minimax_browser_session_storage_json = '{"tab_device_id":"77"}'
+                mm._inject_browser_storage(context)
+            finally:
+                minimax_settings.minimax_browser_email = original["email"]
+                minimax_settings.minimax_browser_profile_dir = original["profile_dir"]
+                minimax_settings.minimax_browser_local_storage_json = original["local"]
+                minimax_settings.minimax_browser_session_storage_json = original["session"]
 
-        self.assertEqual(context.calls, 0)
+            self.assertEqual(context.calls, 0)
+
+    def test_effective_browser_storage_dumps_falls_back_to_profile_when_explicit_seed_mismatches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "profile"
+            leveldb_dir = profile_dir / "Default" / "Local Storage" / "leveldb"
+            session_dir = profile_dir / "Default" / "Session Storage"
+            leveldb_dir.mkdir(parents=True)
+            session_dir.mkdir(parents=True)
+            (profile_dir / "Default" / "Preferences").write_text("{}", encoding="utf-8")
+            (leveldb_dir / "000001.log").write_text(
+                (
+                    'user_detail_agent{"userMail":"achzodyt@gmail.com"}'
+                    ' first_task_success_tracked true '
+                    '_token eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjp7ImVtYWlsIjoiYWNoem9keXRAZ21haWwuY29tIn19.sig'
+                ),
+                encoding="utf-8",
+            )
+            (session_dir / "000001.log").write_bytes(b"tab_device_id\x1075909721")
+
+            original = {
+                "email": minimax_settings.minimax_browser_email,
+                "profile_dir": minimax_settings.minimax_browser_profile_dir,
+                "local": minimax_settings.minimax_browser_local_storage_json,
+                "session": minimax_settings.minimax_browser_session_storage_json,
+            }
+            try:
+                minimax_settings.minimax_browser_email = "achzodyt@gmail.com"
+                minimax_settings.minimax_browser_profile_dir = str(profile_dir)
+                minimax_settings.minimax_browser_local_storage_json = json.dumps(
+                    {"user_detail_agent": json.dumps({"userMail": "coaching@achzodcoaching.com"})}
+                )
+                minimax_settings.minimax_browser_session_storage_json = '{"tab_device_id":"77"}'
+
+                local_storage, session_storage, source = mm._effective_browser_storage_dumps()
+            finally:
+                minimax_settings.minimax_browser_email = original["email"]
+                minimax_settings.minimax_browser_profile_dir = original["profile_dir"]
+                minimax_settings.minimax_browser_local_storage_json = original["local"]
+                minimax_settings.minimax_browser_session_storage_json = original["session"]
+
+        self.assertEqual(source, "profile")
+        self.assertEqual(mm._browser_seed_user_email_from_storage(local_storage), "achzodyt@gmail.com")
+        self.assertIn("_token", local_storage)
+        self.assertEqual(session_storage.get("tab_device_id"), "75909721")
+
+    def test_inject_browser_storage_falls_back_to_profile_seed(self) -> None:
+        class _FakeContext:
+            def __init__(self):
+                self.script = ""
+                self.calls = 0
+
+            def add_init_script(self, script: str) -> None:
+                self.calls += 1
+                self.script = script
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "profile"
+            leveldb_dir = profile_dir / "Default" / "Local Storage" / "leveldb"
+            session_dir = profile_dir / "Default" / "Session Storage"
+            leveldb_dir.mkdir(parents=True)
+            session_dir.mkdir(parents=True)
+            (profile_dir / "Default" / "Preferences").write_text("{}", encoding="utf-8")
+            (leveldb_dir / "000001.log").write_text(
+                (
+                    'user_detail_agent{"userMail":"achzodyt@gmail.com"}'
+                    ' first_task_success_tracked true '
+                    '_token eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjp7ImVtYWlsIjoiYWNoem9keXRAZ21haWwuY29tIn19.sig'
+                ),
+                encoding="utf-8",
+            )
+            (session_dir / "000001.log").write_bytes(b"tab_device_id\x1075909721")
+
+            context = _FakeContext()
+            original = {
+                "email": minimax_settings.minimax_browser_email,
+                "profile_dir": minimax_settings.minimax_browser_profile_dir,
+                "local": minimax_settings.minimax_browser_local_storage_json,
+                "session": minimax_settings.minimax_browser_session_storage_json,
+            }
+            try:
+                minimax_settings.minimax_browser_email = "achzodyt@gmail.com"
+                minimax_settings.minimax_browser_profile_dir = str(profile_dir)
+                minimax_settings.minimax_browser_local_storage_json = ""
+                minimax_settings.minimax_browser_session_storage_json = ""
+                mm._inject_browser_storage(context)
+            finally:
+                minimax_settings.minimax_browser_email = original["email"]
+                minimax_settings.minimax_browser_profile_dir = original["profile_dir"]
+                minimax_settings.minimax_browser_local_storage_json = original["local"]
+                minimax_settings.minimax_browser_session_storage_json = original["session"]
+
+        self.assertEqual(context.calls, 1)
+        self.assertIn("achzodyt@gmail.com", context.script)
+        self.assertIn('"tab_device_id": "75909721"', context.script)
 
     def test_populate_browser_message_uses_dom_text_fallback_when_keyboard_type_fails(self) -> None:
         class _FakeEditor:

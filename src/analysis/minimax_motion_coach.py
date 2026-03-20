@@ -91,6 +91,12 @@ _BROWSER_PROFILE_HEAVY_PATH_PARTS = (
     "Default/GPUCache",
     "Default/blob_storage",
 )
+_PROFILE_STORAGE_LOCAL_KEYS = (
+    "_token",
+    "user_detail_agent",
+    "first_task_success_tracked",
+)
+_PROFILE_STORAGE_SESSION_KEYS = ("tab_device_id",)
 
 _DEFAULT_ANALYSIS_PROMPT = (
     "Analyse uniquement la video jointe comme AI Motion Coach expert en biomecanique de la musculation.\n"
@@ -3089,16 +3095,132 @@ def _browser_profile_seed_available() -> bool:
         return False
 
 
+def _extract_json_object_after(text: str, needle: str) -> str:
+    idx = text.find(needle)
+    if idx < 0:
+        return ""
+    start = text.find("{", idx)
+    if start < 0:
+        return ""
+    depth = 0
+    in_string = False
+    escape = False
+    for pos in range(start, len(text)):
+        ch = text[pos]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : pos + 1]
+    return ""
+
+
+def _extract_minimax_storage_seed_from_profile(seed_dir: Path) -> tuple[dict[str, str], dict[str, str]]:
+    local_storage: dict[str, str] = {}
+    session_storage: dict[str, str] = {}
+
+    local_candidates = list((seed_dir / "Default" / "Local Storage" / "leveldb").glob("*"))
+    for candidate in local_candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            text = candidate.read_bytes().decode("utf-8", errors="ignore")
+        except Exception:
+            continue
+        if "_token" not in local_storage:
+            token_match = re.search(r"_token.*?(eyJ[A-Za-z0-9._-]+)", text, re.S)
+            if token_match:
+                local_storage["_token"] = str(token_match.group(1)).strip()
+        if "user_detail_agent" not in local_storage:
+            user_detail = _extract_json_object_after(text, "user_detail_agent")
+            if user_detail and "userMail" in user_detail:
+                local_storage["user_detail_agent"] = user_detail
+        if "first_task_success_tracked" not in local_storage:
+            tracked_match = re.search(r"first_task_success_tracked.*?(true|false)", text, re.I | re.S)
+            if tracked_match:
+                local_storage["first_task_success_tracked"] = str(tracked_match.group(1)).lower()
+        if all(key in local_storage for key in ("_token", "user_detail_agent")):
+            break
+
+    session_candidates = list((seed_dir / "Default" / "Session Storage").glob("*"))
+    for candidate in session_candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            text = candidate.read_bytes().decode("utf-8", errors="ignore")
+        except Exception:
+            continue
+        tab_match = re.search(r"tab_device_id\x10([0-9\x00]+)", text)
+        if not tab_match:
+            tab_match = re.search(r"tab_device_id([^\\x00]{1,40})", text)
+        if tab_match:
+            raw_value = str(tab_match.group(1))
+            digits = "".join(ch for ch in raw_value if ch.isdigit())
+            if digits:
+                session_storage["tab_device_id"] = digits[:16]
+                break
+
+    return local_storage, session_storage
+
+
+def _effective_browser_storage_dumps() -> tuple[dict[str, str], dict[str, str], str]:
+    explicit_local = _normalized_storage_dump(
+        getattr(settings, "minimax_browser_local_storage_json", ""),
+        label="localStorage",
+    )
+    explicit_session = _normalized_storage_dump(
+        getattr(settings, "minimax_browser_session_storage_json", ""),
+        label="sessionStorage",
+    )
+
+    if explicit_local or explicit_session:
+        seeded_email = _browser_seed_user_email_from_storage(explicit_local)
+        configured_email = str(getattr(settings, "minimax_browser_email", "") or "").strip().lower()
+        if not configured_email or not seeded_email or seeded_email == configured_email:
+            return explicit_local, explicit_session, "explicit"
+        logger.warning(
+            "MiniMax browser auth seed email mismatch: configured=%s seeded=%s",
+            configured_email,
+            seeded_email,
+        )
+        logger.warning("MiniMax browser storage injection skipped for explicit seed; trying profile fallback")
+
+    if not _browser_profile_seed_available():
+        return {}, {}, "none"
+
+    profile_local, profile_session = _extract_minimax_storage_seed_from_profile(_browser_profile_dir())
+    if not profile_local and not profile_session:
+        return {}, {}, "none"
+
+    seeded_email = _browser_seed_user_email_from_storage(profile_local)
+    configured_email = str(getattr(settings, "minimax_browser_email", "") or "").strip().lower()
+    if configured_email and seeded_email and seeded_email != configured_email:
+        logger.warning(
+            "MiniMax browser profile storage email mismatch: configured=%s seeded=%s",
+            configured_email,
+            seeded_email,
+        )
+        return {}, {}, "none"
+    return profile_local, profile_session, "profile"
+
+
 def _browser_auth_seed_available() -> bool:
-    if not _browser_auth_seed_matches_configured_email():
-        return False
     if str(getattr(settings, "minimax_cookie", "") or "").strip():
         return True
-    if _normalized_storage_dump(getattr(settings, "minimax_browser_local_storage_json", ""), label="localStorage"):
-        return True
-    if _normalized_storage_dump(getattr(settings, "minimax_browser_session_storage_json", ""), label="sessionStorage"):
-        return True
-    return _browser_profile_seed_available()
+    local_storage, session_storage, _source = _effective_browser_storage_dumps()
+    return bool(local_storage or session_storage or _browser_profile_seed_available())
 
 
 def _validate_settings() -> list[str]:
@@ -3184,6 +3306,8 @@ def _prepare_browser_profile_workspace() -> tuple[Path, callable]:
             for source in seed_dir.rglob("*"):
                 relative = source.relative_to(seed_dir)
                 if _should_skip_browser_profile_copy(relative):
+                    continue
+                if source.is_symlink():
                     continue
                 target = workspace / relative
                 if source.is_dir():
@@ -3368,11 +3492,7 @@ def _decode_unverified_jwt_payload(token: str) -> dict[str, Any]:
     return {}
 
 
-def _browser_seed_user_email() -> str:
-    local_storage = _normalized_storage_dump(
-        getattr(settings, "minimax_browser_local_storage_json", ""),
-        label="localStorage",
-    )
+def _browser_seed_user_email_from_storage(local_storage: dict[str, str]) -> str:
     if not local_storage:
         return ""
 
@@ -3403,35 +3523,13 @@ def _browser_seed_user_email() -> str:
     return ""
 
 
-def _browser_auth_seed_matches_configured_email() -> bool:
-    configured_email = str(getattr(settings, "minimax_browser_email", "") or "").strip().lower()
-    if not configured_email:
-        return True
-    seeded_email = _browser_seed_user_email()
-    if not seeded_email:
-        return True
-    if seeded_email == configured_email:
-        return True
-    logger.warning(
-        "MiniMax browser auth seed email mismatch: configured=%s seeded=%s",
-        configured_email,
-        seeded_email,
-    )
-    return False
+def _browser_seed_user_email() -> str:
+    local_storage, _, _ = _effective_browser_storage_dumps()
+    return _browser_seed_user_email_from_storage(local_storage)
 
 
 def _inject_browser_storage(context: Any) -> None:
-    if not _browser_auth_seed_matches_configured_email():
-        logger.warning("MiniMax browser storage injection skipped: auth seed email mismatch")
-        return
-    local_storage = _normalized_storage_dump(
-        getattr(settings, "minimax_browser_local_storage_json", ""),
-        label="localStorage",
-    )
-    session_storage = _normalized_storage_dump(
-        getattr(settings, "minimax_browser_session_storage_json", ""),
-        label="sessionStorage",
-    )
+    local_storage, session_storage, source = _effective_browser_storage_dumps()
     if not local_storage and not session_storage:
         return
 
@@ -3461,6 +3559,14 @@ def _inject_browser_storage(context: Any) -> None:
         context.add_init_script(storage_script)
     except Exception as exc:
         logger.warning("MiniMax browser storage injection failed: %s", exc)
+        return
+
+    logger.info(
+        "MiniMax browser storage injected from %s seed (local=%s session=%s)",
+        source,
+        bool(local_storage),
+        bool(session_storage),
+    )
 
 
 def _extract_query_identity_from_url(url: str, out: dict[str, str]) -> None:

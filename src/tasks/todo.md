@@ -103,3 +103,49 @@ Review:
 - Worker env mismatch confirmed in prod: `MINIMAX_BROWSER_EMAIL=achzodyt@gmail.com` while the injected `MINIMAX_BROWSER_LOCAL_STORAGE_JSON` still identifies `coaching@achzodcoaching.com`.
 - This mismatch is now guarded in code so an explicit stale auth seed is no longer silently accepted as valid browser auth.
 - Prompt size was reduced, but the main remaining prod action is operational: replace the Render worker auth seed with a coherent `achzodyt@gmail.com` MiniMax browser seed and retest.
+
+## 2026-03-20 Direct AI Motion Coach smoke
+
+- [x] Verify that the local browser automation can open the exact AI Motion Coach expert chat
+- [x] Verify whether the composer is genuinely ready on that page
+- [x] Verify whether attaching a real mp4 stays authenticated or triggers a login wall
+- [x] Record the exact failure point for the next fix pass
+
+Review:
+- The exact expert page `https://agent.minimax.io/expert/chat/362683345551702` opens successfully under the referenced local Chrome profile.
+- Initial page state is healthy: composer ready, no anti bot challenge, no login modal.
+- The failure appears only when a real file is attached.
+- Upload only smoke on `tmp/minimax_prepared/twilio_fail_latest_minimax_639fc778.mp4` showed:
+  - file input present
+  - file selection returns immediately
+  - a `Welcome to MiniMax / Continue with Google` modal appears after attachment
+  - the attached filename does not bind into the visible chat state
+- Therefore the blocking issue is not expert discovery or initial page access. The blocking issue is attach/send auth escalation inside AI Motion Coach.
+
+## 2026-03-20 Attach/send auth fix
+
+- [in_progress] Locate the currently valid MiniMax auth state in the real local Chrome profile
+- [pending] Extract the minimum durable auth material needed for attach/send
+- [pending] Rebuild the local MiniMax worker seed from that auth state
+- [pending] Re-run direct browser smoke on expert open + attach + send
+- [pending] If green locally, document the exact Render env/session update required for prod
+
+## 2026-03-20 MiniMax auth fallback hardening
+
+- [x] Finalize storage seed fallback logic in `analysis/minimax_motion_coach.py`
+- [x] Ensure explicit mismatched storage seeds fall back to profile-derived storage instead of silently failing
+- [x] Keep profile clone enabled when auth still depends on seeded browser profile state
+- [x] Add targeted tests for profile fallback and injection behavior
+- [x] Re-run targeted browser auth/config suites
+- [ ] Re-prove a full direct attach/send smoke without manually forcing storage JSON
+
+Review:
+- Code fix completed: browser auth availability and storage injection now share the same effective source resolver (`explicit -> profile -> none`).
+- Safety fix completed: broken symlinks inside the seed profile are skipped during workspace clone.
+- Test coverage added for profile fallback when explicit seed mismatches and when explicit storage is absent.
+- Validation completed:
+  - `python3 -m py_compile analysis/minimax_motion_coach.py tests/test_minimax_motion_coach.py`
+  - `pytest -q tests/test_minimax_motion_coach.py -k 'validate_settings or inject_browser_storage or effective_browser_storage_dumps'` -> `9 passed`
+  - `pytest -q tests/test_minimax_motion_coach.py -k 'MiniMaxBrowserAuthFlowTests or MiniMaxBrowserConfigValidationTests'` -> `34 passed`
+- Remaining gap: on the real local MiniMax seed profile, automatic extraction from on-disk profile files still recovered only `tab_device_id`, not the full `_token` + `user_detail_agent` pair. So the direct no-manual-JSON smoke is not yet proven.
+- What is proven separately: a coherent explicit storage dump for `achzodyt@gmail.com` removes the login modal on attach and lets the filename bind correctly. The remaining production action is still to supply the worker with a coherent explicit MiniMax storage seed for the correct account.
