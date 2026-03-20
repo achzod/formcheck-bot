@@ -1037,7 +1037,15 @@ async def _deliver_pipeline_success(
             "Primary WhatsApp report message failed (analysis_id=%s). Retrying minimal link message.",
             analysis_id,
         )
-        await wa.send_text(phone, minimal_msg)
+        try:
+            await wa.send_text(phone, minimal_msg)
+        except Exception:
+            logger.exception(
+                "Minimal WhatsApp report message also failed (analysis_id=%s). "
+                "Report is still available at %s — delivery will need manual retry.",
+                analysis_id,
+                report_url or "no-url",
+            )
 
     analysis_model = str(result.report.model_used or "").strip() if result.report else ""
     detection_source = ""

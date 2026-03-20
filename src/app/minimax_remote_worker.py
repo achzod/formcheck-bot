@@ -528,6 +528,9 @@ def _subprocess_has_live_browser_descendants(root_pid: int) -> bool:
             or "ms-playwright/chromium" in low
             or "/chromium --" in low
             or "/chromium " in low
+            or "chromium.app/contents/macos/chromium" in low
+            or "chrome-mac" in low
+            or "google chrome" in low
         ):
             return True
     return False
