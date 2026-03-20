@@ -4848,6 +4848,7 @@ def _populate_browser_message(
     email: str = "",
     password: str = "",
 ) -> None:
+    logger.info("MINIMAX_PHASE populate_start | video=%s", video_path)
     page.wait_for_selector(".tiptap-editor", timeout=timeout_ms)
     _arm_maxclaw_promo_overlay_killer(page)
     if _blanket_overlay_visible(page):
@@ -4869,12 +4870,14 @@ def _populate_browser_message(
             _set_browser_editor_text(editor, prompt)
         except Exception:
             page.keyboard.type(prompt)
+    logger.info("MINIMAX_PHASE prompt_set")
 
     # Upload video file via hidden input.
     upload_input = page.locator("input[type='file']").last
     if upload_input.count() <= 0:
         raise RuntimeError("MiniMax browser flow failed: upload input not found")
     upload_input.set_input_files(video_path, timeout=timeout_ms)
+    logger.info("MINIMAX_PHASE file_attached")
 
     # Wait briefly for upload attachment binding.
     file_name = Path(video_path).name
@@ -4883,6 +4886,7 @@ def _populate_browser_message(
         page.locator("text={}".format(file_name)).first.wait_for(timeout=attachment_wait_ms)
     except Exception:
         page.wait_for_timeout(min(attachment_wait_ms, 2200))
+    logger.info("MINIMAX_PHASE attachment_bound | login_modal=%s", _login_modal_visible(page))
 
     if _login_modal_visible(page):
         dismissed = _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
@@ -4982,7 +4986,9 @@ def _send_browser_message(page: Any, timeout_ms: int) -> None:
     _arm_maxclaw_promo_overlay_killer(page)
     if _blanket_overlay_visible(page):
         _dismiss_browser_blanket_overlay(page, timeout_ms=min(timeout_ms, 2500))
+    logger.info("MINIMAX_PHASE send_wait_start")
     send_ready = _wait_for_page_condition(page, lambda: _send_button_enabled(page), timeout_ms=min(timeout_ms, 15000), step_ms=200)
+    logger.info("MINIMAX_PHASE send_button_ready=%s", send_ready)
     if not send_ready:
         try:
             editor = page.locator(".tiptap-editor").first
@@ -5003,6 +5009,7 @@ def _send_browser_message(page: Any, timeout_ms: int) -> None:
         except Exception:
             send_html = ""
         raise RuntimeError("MiniMax browser flow failed: send button stayed disabled {}".format(send_html[:400]))
+    logger.info("MINIMAX_PHASE send_click")
     if not _click_first_visible(page, ("#input-send-icon", "div#input-send-icon"), timeout_ms=2200):
         try:
             send_icon = page.locator("#input-send-icon").first
@@ -5351,6 +5358,15 @@ def _run_minimax_browser_only_once(
         ) from exc
 
     start = time.monotonic()
+
+    def _phase(label: str, **extra: Any) -> None:
+        elapsed = time.monotonic() - start
+        parts = ["MINIMAX_PHASE %s dt=%.1fs" % (label, elapsed)]
+        for k, v in extra.items():
+            parts.append("%s=%s" % (k, v))
+        logger.info(" | ".join(parts))
+
+    _phase("init")
     state: dict[str, Any] = {
         "sent": False,
         "done": False,
@@ -5457,9 +5473,11 @@ def _run_minimax_browser_only_once(
                     **launch_options,
                 )
 
+            _phase("browser_launched", headless=headless, profile=str(profile_dir))
             _install_browser_stealth(context)
             _inject_browser_cookies(context)
             _inject_browser_storage(context)
+            _phase("auth_injected")
             try:
                 context.set_extra_http_headers(
                     {
@@ -5473,17 +5491,22 @@ def _run_minimax_browser_only_once(
             page.on("response", _on_response)
 
             _goto_minimax_page(page, _motion_coach_expert_url(), timeout_ms, label="motion_coach_bootstrap")
+            _phase("page_loaded", url=str(getattr(page, "url", "")))
             _ensure_browser_authenticated(page, email=email, password=password, timeout_ms=timeout_ms)
+            _phase("auth_checked", login_modal=_login_modal_visible(page))
             _open_motion_coach_chat(page, timeout_ms=timeout_ms, email=email, password=password)
             state["motion_coach_opened"] = True
+            _phase("composer_ready", url=str(getattr(page, "url", "")))
             _arm_maxclaw_promo_overlay_killer(page)
 
             # Baseline collection window.
             page.wait_for_timeout(1400)
             state["known_ids"] = set(state.get("baseline_ids", set()))
             state["dom_baseline"] = set(_collect_dom_analysis_candidates(page))
+            _phase("baseline_collected", baseline_ids=len(state["baseline_ids"]), dom_baseline=len(state["dom_baseline"]))
 
             state["sent"] = True
+            _phase("upload_start", video=prepared.path)
             _upload_and_send_via_browser(
                 page,
                 prepared.path,
@@ -5492,6 +5515,7 @@ def _run_minimax_browser_only_once(
                 email=email,
                 password=password,
             )
+            _phase("upload_sent", url=str(getattr(page, "url", "")), login_modal=_login_modal_visible(page))
             state["last_signal_at"] = time.monotonic()
             if not state.get("known_ids"):
                 state["known_ids"] = set(state.get("baseline_ids", set()))
@@ -5499,9 +5523,11 @@ def _run_minimax_browser_only_once(
                 sent_chat_id = str(state.get("sent_chat_id", "") or "").strip()
                 if sent_chat_id:
                     state["last_refresh_at"] = time.monotonic()
+            _phase("wait_loop_enter", sent_chat_id=state.get("sent_chat_id", ""), responses_seen=state.get("responses_seen", 0))
 
             deadline = time.monotonic() + timeout_s_effective
             sleep_ms = max(300, int(max(0.8, poll_interval) * 1000))
+            _wait_loop_log_counter = 0
             while time.monotonic() < deadline:
                 _arm_maxclaw_promo_overlay_killer(page)
                 if _blanket_overlay_visible(page):
@@ -5539,6 +5565,19 @@ def _run_minimax_browser_only_once(
                     raise RuntimeError("MiniMax browser task failed in UI")
 
                 page.wait_for_timeout(sleep_ms)
+                _wait_loop_log_counter += 1
+                if _wait_loop_log_counter % 15 == 0:
+                    _phase(
+                        "wait_loop_tick",
+                        iter=_wait_loop_log_counter,
+                        responses=state.get("responses_seen", 0),
+                        chat_status=state.get("chat_status", 0),
+                        best_len=len(str(state.get("best_text", "") or "")),
+                        dom_seen=state.get("dom_candidates_seen", 0),
+                        refreshes=state.get("wait_refreshes", 0),
+                        url=str(getattr(page, "url", "")),
+                        login_modal=_login_modal_visible(page),
+                    )
                 dom_candidates = _collect_dom_analysis_candidates(page)
                 state["dom_candidates_seen"] = max(
                     int(state.get("dom_candidates_seen", 0) or 0),
@@ -5579,6 +5618,18 @@ def _run_minimax_browser_only_once(
                     state["page_report"] = page_report_snapshot
                     state["last_signal_at"] = time.monotonic()
 
+            _phase(
+                "wait_loop_exit",
+                done=state.get("done", False),
+                final_source=state.get("final_source", ""),
+                best_len=len(str(state.get("best_text", "") or "")),
+                responses=state.get("responses_seen", 0),
+                chat_status=state.get("chat_status", 0),
+                dom_seen=state.get("dom_candidates_seen", 0),
+                dom_fallback=state.get("dom_fallback_used", False),
+                refreshes=state.get("wait_refreshes", 0),
+                task_failed_retries=state.get("task_failed_retries", 0),
+            )
         finally:
             if page is not None and not str(state.get("best_text", "") or "").strip():
                 debug: dict[str, Any] = {}
