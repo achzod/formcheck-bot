@@ -986,6 +986,7 @@ try:
                     "id": int(row.id),
                     "exercise": row.exercise,
                     "score": row.score,
+                    "report": row.report,
                     "created_at": row.created_at.isoformat() if row.created_at else None,
                 }
                 for row in analyses
