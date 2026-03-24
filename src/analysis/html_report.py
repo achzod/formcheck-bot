@@ -233,6 +233,19 @@ _AI_STYLE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bil est important de noter que\s*", re.IGNORECASE), ""),
     (re.compile(r"\bde maniere generale[, ]*", re.IGNORECASE), ""),
     (re.compile(r"\bglobalement[, ]*", re.IGNORECASE), ""),
+    # MiniMax foreign word substitutions (common glitches)
+    (re.compile(r"\bnoticeable\b", re.IGNORECASE), "perceptible"),
+    (re.compile(r"\bmaintained\b", re.IGNORECASE), "maintenue"),
+    (re.compile(r"\bcompensate\b", re.IGNORECASE), "compenser"),
+    (re.compile(r"\boveruse\b", re.IGNORECASE), "surutilisation"),
+    (re.compile(r"\bshortcuts?\b", re.IGNORECASE), "raccourcis"),
+    (re.compile(r"\bwindow\b", re.IGNORECASE), "fenetre"),
+    (re.compile(r"\bsuperior\b", re.IGNORECASE), "superieur"),
+    (re.compile(r"\bloss of control\b", re.IGNORECASE), "perte de controle"),
+    (re.compile(r"\bHOLD\b"), "tenue"),
+    (re.compile(r"\btener\b", re.IGNORECASE), "garder"),
+    (re.compile(r"\bayudar(?:te)?\b", re.IGNORECASE), "aider"),
+    (re.compile(r"\bstabilize(?:er|r)?\b", re.IGNORECASE), "stabiliser"),
 )
 _CJK_CHAR_PATTERN = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]")
 

@@ -153,9 +153,10 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "Efficacite technique: x/30\n"
     "Controle et tempo: x/20\n"
     "Symetrie: x/10\n"
-    "Justifie chaque sous-score.\n"
+    "Justifie chaque sous-score avec au moins 2 phrases. JAMAIS de score sans justification.\n"
     "## POINT BIOMECANIQUE\n"
     "## RECOMMANDATION POUR LA PROCHAINE VIDEO\n"
+    "Cette section DOIT contenir au moins 3 phrases concretes (angle de camera, exercice suivant, point a verifier).\n"
     "## PLAN ACTION\n"
     "Exactement 3 actions. Pas plus, pas moins.\n"
     "Ecris UNIQUEMENT en francais. Pas un seul mot dans une autre langue.\n"
@@ -217,7 +218,8 @@ _PROMPT_NON_NEGOTIABLE_SUFFIX = (
     "`1. Rep 1 | 0:02 - 0:05 | commentaire` avec des timestamps REELS estimes depuis la video.\n"
     "- Signale explicitement les pauses visibles entre reps, les reps partielles et toute baisse de qualite.\n"
     "- Si une section a peu de matiere, ecris une phrase courte et concrete au lieu de meubler.\n"
-    "- N'utilise ni separateurs `---`, ni JSON, ni blocs de code, ni anglais, ni chinois, ni arabe, ni aucune autre langue que le francais.\n"
+    "- N'utilise ni separateurs `---`, ni JSON, ni blocs de code.\n"
+    "- ZERO MOT dans une autre langue que le francais. Pas d'anglais (hold, noticeable, maintained, compensate, loss), pas d'espagnol (tener, ayudar), pas de russe, pas de chinois, pas d'arabe. Si tu ne connais pas le mot francais, reformule la phrase.\n"
 ).format(start=_REPORT_START_TAG, end=_REPORT_END_TAG)
 
 
