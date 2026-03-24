@@ -472,7 +472,7 @@ def _coerce_metric_float(value: Any, default: float = 0.0, *, minimum: float | N
 
 def _format_report_html(report_text: str) -> str:
     """Convertit le texte du rapport LLM en HTML propre, parse par sections."""
-    text = html.escape(_clean_report_text_for_rendering(report_text))
+    text = html.escape(_clean_report_text_for_rendering(report_text), quote=False)
     # Strip ALL markdown artifacts aggressively
     text = re.sub(r'^[\-\*•]\s+', '', text, flags=re.MULTILINE)     # bullet lists
     text = re.sub(r'^#{1,4}\s+', '', text, flags=re.MULTILINE)      # headers

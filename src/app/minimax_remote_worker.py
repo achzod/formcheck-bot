@@ -479,39 +479,82 @@ async def _download_video(client: httpx.AsyncClient, job_id: int, video_url: str
 
 
 def _descendant_cmdlines(root_pid: int) -> list[str]:
+    # Try /proc (Linux)
     try:
         proc_entries = [entry for entry in os.listdir("/proc") if entry.isdigit()]
     except Exception:
-        return []
+        proc_entries = []
 
-    parent_by_pid: dict[int, int] = {}
-    cmd_by_pid: dict[int, str] = {}
-    for entry in proc_entries:
-        pid = int(entry)
-        try:
-            with open(f"/proc/{pid}/stat", encoding="utf-8") as handle:
-                parent_by_pid[pid] = int(handle.read().split()[3])
-            with open(f"/proc/{pid}/cmdline", "rb") as handle:
-                cmd_by_pid[pid] = handle.read().replace(b"\x00", b" ").decode("utf-8", "ignore").strip()
-        except Exception:
-            continue
-
-    descendants: list[str] = []
-    stack = [root_pid]
-    seen: set[int] = set()
-    while stack:
-        current = stack.pop()
-        if current in seen:
-            continue
-        seen.add(current)
-        for pid, parent_pid in parent_by_pid.items():
-            if parent_pid != current or pid in seen:
+    if proc_entries:
+        parent_by_pid: dict[int, int] = {}
+        cmd_by_pid: dict[int, str] = {}
+        for entry in proc_entries:
+            pid = int(entry)
+            try:
+                with open(f"/proc/{pid}/stat", encoding="utf-8") as handle:
+                    parent_by_pid[pid] = int(handle.read().split()[3])
+                with open(f"/proc/{pid}/cmdline", "rb") as handle:
+                    cmd_by_pid[pid] = handle.read().replace(b"\x00", b" ").decode("utf-8", "ignore").strip()
+            except Exception:
                 continue
-            stack.append(pid)
-            cmd = str(cmd_by_pid.get(pid, "") or "").strip()
-            if cmd:
-                descendants.append(cmd)
-    return descendants
+
+        descendants: list[str] = []
+        stack = [root_pid]
+        seen: set[int] = set()
+        while stack:
+            current = stack.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            for pid, parent_pid in parent_by_pid.items():
+                if parent_pid != current or pid in seen:
+                    continue
+                stack.append(pid)
+                cmd = str(cmd_by_pid.get(pid, "") or "").strip()
+                if cmd:
+                    descendants.append(cmd)
+        return descendants
+
+    # Fallback: macOS (no /proc) — use pgrep + ps
+    try:
+        result = subprocess.run(
+            ["pgrep", "-P", str(root_pid)],
+            capture_output=True, text=True, timeout=5,
+        )
+        child_pids = [int(p.strip()) for p in result.stdout.strip().split("\n") if p.strip().isdigit()]
+        # Recursively collect all descendants
+        all_pids: list[int] = []
+        queue = list(child_pids)
+        seen_pids: set[int] = set()
+        while queue:
+            pid = queue.pop(0)
+            if pid in seen_pids:
+                continue
+            seen_pids.add(pid)
+            all_pids.append(pid)
+            try:
+                sub = subprocess.run(
+                    ["pgrep", "-P", str(pid)],
+                    capture_output=True, text=True, timeout=3,
+                )
+                for line in sub.stdout.strip().split("\n"):
+                    if line.strip().isdigit():
+                        queue.append(int(line.strip()))
+            except Exception:
+                pass
+        if not all_pids:
+            return []
+        # Get command lines for all descendants
+        try:
+            ps_result = subprocess.run(
+                ["ps", "-o", "command=", "-p", ",".join(str(p) for p in all_pids)],
+                capture_output=True, text=True, timeout=5,
+            )
+            return [line.strip() for line in ps_result.stdout.strip().split("\n") if line.strip()]
+        except Exception:
+            return []
+    except Exception:
+        return []
 
 
 def _subprocess_has_live_browser_descendants(root_pid: int) -> bool:
@@ -724,15 +767,29 @@ async def _process_job(client: httpx.AsyncClient, job: dict, worker_id: str) -> 
         )
     )
     try:
-        applied_context = _apply_job_browser_context(job)
-        if applied_context:
-            logger.info(
-                "MiniMax remote job runtime context applied (job_id=%s keys=%s)",
-                job_id,
-                ",".join(sorted(applied_context.keys())),
-            )
+        if os.getenv("MINIMAX_WORKER_SKIP_JOB_CONTEXT", ""):
+            logger.info("MiniMax remote job context SKIPPED (using local env) (job_id=%s)", job_id)
+            applied_context = {}
+        else:
+            applied_context = _apply_job_browser_context(job)
+            if applied_context:
+                logger.info(
+                    "MiniMax remote job runtime context applied (job_id=%s keys=%s)",
+                    job_id,
+                    ",".join(sorted(applied_context.keys())),
+                )
         video_path = await _download_video(client, job_id, video_url)
-        analysis_payload = await _run_analysis_subprocess(video_path)
+        if os.getenv("MINIMAX_WORKER_INLINE", ""):
+            # Run analysis inline (no subprocess) — more reliable on macOS
+            import asyncio
+            analysis_result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                minimax_motion_coach.run_minimax_motion_coach,
+                str(video_path),
+            )
+            analysis_payload = minimax_motion_coach._analysis_to_payload(analysis_result)
+        else:
+            analysis_payload = await _run_analysis_subprocess(video_path)
         analysis = minimax_motion_coach._parse_analysis_payload(analysis_payload)
         logger.info(
             "MiniMax remote job analysis summary (job_id=%s exercise_slug=%s exercise_display=%s score=%s reps_total=%s intensity_score=%s)",
