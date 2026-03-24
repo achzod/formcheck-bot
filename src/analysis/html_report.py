@@ -404,8 +404,8 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
         line = raw_line.strip()
         if _contains_cjk_characters(line):
             continue
-        # Strip Arabic/Hebrew/other non-Latin script fragments (MiniMax glitch)
-        line = re.sub(r'[\u0600-\u06FF\u0590-\u05FF]+', '', line).strip()
+        # Strip Arabic/Hebrew/Cyrillic/other non-Latin script fragments (MiniMax glitch)
+        line = re.sub(r'[\u0400-\u04FF\u0600-\u06FF\u0590-\u05FF]+', '', line).strip()
         if not line:
             continue
         low = line.lower()

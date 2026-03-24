@@ -159,6 +159,7 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "## PLAN ACTION\n"
     "Exactement 3 actions. Pas plus, pas moins.\n"
     "Ecris UNIQUEMENT en francais. Pas un seul mot dans une autre langue.\n"
+    "APOSTROPHES OBLIGATOIRES: n'oublie jamais les apostrophes dans les contractions. Ecris l'extension (pas lextension), c'est (pas cest), l'amplitude (pas lamplitude), s'ameliore (pas sameliore), d'effort (pas deffort).\n"
     "Si une information est invisible, ecris NON MESURABLE."
 ).format(start=_REPORT_START_TAG, end=_REPORT_END_TAG)
 
@@ -1396,8 +1397,8 @@ def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
         if value
     }
     analysis.score_breakdown = _parse_score_breakdown_block(breakdown_block, analysis.score)
-    normalized_breakdown = _normalize_label_text(breakdown_block)
-    if breakdown_block and all(label in normalized_breakdown for label in ("securite", "efficacite", "controle", "symetrie")):
+    # Only override score if ALL 4 sub-scores were actually parsed (not defaulted to 0)
+    if analysis.score_breakdown and all(analysis.score_breakdown.get(k, 0) > 0 for k in ("Securite", "Efficacite technique", "Controle et tempo", "Symetrie")):
         derived_total = _score_breakdown_total(analysis.score_breakdown)
         if derived_total > 0:
             analysis.score = derived_total
@@ -1474,7 +1475,7 @@ def _parse_markdown_analysis_payload(text: str) -> MiniMaxAnalysis | None:
     analysis.plan_action = _extract_bullets(markdown_sections.get("plan_action", ""))[:6]
     analysis.score_breakdown = _parse_score_breakdown_block(markdown_sections.get("breakdown", ""), analysis.score)
 
-    if analysis.score_breakdown:
+    if analysis.score_breakdown and all(analysis.score_breakdown.get(k, 0) > 0 for k in ("Securite", "Efficacite technique", "Controle et tempo", "Symetrie")):
         derived_total = _score_breakdown_total(analysis.score_breakdown)
         if derived_total > 0:
             analysis.score = derived_total
@@ -2268,7 +2269,7 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
             score_breakdown if isinstance(score_breakdown, dict) else None,
             total_score=analysis.score,
         )
-        if isinstance(score_breakdown, dict) and len(score_breakdown) >= 4:
+        if isinstance(score_breakdown, dict) and len(score_breakdown) >= 4 and all(analysis.score_breakdown.get(k, 0) > 0 for k in ("Securite", "Efficacite technique", "Controle et tempo", "Symetrie")):
             derived_total = _score_breakdown_total(analysis.score_breakdown)
             if derived_total > 0:
                 analysis.score = derived_total
