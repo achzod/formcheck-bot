@@ -213,10 +213,10 @@ _PROMPT_NON_NEGOTIABLE_SUFFIX = (
     "- Dans RESUME, commence directement par le diagnostic utile. Pas d'introduction generique.\n"
     "- Dans CORRECTIONS PRIORITAIRES, garde exactement le format `1. titre | observation | impact | cue`.\n"
     "- Dans ANALYSE REP PAR REP, garde exactement une ligne numerotee par rep detectee, au format "
-    "`1. Rep 1 | 00:00 - 00:00 | commentaire`.\n"
+    "`1. Rep 1 | 0:02 - 0:05 | commentaire` avec des timestamps REELS estimes depuis la video.\n"
     "- Signale explicitement les pauses visibles entre reps, les reps partielles et toute baisse de qualite.\n"
     "- Si une section a peu de matiere, ecris une phrase courte et concrete au lieu de meubler.\n"
-    "- N'utilise ni separateurs `---`, ni JSON, ni blocs de code, ni anglais, ni texte chinois.\n"
+    "- N'utilise ni separateurs `---`, ni JSON, ni blocs de code, ni anglais, ni chinois, ni arabe, ni aucune autre langue que le francais.\n"
 ).format(start=_REPORT_START_TAG, end=_REPORT_END_TAG)
 
 
