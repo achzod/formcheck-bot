@@ -267,6 +267,133 @@ def _normalize_section_title(raw_title: str) -> str:
     return raw_title.strip()
 
 
+_ORPHAN_NUM_RE = re.compile(r"^(\d+)\.\s*$")
+_NUMBERED_LINE_RE = re.compile(r"^(\d+)\.\s+(.*)")
+_SECTION_HEADER_RE = re.compile(
+    r"^(?:#{1,4}\s+)?(" + "|".join(re.escape(t) for t in _SECTION_TITLES) + r")",
+    re.IGNORECASE,
+)
+_TIMESTAMP_PLACEHOLDER_RE = re.compile(r"\b0{1,2}:00\s*[-–]\s*0{1,2}:00\b")
+
+
+def _merge_orphan_numbered_lines(lines: list[str]) -> list[str]:
+    """Merge orphan numbered lines ('1.\\n content') into a single line ('1. content').
+
+    MiniMax sometimes outputs the number on its own line followed by the content
+    on the next line.  This pass merges them so downstream parsers see a proper
+    numbered entry.
+    """
+    merged: list[str] = []
+    i = 0
+    while i < len(lines):
+        m = _ORPHAN_NUM_RE.match(lines[i])
+        if m:
+            num = m.group(1)
+            # Look ahead for the content line (skip blank lines).
+            j = i + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j < len(lines) and not _ORPHAN_NUM_RE.match(lines[j]) and not _SECTION_HEADER_RE.match(lines[j]):
+                merged.append(f"{num}. {lines[j].strip()}")
+                i = j + 1
+                continue
+            # Orphan number with no following content — drop it.
+            i += 1
+            continue
+        merged.append(lines[i])
+        i += 1
+    return merged
+
+
+def _remove_empty_numbered_entries(lines: list[str]) -> list[str]:
+    """Remove numbered entries that have no meaningful content after the number."""
+    out: list[str] = []
+    for line in lines:
+        m = _NUMBERED_LINE_RE.match(line)
+        if m:
+            content = m.group(2).strip()
+            # Consider empty if content is just punctuation/whitespace/pipe
+            if not content or re.fullmatch(r"[\s|.:,;_\-–—]*", content):
+                continue
+        out.append(line)
+    return out
+
+
+def _cap_plan_action_items(lines: list[str], max_items: int = 3) -> list[str]:
+    """Truncate numbered items in PLAN ACTION / PLAN D'ACTION section to *max_items*."""
+    out: list[str] = []
+    in_plan = False
+    plan_item_count = 0
+    for line in lines:
+        upper = line.strip().upper()
+        # Detect section transitions
+        if _SECTION_HEADER_RE.match(line):
+            if "PLAN" in upper and "ACTION" in upper:
+                in_plan = True
+                plan_item_count = 0
+            else:
+                in_plan = False
+            out.append(line)
+            continue
+        if in_plan and _NUMBERED_LINE_RE.match(line):
+            plan_item_count += 1
+            if plan_item_count > max_items:
+                continue  # drop excess items
+        out.append(line)
+    return out
+
+
+def _fix_placeholder_timestamps(lines: list[str]) -> list[str]:
+    """Replace '00:00-00:00' placeholder timestamps with estimated times based on rep number.
+
+    MiniMax sometimes outputs 00:00-00:00 for all reps.  We estimate ~3s per rep
+    to give approximate timestamps rather than showing meaningless zeros.
+    """
+    out: list[str] = []
+    for line in lines:
+        m = _NUMBERED_LINE_RE.match(line)
+        if m and _TIMESTAMP_PLACEHOLDER_RE.search(line):
+            num = int(m.group(1))
+            # Estimate ~3 seconds per rep
+            start_s = (num - 1) * 3
+            end_s = num * 3
+            start_ts = f"{start_s // 60}:{start_s % 60:02d}"
+            end_ts = f"{end_s // 60}:{end_s % 60:02d}"
+            line = _TIMESTAMP_PLACEHOLDER_RE.sub(f"{start_ts} - {end_ts}", line, count=1)
+        out.append(line)
+    return out
+
+
+def _renumber_after_cleanup(lines: list[str]) -> list[str]:
+    """Re-number items sequentially within each section after items have been removed.
+
+    This ensures that if items 2 and 5 were dropped, the remaining items are
+    numbered 1, 2, 3... instead of having gaps.
+    """
+    out: list[str] = []
+    current_counter = 0
+    in_numbered_section = False
+    for line in lines:
+        # Section header resets numbering
+        if _SECTION_HEADER_RE.match(line):
+            current_counter = 0
+            in_numbered_section = False
+            out.append(line)
+            continue
+        m = _NUMBERED_LINE_RE.match(line)
+        if m:
+            if not in_numbered_section:
+                in_numbered_section = True
+                current_counter = 0
+            current_counter += 1
+            content = m.group(2)
+            out.append(f"{current_counter}. {content}")
+            continue
+        # Non-numbered line inside a section — keep numbering state
+        out.append(line)
+    return out
+
+
 def _clean_report_text_for_rendering(report_text: str) -> str:
     raw_lines = [str(line or "") for line in str(report_text or "").splitlines()]
     out_lines: list[str] = []
@@ -318,6 +445,14 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
         if not line:
             continue
         out_lines.append(line)
+
+    # --- Post-processing passes on collected lines ---
+    out_lines = _merge_orphan_numbered_lines(out_lines)
+    out_lines = _remove_empty_numbered_entries(out_lines)
+    out_lines = _cap_plan_action_items(out_lines, max_items=3)
+    out_lines = _fix_placeholder_timestamps(out_lines)
+    out_lines = _renumber_after_cleanup(out_lines)
+
     return "\n".join(out_lines).strip()
 
 
@@ -566,6 +701,9 @@ def _format_report_html(report_text: str) -> str:
         if num_match:
             num = num_match.group(1)
             rest_raw = num_match.group(2).strip()
+            # Safety net: skip empty numbered items that survived cleaning
+            if not rest_raw or re.fullmatch(r"[\s|.:,;_\-–—]*", rest_raw):
+                continue
             if "|" in rest_raw:
                 segments = [seg.strip() for seg in rest_raw.split("|") if seg.strip()]
                 if len(segments) >= 2:

@@ -129,7 +129,7 @@ def _build_whatsapp_report_message(
 ) -> tuple[str, str]:
     if report_url:
         primary = (
-            "*{exercise}* — *{score}/100*"
+            "*{exercise}* | *{score}/100*"
             "{reps_line}"
             "{intensity_line}\n\n"
             "Rapport HTML:\n"
@@ -138,13 +138,13 @@ def _build_whatsapp_report_message(
         ).format(
             exercise=exercise,
             score=score,
-            reps_line=" — {} reps".format(reps) if reps > 0 else "",
+            reps_line=" | {} reps".format(reps) if reps > 0 else "",
             intensity_line=intensity_line,
             report_url=report_url,
             credits_line=credits_line,
         )
         minimal = (
-            "*{exercise}* — *{score}/100*\n\n"
+            "*{exercise}* | *{score}/100*\n\n"
             "Rapport HTML:\n{report_url}"
         ).format(
             exercise=exercise,
@@ -156,7 +156,7 @@ def _build_whatsapp_report_message(
     excerpt = (report_excerpt or "").strip()
     if excerpt:
         primary = (
-            "*{exercise}* — *{score}/100*"
+            "*{exercise}* | *{score}/100*"
             "{reps_line}"
             "{intensity_line}\n\n"
             "Synthese immediate :\n"
@@ -165,13 +165,13 @@ def _build_whatsapp_report_message(
         ).format(
             exercise=exercise,
             score=score,
-            reps_line=" — {} reps".format(reps) if reps > 0 else "",
+            reps_line=" | {} reps".format(reps) if reps > 0 else "",
             intensity_line=intensity_line,
             excerpt=excerpt,
             credits_line=credits_line,
         )
         minimal = (
-            "*{exercise}* — *{score}/100*\n\n"
+            "*{exercise}* | *{score}/100*\n\n"
             "Synthese immediate :\n{excerpt}"
         ).format(
             exercise=exercise,
@@ -181,7 +181,7 @@ def _build_whatsapp_report_message(
         return primary, minimal
 
     primary = (
-        "*{exercise}* — *{score}/100*"
+        "*{exercise}* | *{score}/100*"
         "{reps_line}"
         "{intensity_line}\n\n"
         "Analyse terminee. Le rapport detaille est temporairement indisponible."
@@ -189,12 +189,12 @@ def _build_whatsapp_report_message(
     ).format(
         exercise=exercise,
         score=score,
-        reps_line=" — {} reps".format(reps) if reps > 0 else "",
+        reps_line=" | {} reps".format(reps) if reps > 0 else "",
         intensity_line=intensity_line,
         credits_line=credits_line,
     )
     minimal = (
-        "*{exercise}* — *{score}/100*\n\n"
+        "*{exercise}* | *{score}/100*\n\n"
         "Analyse terminee. Le rapport detaille est temporairement indisponible."
     ).format(
         exercise=exercise,
@@ -1005,7 +1005,7 @@ async def _deliver_pipeline_success(
     intensity_line = ""
     if result.reps and result.reps.total_reps >= 2 and result.reps.intensity_score > 0:
         intensity_line = (
-            "\nIntensite: {score}/100 ({label}) — repos moyen {rest:.2f}s"
+            "\nIntensite: {score}/100 ({label}) | repos moyen {rest:.2f}s"
         ).format(
             score=result.reps.intensity_score,
             label=result.reps.intensity_label,
