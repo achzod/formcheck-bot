@@ -139,9 +139,11 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "## AMPLITUDE DE MOUVEMENT\n"
     "## CORRECTIONS PRIORITAIRES\n"
     "1. titre | mecanisme biomecanique | impact | cue concret\n"
+    "Chaque correction numerotee DOIT avoir du contenu. Pas de numero vide.\n"
     "## ANALYSE DU TEMPO ET DES PHASES\n"
     "## ANALYSE REP PAR REP\n"
-    "1. Rep 1 | 00:00 - 00:00 | commentaire UNIQUE a cette rep\n"
+    "1. Rep 1 | temps debut - temps fin | commentaire UNIQUE a cette rep\n"
+    "OBLIGATOIRE: chaque rep doit avoir des timestamps REELS (pas 00:00-00:00). Estime le timing a partir de la video.\n"
     "Chaque rep a un commentaire different. Note l'evolution: fatigue, vitesse, compensation.\n"
     "## INTENSITE DE SERIE\n"
     "## COMPENSATIONS ET BIOMECANIQUE AVANCEE\n"
@@ -155,6 +157,8 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "## POINT BIOMECANIQUE\n"
     "## RECOMMANDATION POUR LA PROCHAINE VIDEO\n"
     "## PLAN ACTION\n"
+    "Exactement 3 actions. Pas plus, pas moins.\n"
+    "Ecris UNIQUEMENT en francais. Pas un seul mot dans une autre langue.\n"
     "Si une information est invisible, ecris NON MESURABLE."
 ).format(start=_REPORT_START_TAG, end=_REPORT_END_TAG)
 
