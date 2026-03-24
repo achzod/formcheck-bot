@@ -476,6 +476,9 @@ def _format_report_html(report_text: str) -> str:
     # Strip ALL markdown artifacts aggressively
     text = re.sub(r'^[\-\*•]\s+', '', text, flags=re.MULTILINE)     # bullet lists
     text = re.sub(r'^#{1,4}\s+', '', text, flags=re.MULTILINE)      # headers
+    text = re.sub(r'^-{2,}$', '', text, flags=re.MULTILINE)         # --- separators
+    text = text.replace(' — ', '. ')                                  # em dashes to periods
+    text = text.replace(' -- ', '. ')                                 # double dashes to periods
     lines = text.split("\n")
     html_parts: list[str] = []
     in_section = False
