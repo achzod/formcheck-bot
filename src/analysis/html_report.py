@@ -233,19 +233,77 @@ _AI_STYLE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bil est important de noter que\s*", re.IGNORECASE), ""),
     (re.compile(r"\bde maniere generale[, ]*", re.IGNORECASE), ""),
     (re.compile(r"\bglobalement[, ]*", re.IGNORECASE), ""),
-    # MiniMax foreign word substitutions (common glitches)
-    (re.compile(r"\bnoticeable\b", re.IGNORECASE), "perceptible"),
-    (re.compile(r"\bmaintained\b", re.IGNORECASE), "maintenue"),
-    (re.compile(r"\bcompensate\b", re.IGNORECASE), "compenser"),
-    (re.compile(r"\boveruse\b", re.IGNORECASE), "surutilisation"),
-    (re.compile(r"\bshortcuts?\b", re.IGNORECASE), "raccourcis"),
-    (re.compile(r"\bwindow\b", re.IGNORECASE), "fenetre"),
-    (re.compile(r"\bsuperior\b", re.IGNORECASE), "superieur"),
-    (re.compile(r"\bloss of control\b", re.IGNORECASE), "perte de controle"),
-    (re.compile(r"\bHOLD\b"), "tenue"),
-    (re.compile(r"\btener\b", re.IGNORECASE), "garder"),
-    (re.compile(r"\bayudar(?:te)?\b", re.IGNORECASE), "aider"),
-    (re.compile(r"\bstabilize(?:er|r)?\b", re.IGNORECASE), "stabiliser"),
+)
+
+# MiniMax foreign word → French replacements.  Keyed by lowercase foreign word.
+_FOREIGN_WORD_MAP: dict[str, str] = {
+    # English
+    "noticeable": "perceptible", "maintained": "maintenue", "compensate": "compenser",
+    "overuse": "surutilisation", "shortcuts": "raccourcis", "shortcut": "raccourci",
+    "window": "fenetre", "superior": "superieur", "hold": "tenue", "holding": "tenue",
+    "loss": "perte", "pattern": "schema", "patterns": "schemas",
+    "increase": "augmente", "increases": "augmente", "increasing": "croissante",
+    "decrease": "diminue", "decreases": "diminue",
+    "either": "soit", "neither": "ni", "whether": "si",
+    "however": "cependant", "although": "bien que", "though": "bien que",
+    "preferable": "preferable", "preferably": "de preference",
+    "emphasis": "accent", "emphasize": "accentuer",
+    "noticeable": "perceptible", "notably": "notamment",
+    "powerfully": "puissamment", "powerful": "puissant",
+    "breathing": "respiration", "breathe": "respire",
+    "instead": "plutot", "rather": "plutot",
+    "commendable": "remarquable", "remarkable": "remarquable",
+    "locker": "verrouiller", "locking": "verrouillage", "locked": "verrouille",
+    "compensated": "compense", "compensating": "compensatoire",
+    "stabilize": "stabiliser", "stabilized": "stabilise", "stabilizing": "stabilisant",
+    "stretch": "etirement", "stretching": "etirement",
+    "feedback": "retour", "output": "resultat", "input": "apport",
+    "workout": "seance", "training": "entrainement",
+    "recovery": "recuperation", "recover": "recuperer",
+    "overload": "surcharge", "overloading": "surcharge",
+    "challenge": "defi", "challenging": "exigeant",
+    "weakness": "faiblesse", "weakness": "faiblesse",
+    "strength": "force", "strong": "fort", "stronger": "plus fort",
+    "improve": "ameliorer", "improved": "ameliore", "improvement": "amelioration",
+    "properly": "correctement", "properly": "correctement",
+    "throughout": "tout au long", "overall": "globalement",
+    "fatigue": "fatigue",  # same in both languages
+    "squeeze": "contraction", "squeezing": "contraction",
+    "engaged": "engage", "engagement": "engagement",
+    "range": "amplitude", "full range": "amplitude complete",
+    "setup": "mise en place", "set up": "mise en place",
+    "lockout": "verrouillage", "lock out": "verrouillage",
+    "failure": "echec", "until failure": "jusqu'a l'echec",
+    "resting": "repos", "rest": "repos",
+    "spotter": "pareur", "spotting": "parade",
+    "benchmark": "reference", "baseline": "reference",
+    "tracking": "suivi", "track": "suivre",
+    "peak": "pic", "peaked": "atteint un pic",
+    "pushing": "poussee", "pulling": "traction",
+    "gripping": "prise", "grip": "prise",
+    # Spanish/Portuguese
+    "beneficios": "benefique", "beneficio": "benefice",
+    "tener": "garder", "ayudar": "aider", "ayudarte": "t'aider",
+    "reducir": "reduire", "correcta": "correcte", "correcto": "correct",
+    "fisiologicamente": "physiologiquement", "fisiologiquement": "physiologiquement",
+    "muscular": "musculaire", "articular": "articulaire",
+    "estabilizar": "stabiliser",
+    # Common English glue words
+    "instead of": "au lieu de", "rather than": "plutot que",
+    "in order to": "afin de", "due to": "en raison de",
+    "as well as": "ainsi que", "such as": "comme",
+    # Hybrid / invented
+    "propush": "poussee", "beurreinstead of": "beurre au lieu de",
+    "beurreinstead": "beurre plutot que",
+}
+
+_FOREIGN_WORD_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\b{}\b".format(re.escape(word)), re.IGNORECASE), repl)
+    for word, repl in _FOREIGN_WORD_MAP.items()
+]
+# Catch-all: strip words ending in obvious English suffixes not shared with French
+_ENGLISH_SUFFIX_CLEANUP = re.compile(
+    r"\b\w+(?:ingly|ously|fully|edly|ness|ship)\b", re.IGNORECASE
 )
 _CJK_CHAR_PATTERN = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]")
 
@@ -356,18 +414,52 @@ def _cap_plan_action_items(lines: list[str], max_items: int = 3) -> list[str]:
     return out
 
 
-def _fix_placeholder_timestamps(lines: list[str]) -> list[str]:
-    """Replace '00:00-00:00' placeholder timestamps with estimated times based on rep number.
+_ANY_TIMESTAMP_RE = re.compile(r"\b(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})\b")
 
-    MiniMax sometimes outputs 00:00-00:00 for all reps.  We estimate ~3s per rep
-    to give approximate timestamps rather than showing meaningless zeros.
+
+def _fix_placeholder_timestamps(lines: list[str]) -> list[str]:
+    """Fix bad timestamps in rep-by-rep lines.
+
+    Handles two cases:
+    1. All zeros (00:00-00:00) — replace with ~3s/rep estimates.
+    2. Unrealistically short durations (<2s per rep) — replace with ~3s/rep estimates.
     """
+    # First pass: detect if timestamps are unrealistic across all reps
+    rep_durations: list[float] = []
+    for line in lines:
+        m = _NUMBERED_LINE_RE.match(line)
+        if not m:
+            continue
+        ts = _ANY_TIMESTAMP_RE.search(line)
+        if not ts:
+            continue
+        start_s = int(ts.group(1)) * 60 + int(ts.group(2))
+        end_s = int(ts.group(3)) * 60 + int(ts.group(4))
+        dur = end_s - start_s
+        if dur >= 0:
+            rep_durations.append(dur)
+
+    # If most reps have <2s duration or are all zeros, regenerate all timestamps
+    needs_regen = (
+        not rep_durations
+        or (sum(1 for d in rep_durations if d < 2) > len(rep_durations) * 0.5)
+    )
+
     out: list[str] = []
     for line in lines:
         m = _NUMBERED_LINE_RE.match(line)
-        if m and _TIMESTAMP_PLACEHOLDER_RE.search(line):
+        if m and needs_regen:
+            ts_match = _ANY_TIMESTAMP_RE.search(line) or _TIMESTAMP_PLACEHOLDER_RE.search(line)
+            if ts_match:
+                num = int(m.group(1))
+                start_s = (num - 1) * 3
+                end_s = num * 3
+                start_ts = f"{start_s // 60}:{start_s % 60:02d}"
+                end_ts = f"{end_s // 60}:{end_s % 60:02d}"
+                line = line[:ts_match.start()] + f"{start_ts} - {end_ts}" + line[ts_match.end():]
+        elif m and _TIMESTAMP_PLACEHOLDER_RE.search(line):
+            # Individual zero timestamps even if overall durations are OK
             num = int(m.group(1))
-            # Estimate ~3 seconds per rep
             start_s = (num - 1) * 3
             end_s = num * 3
             start_ts = f"{start_s // 60}:{start_s % 60:02d}"
@@ -451,6 +543,11 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
         line = re.sub(r"\bNON\s+MESURABLE\b", "Non mesurable sur cette prise", line, flags=re.IGNORECASE)
         for pattern, replacement in _AI_STYLE_REWRITES:
             line = pattern.sub(replacement, line)
+        # Replace foreign words with French equivalents
+        for pattern, replacement in _FOREIGN_WORD_PATTERNS:
+            line = pattern.sub(replacement, line)
+        # Strip remaining obvious English-suffix words
+        line = _ENGLISH_SUFFIX_CLEANUP.sub("", line)
         line = re.sub(r"^\s*(?:[-–—]{2,}|[-*•])\s*", "", line)
         line = re.sub(r"\s{2,}", " ", line).strip(" -–—_")
         if re.fullmatch(r"[\s\-–—_=:|.]+", line or ""):
