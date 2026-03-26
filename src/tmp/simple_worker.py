@@ -251,15 +251,18 @@ def run_browser_analysis(video_path):
             except Exception:
                 total = ""
             import re
-            # Report is done when closing tag appears WITH real content before it
-            # (not just the prompt template being echoed back)
+            # NEVER consider done while MiniMax is still processing the video
+            still_processing = "Ongoing Video Understanding" in total or "Thinking Process" in total
+
+            # Report is done when closing tag appears WITH real non-zero scores
             has_report_tag = "</FORMCHECK_REPORT_MD>" in total
-            has_real_content = has_report_tag and (
-                re.search(r"(?:Score global|DECOMPOSITION).*\d{2,}/(?:100|40|30|20|10)", total, re.DOTALL | re.IGNORECASE)
+            # Require a real score (not 0/100 from the template)
+            has_real_content = has_report_tag and not still_processing and (
+                re.search(r"(?:Securite|Efficacite|Controle|Symetrie)\s*:\s*[1-9]\d*/(?:40|30|20|10)", total, re.IGNORECASE)
                 is not None
             )
             has_completed_vu = (
-                "Completed Video Understanding" in total
+                ("Completed Video Understanding" in total)
                 or has_real_content
             )
             # Track body stability
