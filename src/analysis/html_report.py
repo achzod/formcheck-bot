@@ -507,6 +507,40 @@ def _renumber_after_cleanup(lines: list[str]) -> list[str]:
     return out
 
 
+def _remove_empty_sections(lines: list[str]) -> list[str]:
+    """Remove section headers that have no content between them and the next header.
+
+    A section is considered empty if there are no non-blank lines between its
+    header and the next section header (or end of document).
+    """
+    # Identify section header indices
+    header_indices: list[int] = []
+    for i, line in enumerate(lines):
+        if _SECTION_HEADER_RE.match(line):
+            header_indices.append(i)
+
+    if not header_indices:
+        return lines
+
+    # Find which headers have no content
+    empty_header_indices: set[int] = set()
+    for idx_pos, header_idx in enumerate(header_indices):
+        # Find next header or end
+        next_boundary = header_indices[idx_pos + 1] if idx_pos + 1 < len(header_indices) else len(lines)
+        # Check if any non-blank content exists between this header and the next
+        has_content = any(
+            lines[j].strip()
+            for j in range(header_idx + 1, next_boundary)
+        )
+        if not has_content:
+            empty_header_indices.add(header_idx)
+
+    if not empty_header_indices:
+        return lines
+
+    return [line for i, line in enumerate(lines) if i not in empty_header_indices]
+
+
 def _clean_report_text_for_rendering(report_text: str) -> str:
     raw_lines = [str(line or "") for line in str(report_text or "").splitlines()]
     out_lines: list[str] = []
@@ -570,6 +604,7 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
     out_lines = _cap_plan_action_items(out_lines, max_items=3)
     out_lines = _fix_placeholder_timestamps(out_lines)
     out_lines = _renumber_after_cleanup(out_lines)
+    out_lines = _remove_empty_sections(out_lines)
 
     return "\n".join(out_lines).strip()
 
