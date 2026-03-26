@@ -447,10 +447,10 @@ def _fix_placeholder_timestamps(lines: list[str]) -> list[str]:
         if dur >= 0:
             rep_durations.append(dur)
 
-    # If most reps have <2s duration or are all zeros, regenerate all timestamps
+    # If 25%+ of reps have <2s duration or are all zeros, regenerate all timestamps
     needs_regen = (
         not rep_durations
-        or (sum(1 for d in rep_durations if d < 2) > len(rep_durations) * 0.5)
+        or (sum(1 for d in rep_durations if d < 2) > len(rep_durations) * 0.25)
     )
 
     out: list[str] = []
