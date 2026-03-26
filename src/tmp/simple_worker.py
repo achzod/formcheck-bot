@@ -251,10 +251,16 @@ def run_browser_analysis(video_path):
             except Exception:
                 total = ""
             import re
+            # Report is done when closing tag appears WITH real content before it
+            # (not just the prompt template being echoed back)
+            has_report_tag = "</FORMCHECK_REPORT_MD>" in total
+            has_real_content = has_report_tag and (
+                re.search(r"(?:Score global|DECOMPOSITION).*\d{2,}/(?:100|40|30|20|10)", total, re.DOTALL | re.IGNORECASE)
+                is not None
+            )
             has_completed_vu = (
                 "Completed Video Understanding" in total
-                or "</FORMCHECK_REPORT_MD>" in total
-                or ("FORMCHECK_REPORT_MD" in total and "PLAN ACTION" in total.upper())
+                or has_real_content
             )
             # Track body stability
             if not hasattr(run_browser_analysis, '_last_body_len'):
@@ -363,6 +369,12 @@ def text_to_payload(text):
     """Extract MiniMax response from body text and parse into proper payload."""
     response = extract_minimax_response(text)
     log(f"extracted response: {len(response)} chars, preview: {repr(response[:150])}")
+
+    # Reject prompt echo-back: if response contains template placeholders, MiniMax failed
+    _PROMPT_ECHO_MARKERS = ("0.00 a 1.00", "tres elevee|elevee|moderee", "REGLES STRICTES", "mecanisme biomecanique | impact | cue concret")
+    echo_hits = sum(1 for m in _PROMPT_ECHO_MARKERS if m in response)
+    if echo_hits >= 2:
+        raise RuntimeError(f"MiniMax echoed back the prompt template ({echo_hits} markers found)")
 
     # Ensure the response has the FORMCHECK header so the parser finds it
     clean = response.replace('\xa0', ' ').strip()
