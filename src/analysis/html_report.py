@@ -296,6 +296,19 @@ _FOREIGN_WORD_MAP: dict[str, str] = {
     "fisiologicamente": "physiologiquement", "fisiologiquement": "physiologiquement",
     "muscular": "musculaire", "articular": "articulaire",
     "estabilizar": "stabiliser",
+    # More English/Spanish from reports #55-#61
+    "adjustment": "ajustement", "adjustments": "ajustements",
+    "exercises": "exercices", "exercise": "exercice",
+    "grind": "effort intense", "grinding": "effort intense",
+    "muscle fibers": "fibres musculaires", "muscle fiber": "fibre musculaire",
+    "aumentar": "augmenter", "aumenter": "augmenter",
+    "locking": "verrouillage",
+    "pousséer": "pousser", "pousséant": "poussant",
+    "sticking point": "point de blocage",
+    "rep range": "fourchette de repetitions",
+    "time under tension": "temps sous tension",
+    "mind-muscle": "neuromusculaire",
+    "burnout": "epuisement", "burn-out": "epuisement",
     # Common English glue words
     "instead of": "au lieu de", "rather than": "plutot que",
     "in order to": "afin de", "due to": "en raison de",
@@ -585,6 +598,9 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
         line = re.sub(r"\bNON\s+MESURABLE\b", "Non mesurable sur cette prise", line, flags=re.IGNORECASE)
         for pattern, replacement in _AI_STYLE_REWRITES:
             line = pattern.sub(replacement, line)
+        # Fix merged words (MiniMax drops spaces: "Tumaintiens" → "Tu maintiens")
+        line = re.sub(r'\b([A-ZÀ-Ü][a-zà-ü]{1,3})(maintien|gardes?|reste|semble|montre|utilis|commenc|augment|cherch|accept|perme|termin)', r'\1 \2', line)
+        line = re.sub(r'\b(tes|ses|les|des|nos|vos|ces|mes)(appui|articul|abdomi|omo|muscle|bras|pied|jambe|genou|hanche|épaul)', r'\1 \2', line)
         # Replace foreign words with French equivalents
         for pattern, replacement in _FOREIGN_WORD_PATTERNS:
             line = pattern.sub(replacement, line)
