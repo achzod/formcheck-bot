@@ -273,11 +273,8 @@ UNSUPPORTED_MESSAGE = (
 )
 
 HELP_TEXT = (
-    "Envoie-moi une *video* de ton exercice (max 16 MB).\n"
-    "Tape *menu* pour les options et *guide* pour les conseils de tournage.\n"
-    "Si ta video est lourde, coupe-la en clips 1/3, 2/3, 3/3.\n"
-    "Tape *clips* pour le mode multi-clips.\n"
-    "Tape *sav* pour le support ou *historique* pour ton resume client."
+    "Envoie une *video* pour l'analyse.\n"
+    "Tape *menu* pour les options."
 )
 
 MENU_TEXT = (

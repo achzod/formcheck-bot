@@ -832,9 +832,11 @@ async def handle_video(user: db.User, data: dict) -> None:
                 return
             lock_acquired = True
 
-            has_morpho = await db.has_morpho_profile(user.id)
-            if not has_morpho:
-                await wa.send_text(phone, msg.MORPHO_OPTIONAL_NUDGE)
+            analyses_count = await db.count_user_analyses(user.id)
+            if analyses_count == 0:
+                has_morpho = await db.has_morpho_profile(user.id)
+                if not has_morpho:
+                    await wa.send_text(phone, msg.MORPHO_OPTIONAL_NUDGE)
 
             await wa.send_text(
                 phone,
@@ -883,10 +885,12 @@ async def handle_video(user: db.User, data: dict) -> None:
             return
         lock_acquired = True
 
-        # Suggerer le profil morpho si le client n'en a pas (une seule fois).
-        has_morpho = await db.has_morpho_profile(user.id)
-        if not has_morpho:
-            await wa.send_text(phone, msg.MORPHO_OPTIONAL_NUDGE)
+        # Suggerer le profil morpho uniquement sur la 1ere analyse du client.
+        analyses_count = await db.count_user_analyses(user.id)
+        if analyses_count == 0:
+            has_morpho = await db.has_morpho_profile(user.id)
+            if not has_morpho:
+                await wa.send_text(phone, msg.MORPHO_OPTIONAL_NUDGE)
 
         await wa.send_text(phone, msg.VIDEO_RECEIVED)
 
@@ -1004,15 +1008,18 @@ async def _deliver_pipeline_success(
     reps = result.reps.total_reps if result.reps else 0
     intensity_line = ""
     if result.reps and result.reps.total_reps >= 2 and result.reps.intensity_score > 0:
-        intensity_line = (
-            "\nIntensite: {score}/100 ({label}) | repos moyen {rest:.2f}s"
-        ).format(
-            score=result.reps.intensity_score,
-            label=result.reps.intensity_label,
-            rest=result.reps.avg_inter_rep_rest_s,
-        )
-    elif result.reps and result.reps.total_reps >= 2:
-        intensity_line = "\nIntensite: estimation limitee sur cette video."
+        rest_s = result.reps.avg_inter_rep_rest_s
+        if rest_s > 0.5:
+            intensity_line = "\nIntensite: {score}/100 ({label}) | repos moyen {rest:.1f}s".format(
+                score=result.reps.intensity_score,
+                label=result.reps.intensity_label,
+                rest=rest_s,
+            )
+        else:
+            intensity_line = "\nIntensite: {score}/100 ({label})".format(
+                score=result.reps.intensity_score,
+                label=result.reps.intensity_label,
+            )
 
     credits_line = ""
     if user_updated and not user_updated.is_unlimited:
@@ -1277,14 +1284,8 @@ async def _run_analysis(
                 phone=phone,
                 video_path=video_path,
             )
-            queue_position = max(1, await db.get_minimax_remote_job_position(queued_job.id))
-            await wa.send_text(
-                phone,
-                msg.remote_queue_status(
-                    position=queue_position,
-                    eta_minutes=_queue_eta_minutes(queue_position),
-                ),
-            )
+            # Queue status is already covered by VIDEO_RECEIVED ("Analyse en cours...")
+            # No need for a separate queue message — reduces spam.
             keep_lock_after_return = True
             if preview_frame_path:
                 try:
