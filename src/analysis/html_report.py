@@ -316,6 +316,11 @@ _FOREIGN_WORD_MAP: dict[str, str] = {
     # Hybrid / invented
     "propush": "poussee", "beurreinstead of": "beurre au lieu de",
     "beurreinstead": "beurre plutot que",
+    # Italian/Portuguese/invented
+    "skiper": "sauter", "skipper": "sauter", "skiper": "sauter",
+    "apoio": "appui", "apoyo": "appui",
+    "isometriche": "isometrique", "isometrica": "isometrique",
+    "ressentiraís": "ressentirais", "sentirías": "sentirais",
 }
 
 _FOREIGN_WORD_PATTERNS: list[tuple[re.Pattern[str], str]] = [
