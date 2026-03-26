@@ -272,7 +272,15 @@ _FOREIGN_WORD_MAP: dict[str, str] = {
     "engaged": "engage", "engagement": "engagement",
     "range": "amplitude", "full range": "amplitude complete",
     "setup": "mise en place", "set up": "mise en place",
-    "lockout": "verrouillage", "lock out": "verrouillage",
+    "lockout": "verrouillage", "lock out": "verrouillage", "locked out": "verrouille",
+    "observed": "observe", "observing": "observant",
+    "target": "cible", "targeting": "ciblant", "targeted": "cible",
+    "rotate": "tourne", "rotates": "tourne", "rotating": "en rotation",
+    "dangerous": "dangereux",
+    "connection": "connexion", "connections": "connexions",
+    "mind-muscle connection": "connexion neuromusculaire",
+    "recommend": "recommande", "recommende": "recommande", "recommends": "recommande",
+    "transferts": "transfere",
     "failure": "echec", "until failure": "jusqu'a l'echec",
     "resting": "repos", "rest": "repos",
     "spotter": "pareur", "spotting": "parade",
@@ -509,8 +517,8 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
         line = raw_line.strip()
         if _contains_cjk_characters(line):
             continue
-        # Strip Arabic/Hebrew/Cyrillic/other non-Latin script fragments (MiniMax glitch)
-        line = re.sub(r'[\u0400-\u04FF\u0600-\u06FF\u0590-\u05FF]+', '', line).strip()
+        # Strip entire words containing Arabic/Hebrew/Cyrillic characters (MiniMax glitch)
+        line = re.sub(r'\S*[\u0400-\u04FF\u0600-\u06FF\u0590-\u05FF]+\S*', '', line).strip()
         if not line:
             continue
         low = line.lower()
