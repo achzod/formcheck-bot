@@ -927,9 +927,11 @@ async def enqueue_uploaded_video(phone: str, video_path: str) -> tuple[bool, str
                 await _send_existing_queue_status(phone, existing_job)
                 return False, "already_queued"
 
-        has_morpho = await db.has_morpho_profile(user.id)
-        if not has_morpho:
-            await wa.send_text(phone, msg.MORPHO_OPTIONAL_NUDGE)
+        analyses_count = await db.count_user_analyses(user.id)
+        if analyses_count == 0:
+            has_morpho = await db.has_morpho_profile(user.id)
+            if not has_morpho:
+                await wa.send_text(phone, msg.MORPHO_OPTIONAL_NUDGE)
 
         import time
         active_since = _active_analyses.get(phone, 0)

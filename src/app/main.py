@@ -35,7 +35,7 @@ _import_errors: list[str] = []
 # Health check always works
 @app.get("/", response_class=HTMLResponse)
 async def home(payment: str = "") -> HTMLResponse:
-    wa_num = app_settings.whatsapp_wa_me_number or "15557636881"
+    wa_num = getattr(app_settings, "whatsapp_wa_me_number", "") or "15557636881"
     payment_banner = ""
     if payment == "success":
         payment_banner = '<div style="position:fixed;top:0;left:0;right:0;z-index:999;background:#27ae60;color:#fff;text-align:center;padding:14px 20px;font-weight:700;font-size:15px;">Paiement recu ! Ton abonnement est actif. Envoie ta prochaine video sur WhatsApp.</div><div style="height:48px"></div>'
