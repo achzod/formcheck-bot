@@ -311,7 +311,7 @@ CLIPS_INSTRUCTIONS = (
 
 ERROR_GENERIC = (
     "Erreur technique. Reessaie dans quelques instants.\n"
-    "Si ca persiste, ecris-moi sur Instagram @achzod."
+    "Si ca persiste: coaching@achzodcoaching.com"
 )
 
 ERROR_ANALYSIS_FAILED = (

@@ -1708,8 +1708,17 @@ async def handle_no_credits(user: db.User) -> None:
         checkout_urls = await create_all_checkout_urls(phone)
         await wa.send_plan_buttons(phone, msg.NO_CREDITS, checkout_urls)
     except Exception:
-        logger.exception("Failed to create checkout sessions")
-        await wa.send_text(phone, msg.ERROR_GENERIC)
+        logger.exception("Failed to create checkout sessions — sending fallback")
+        # Fallback: send pricing info without Stripe links
+        await wa.send_text(
+            phone,
+            msg.NO_CREDITS + "\n\n"
+            "*SOLO* | 15 analyses/mois\n"
+            "4,99 EUR le 1er mois, puis 14,99 EUR/mois\n\n"
+            "*COACH* | 60 analyses/mois\n"
+            "19,99 EUR le 1er mois, puis 39,99 EUR/mois\n\n"
+            "Contacte coaching@achzodcoaching.com pour t'abonner."
+        )
 
 
 async def handle_payment_success(phone: str, plan_key: str, credits: int) -> None:
