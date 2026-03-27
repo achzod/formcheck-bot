@@ -44,6 +44,8 @@ async def create_checkout_session(plan_key: str, phone: str) -> str:
     is_subscription = bool(plan.get("is_subscription", False))
 
     line_items: list[dict[str, Any]] = []
+    intro_cents = plan.get("intro_price_cents", 0)
+    has_intro = is_subscription and intro_cents and intro_cents < plan["price_cents"]
 
     if is_subscription:
         # Recurring subscription at regular price
@@ -56,6 +58,16 @@ async def create_checkout_session(plan_key: str, phone: str) -> str:
             },
             "quantity": 1,
         })
+        if has_intro:
+            # One-time intro charge (e.g. 4.99€ for the 1st month)
+            line_items.append({
+                "price_data": {
+                    "currency": "eur",
+                    "unit_amount": intro_cents,
+                    "product_data": {"name": "{} — 1er mois".format(plan["name"])},
+                },
+                "quantity": 1,
+            })
     else:
         line_items.append({
             "price_data": {
@@ -77,9 +89,8 @@ async def create_checkout_session(plan_key: str, phone: str) -> str:
     }
     if is_subscription:
         sub_data: dict[str, Any] = {"metadata": metadata}
-        # First month at intro price: 30-day trial + one-time intro charge
-        intro_cents = plan.get("intro_price_cents")
-        if intro_cents and intro_cents < plan["price_cents"]:
+        if has_intro:
+            # 30-day trial on the recurring charge (client pays intro now, regular after 30d)
             sub_data["trial_period_days"] = 30
         params["subscription_data"] = sub_data
 
@@ -269,6 +280,15 @@ async def handle_subscription_event(event_type: str, subscription: dict[str, Any
             "Subscription %s missing current_period_end on %s, fallback +30 days",
             subscription_id,
             event_type,
+        )
+
+    # Renew monthly credits on subscription renewal
+    monthly_credits = plan.get("credits", 0)
+    if monthly_credits > 0 and event_type in ("customer.subscription.created", "customer.subscription.updated"):
+        await db.add_credits(user.id, monthly_credits)
+        logger.info(
+            "Renewed %d credits for phone %s (plan=%s, subscription=%s)",
+            monthly_credits, phone, plan_key, subscription_id,
         )
 
     await db.set_unlimited_until(user.id, period_end)

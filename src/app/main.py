@@ -352,7 +352,7 @@ async def home() -> HTMLResponse:
         <span class="brand-mark"></span>
         <span>FORMCHECK by ACHZOD</span>
       </div>
-      <a class="toplink" href="/health">Etat API</a>
+      <a class="toplink" href="https://wa.me/15557636881?text=menu" target="_blank" style="background: linear-gradient(135deg, var(--brand), var(--brand-dark)); color: #fff; border: none;">Ouvrir WhatsApp</a>
     </div>
 
     <section class="hero">
@@ -472,6 +472,7 @@ async def home() -> HTMLResponse:
           <li style="padding: 6px 0; border-top: 1px solid var(--line);">Score, corrections, plan action</li>
           <li style="padding: 6px 0; border-top: 1px solid var(--line);">Historique des analyses</li>
         </ul>
+        <a href="https://wa.me/15557636881?text=menu" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: center;">Commencer sur WhatsApp</a>
       </article>
 
       <article class="step" style="padding: 28px; border: 2px solid var(--brand); position: relative; background: rgba(191,90,54,0.04);">
@@ -493,6 +494,7 @@ async def home() -> HTMLResponse:
           <li style="padding: 6px 0; border-top: 1px solid var(--line);">Rapports partageables</li>
           <li style="padding: 6px 0; border-top: 1px solid var(--line);">Suivi multi-athletes</li>
         </ul>
+        <a href="https://wa.me/15557636881?text=menu" target="_blank" class="btn btn-primary" style="width: 100%; text-align: center;">Commencer sur WhatsApp</a>
       </article>
     </section>
 
