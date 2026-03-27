@@ -34,7 +34,13 @@ _import_errors: list[str] = []
 
 # Health check always works
 @app.get("/", response_class=HTMLResponse)
-async def home() -> HTMLResponse:
+async def home(payment: str = "") -> HTMLResponse:
+    wa_num = app_settings.whatsapp_wa_me_number or "15557636881"
+    payment_banner = ""
+    if payment == "success":
+        payment_banner = '<div style="position:fixed;top:0;left:0;right:0;z-index:999;background:#27ae60;color:#fff;text-align:center;padding:14px 20px;font-weight:700;font-size:15px;">Paiement recu ! Ton abonnement est actif. Envoie ta prochaine video sur WhatsApp.</div><div style="height:48px"></div>'
+    elif payment == "cancel":
+        payment_banner = '<div style="position:fixed;top:0;left:0;right:0;z-index:999;background:#e74c3c;color:#fff;text-align:center;padding:14px 20px;font-weight:700;font-size:15px;">Paiement annule. Tu peux reessayer quand tu veux via WhatsApp (tape forfaits).</div><div style="height:48px"></div>'
     return HTMLResponse(
         """<!doctype html>
 <html lang="fr">
@@ -346,13 +352,14 @@ async def home() -> HTMLResponse:
   </style>
 </head>
 <body>
+  {payment_banner}
   <main class="shell">
     <div class="topbar">
       <div class="brand">
         <span class="brand-mark"></span>
         <span>FORMCHECK by ACHZOD</span>
       </div>
-      <a class="toplink" href="https://wa.me/15557636881?text=menu" target="_blank" style="background: linear-gradient(135deg, var(--brand), var(--brand-dark)); color: #fff; border: none;">Ouvrir WhatsApp</a>
+      <a class="toplink" href="https://wa.me/{wa_num}?text=menu" target="_blank" style="background: linear-gradient(135deg, var(--brand), var(--brand-dark)); color: #fff; border: none;">Ouvrir WhatsApp</a>
     </div>
 
     <section class="hero">
@@ -472,7 +479,7 @@ async def home() -> HTMLResponse:
           <li style="padding: 6px 0; border-top: 1px solid var(--line);">Score, corrections, plan action</li>
           <li style="padding: 6px 0; border-top: 1px solid var(--line);">Historique des analyses</li>
         </ul>
-        <a href="https://wa.me/15557636881?text=menu" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: center;">Commencer sur WhatsApp</a>
+        <a href="https://wa.me/{wa_num}?text=menu" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: center;">Commencer sur WhatsApp</a>
       </article>
 
       <article class="step" style="padding: 28px; border: 2px solid var(--brand); position: relative; background: rgba(191,90,54,0.04);">
@@ -494,7 +501,7 @@ async def home() -> HTMLResponse:
           <li style="padding: 6px 0; border-top: 1px solid var(--line);">Rapports partageables</li>
           <li style="padding: 6px 0; border-top: 1px solid var(--line);">Suivi multi-athletes</li>
         </ul>
-        <a href="https://wa.me/15557636881?text=menu" target="_blank" class="btn btn-primary" style="width: 100%; text-align: center;">Commencer sur WhatsApp</a>
+        <a href="https://wa.me/{wa_num}?text=menu" target="_blank" class="btn btn-primary" style="width: 100%; text-align: center;">Commencer sur WhatsApp</a>
       </article>
     </section>
 
@@ -504,7 +511,7 @@ async def home() -> HTMLResponse:
     </div>
   </main>
 </body>
-</html>"""
+</html>""".replace("{wa_num}", wa_num).replace("{payment_banner}", payment_banner)
     )
 
 

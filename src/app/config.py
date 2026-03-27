@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_whatsapp_number: str = ""  # e.g. +14155238886 (sandbox)
+    whatsapp_wa_me_number: str = "15557636881"  # number for wa.me links (without +)
 
     # Stripe
     stripe_secret_key: str = ""
