@@ -460,48 +460,72 @@ async def home(payment: str = "") -> HTMLResponse:
       </article>
     </section>
 
-    <section class="steps" id="pricing" style="grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 32px;">
-      <article class="step" style="padding: 28px; border: 2px solid var(--line); position: relative;">
-        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
-          <div class="step-index">1</div>
-          <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);">Individuel</span>
+    <section class="steps" id="pricing" style="grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 32px; gap: 12px;">
+      <!-- ESSAI -->
+      <article class="step" style="padding: 22px; border: 1px solid var(--line); position: relative;">
+        <h3 style="font-size: 18px; margin: 0 0 4px;">Essai</h3>
+        <p style="color: var(--muted); font-size: 13px; margin: 0 0 14px;">1 analyse offerte</p>
+        <div style="margin-bottom: 12px;">
+          <span style="font-family: Fraunces, serif; font-size: 32px;">0&nbsp;EUR</span>
         </div>
-        <h3 style="font-size: 24px; margin: 0 0 4px;">Solo</h3>
-        <p style="color: var(--muted); font-size: 14px; margin: 0 0 16px;">15 analyses par mois</p>
-        <div style="margin-bottom: 16px;">
-          <span style="font-family: Fraunces, serif; font-size: 36px; letter-spacing: -0.03em;">4,99&nbsp;EUR</span>
-          <span style="color: var(--muted); font-size: 14px;"> le 1er mois</span>
-        </div>
-        <p style="color: var(--muted); font-size: 14px; margin: 0 0 18px;">puis 14,99 EUR/mois, sans engagement</p>
-        <ul style="list-style: none; padding: 0; margin: 0 0 20px; font-size: 14px; color: var(--ink);">
-          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Analyse biomecanique complete</li>
-          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Rapport HTML detaille</li>
-          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Score, corrections, plan action</li>
-          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Historique des analyses</li>
+        <ul style="list-style: none; padding: 0; margin: 0 0 16px; font-size: 13px; color: var(--ink);">
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Score de forme 0-100</li>
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Corrections prioritaires</li>
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Rapport HTML complet</li>
         </ul>
-        <a href="https://wa.me/{wa_num}?text=menu" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: center;">Commencer sur WhatsApp</a>
+        <a href="https://wa.me/{wa_num}?text=menu" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: center; font-size: 13px;">Essayer gratuitement</a>
       </article>
-
-      <article class="step" style="padding: 28px; border: 2px solid var(--brand); position: relative; background: rgba(191,90,54,0.04);">
-        <div style="position: absolute; top: -12px; right: 20px; background: var(--brand); color: #fff; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.08em;">Populaire</div>
-        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
-          <div class="step-index" style="background: rgba(191,90,54,0.2);">2</div>
-          <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);">Multi-clients</span>
+      <!-- SOLO -->
+      <article class="step" style="padding: 22px; border: 1px solid var(--line); position: relative;">
+        <h3 style="font-size: 18px; margin: 0 0 4px;">Solo</h3>
+        <p style="color: var(--muted); font-size: 13px; margin: 0 0 14px;">10 analyses/mois</p>
+        <div style="margin-bottom: 4px;">
+          <span style="font-family: Fraunces, serif; font-size: 32px;">9,90&nbsp;EUR</span>
+          <span style="color: var(--muted); font-size: 13px;"> /1er mois</span>
         </div>
-        <h3 style="font-size: 24px; margin: 0 0 4px;">Coach</h3>
-        <p style="color: var(--muted); font-size: 14px; margin: 0 0 16px;">60 analyses par mois</p>
-        <div style="margin-bottom: 16px;">
-          <span style="font-family: Fraunces, serif; font-size: 36px; letter-spacing: -0.03em;">19,99&nbsp;EUR</span>
-          <span style="color: var(--muted); font-size: 14px;"> le 1er mois</span>
-        </div>
-        <p style="color: var(--muted); font-size: 14px; margin: 0 0 18px;">puis 39,99 EUR/mois, sans engagement</p>
-        <ul style="list-style: none; padding: 0; margin: 0 0 20px; font-size: 14px; color: var(--ink);">
-          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Tout le plan Solo inclus</li>
-          <li style="padding: 6px 0; border-top: 1px solid var(--line);">60 analyses pour tes clients</li>
-          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Rapports partageables</li>
-          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Suivi multi-athletes</li>
+        <p style="color: var(--muted); font-size: 12px; margin: 0 0 14px;">puis 14,90 EUR/mois</p>
+        <ul style="list-style: none; padding: 0; margin: 0 0 16px; font-size: 13px; color: var(--ink);">
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Tout l'Essai inclus</li>
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">10 analyses par mois</li>
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Historique et progression</li>
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Sans engagement</li>
         </ul>
-        <a href="https://wa.me/{wa_num}?text=menu" target="_blank" class="btn btn-primary" style="width: 100%; text-align: center;">Commencer sur WhatsApp</a>
+        <a href="https://wa.me/{wa_num}?text=forfaits" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: center; font-size: 13px;">Commencer</a>
+      </article>
+      <!-- PRO -->
+      <article class="step" style="padding: 22px; border: 2px solid var(--brand); position: relative; background: rgba(191,90,54,0.04);">
+        <div style="position: absolute; top: -11px; right: 16px; background: var(--brand); color: #fff; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.08em;">Le + populaire</div>
+        <h3 style="font-size: 18px; margin: 0 0 4px;">Pro</h3>
+        <p style="color: var(--muted); font-size: 13px; margin: 0 0 14px;">30 analyses/mois</p>
+        <div style="margin-bottom: 4px;">
+          <span style="font-family: Fraunces, serif; font-size: 32px;">29,90&nbsp;EUR</span>
+          <span style="color: var(--muted); font-size: 13px;"> /1er mois</span>
+        </div>
+        <p style="color: var(--muted); font-size: 12px; margin: 0 0 14px;">puis 39,90 EUR/mois</p>
+        <ul style="list-style: none; padding: 0; margin: 0 0 16px; font-size: 13px; color: var(--ink);">
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Tout le Solo inclus</li>
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">30 analyses par mois</li>
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Rapports partageables</li>
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Ideal athletes serieux</li>
+        </ul>
+        <a href="https://wa.me/{wa_num}?text=forfaits" target="_blank" class="btn btn-primary" style="width: 100%; text-align: center; font-size: 13px;">Choisir Pro</a>
+      </article>
+      <!-- COACH -->
+      <article class="step" style="padding: 22px; border: 1px solid var(--line); position: relative; background: rgba(17,17,17,0.03);">
+        <h3 style="font-size: 18px; margin: 0 0 4px;">Coach</h3>
+        <p style="color: var(--muted); font-size: 13px; margin: 0 0 14px;">Analyses illimitees</p>
+        <div style="margin-bottom: 4px;">
+          <span style="font-family: Fraunces, serif; font-size: 32px;">99&nbsp;EUR</span>
+          <span style="color: var(--muted); font-size: 13px;"> /mois</span>
+        </div>
+        <p style="color: var(--muted); font-size: 12px; margin: 0 0 14px;">pour toi et tes clients</p>
+        <ul style="list-style: none; padding: 0; margin: 0 0 16px; font-size: 13px; color: var(--ink);">
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Tout le Pro inclus</li>
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Analyses illimitees</li>
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Multi-athletes</li>
+          <li style="padding: 5px 0; border-top: 1px solid var(--line);">Support prioritaire</li>
+        </ul>
+        <a href="https://wa.me/{wa_num}?text=forfaits" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: center; font-size: 13px;">Contacter</a>
       </article>
     </section>
 

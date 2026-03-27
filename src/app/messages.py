@@ -244,20 +244,21 @@ ANALYSIS_REPORT_SUMMARY = (
 
 NO_CREDITS = (
     "Tu as utilise toutes tes analyses ce mois-ci.\n\n"
-    "Passe a un abonnement pour continuer :"
+    "Choisis ton plan pour continuer :"
 )
 
-PLAN_SOLO = "Solo — 15 analyses/mois | 4,99 EUR le 1er mois puis 14,99 EUR/mois"
-PLAN_COACH = "Coach — 60 analyses/mois | 19,99 EUR le 1er mois puis 39,99 EUR/mois"
+PLAN_SOLO = "Solo — 10 analyses/mois | 9,90 EUR le 1er mois puis 14,90 EUR/mois"
+PLAN_PRO = "Pro — 30 analyses/mois | 29,90 EUR le 1er mois puis 39,90 EUR/mois"
+PLAN_COACH = "Coach — Analyses illimitees | 99 EUR/mois"
 
 PAYMENT_CONFIRMED_CREDITS = (
     "Abonnement active. {credits} analyses/mois.\n"
-    "Envoie ta prochaine video quand tu veux."
+    "Envoie ta prochaine video."
 )
 
 PAYMENT_CONFIRMED_UNLIMITED = (
-    "Abonnement Coach active. 60 analyses/mois.\n"
-    "Envoie tes videos quand tu veux."
+    "Abonnement Coach active. Analyses illimitees.\n"
+    "Envoie tes videos."
 )
 
 CREDITS_STATUS = "Il te reste *{credits}* analyse(s)."

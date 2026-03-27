@@ -19,19 +19,27 @@ stripe.api_key = settings.stripe_secret_key
 
 PLANS: dict[str, dict] = {
     "solo": {
-        "name": "FORMCHECK Solo — 15 analyses/mois",
-        "price_cents": 1499,
-        "intro_price_cents": 499,
-        "credits": 15,
+        "name": "FORMCHECK Solo — 10 analyses/mois",
+        "price_cents": 1490,
+        "intro_price_cents": 990,
+        "credits": 10,
+        "unlimited": False,
+        "is_subscription": True,
+    },
+    "pro": {
+        "name": "FORMCHECK Pro — 30 analyses/mois",
+        "price_cents": 3990,
+        "intro_price_cents": 2990,
+        "credits": 30,
         "unlimited": False,
         "is_subscription": True,
     },
     "coach": {
-        "name": "FORMCHECK Coach — 60 analyses/mois",
-        "price_cents": 3999,
-        "intro_price_cents": 1999,
-        "credits": 60,
-        "unlimited": False,
+        "name": "FORMCHECK Coach — Illimite",
+        "price_cents": 9900,
+        "intro_price_cents": 0,
+        "credits": 0,
+        "unlimited": True,
         "is_subscription": True,
     },
 }
