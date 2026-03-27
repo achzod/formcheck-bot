@@ -287,7 +287,8 @@ MENU_TEXT = (
     "*morpho* — Profil morphologique\n"
     "*commandes* — Etat de tes commandes\n"
     "*historique* — Resume analyses/commandes/SAV\n"
-    "*sav* — Ouvrir ou suivre un ticket support"
+    "*sav* — Ouvrir ou suivre un ticket support\n\n"
+    "Contact: coaching@achzodcoaching.com"
 )
 
 UPLOAD_INSTRUCTIONS = (
@@ -360,7 +361,8 @@ SUPPORT_HELP = (
     "Support client:\n"
     "1. Ecris *sav ton message* pour ouvrir une demande\n"
     "2. Si un ticket est deja ouvert, ton message est ajoute dessus\n"
-    "3. Ecris *sav close* quand ton sujet est regle"
+    "3. Ecris *sav close* quand ton sujet est regle\n\n"
+    "Ou par email: coaching@achzodcoaching.com"
 )
 
 SUPPORT_NO_OPEN_TICKET = (

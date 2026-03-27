@@ -507,7 +507,7 @@ async def home(payment: str = "") -> HTMLResponse:
 
     <div class="footer-note" style="text-align: center;">
       <strong>1ere analyse gratuite.</strong> Envoie ta video sur WhatsApp pour tester.<br>
-      <span style="color: var(--muted);">FORMCHECK by ACHZOD | <a href="/health">/health</a></span>
+      <span style="color: var(--muted);">FORMCHECK by ACHZOD | <a href="mailto:coaching@achzodcoaching.com">coaching@achzodcoaching.com</a></span>
     </div>
   </main>
 </body>
