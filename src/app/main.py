@@ -1964,3 +1964,25 @@ try:
 
 except Exception as e:
     _import_errors.append(f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+@app.get("/internal/stripe/test")
+async def test_stripe(request: Request):
+    """Test Stripe checkout creation — diagnostic endpoint."""
+    _require_internal_admin_token(request)
+    from app.stripe_handler import create_checkout_session, PLANS
+    import traceback
+    results = {}
+    for key in PLANS:
+        try:
+            url = await create_checkout_session(key, "+33000000000")
+            results[key] = {"status": "ok", "url": url[:60] + "..."}
+        except Exception as e:
+            results[key] = {"status": "error", "error": str(e), "traceback": traceback.format_exc()[-500:]}
+    return {
+        "stripe_key_set": bool(settings.stripe_secret_key),
+        "stripe_key_prefix": settings.stripe_secret_key[:12] + "..." if settings.stripe_secret_key else "EMPTY",
+        "success_url": settings.stripe_success_url,
+        "cancel_url": settings.stripe_cancel_url,
+        "results": results,
+    }
