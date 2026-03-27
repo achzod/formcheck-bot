@@ -1007,18 +1007,26 @@ async def _deliver_pipeline_success(
     exercise = result.report.exercise_display
     reps = result.reps.total_reps if result.reps else 0
     intensity_line = ""
-    if result.reps and result.reps.total_reps >= 2 and result.reps.intensity_score > 0:
-        rest_s = result.reps.avg_inter_rep_rest_s
+    intensity_score = result.reps.intensity_score if result.reps else 0
+    intensity_label = result.reps.intensity_label if result.reps else ""
+    rest_s = result.reps.avg_inter_rep_rest_s if result.reps else 0.0
+
+    # Fallback: parse intensity from MiniMax report text if pipeline didn't compute it
+    if intensity_score <= 0 and result.report.report_text:
+        import re as _re
+        _m = _re.search(r"Intensit[eé]\s*:\s*(\d{1,3})\s*/\s*100\s*\(([^)]+)\)", result.report.report_text, _re.IGNORECASE)
+        if _m:
+            intensity_score = int(_m.group(1))
+            intensity_label = _m.group(2).strip().lower()
+
+    if reps >= 2 and intensity_score > 0:
         if rest_s > 0.5:
             intensity_line = "\nIntensite: {score}/100 ({label}) | repos moyen {rest:.1f}s".format(
-                score=result.reps.intensity_score,
-                label=result.reps.intensity_label,
-                rest=rest_s,
+                score=intensity_score, label=intensity_label, rest=rest_s,
             )
         else:
             intensity_line = "\nIntensite: {score}/100 ({label})".format(
-                score=result.reps.intensity_score,
-                label=result.reps.intensity_label,
+                score=intensity_score, label=intensity_label,
             )
 
     credits_line = ""

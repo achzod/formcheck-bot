@@ -233,6 +233,20 @@ _AI_STYLE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bil est important de noter que\s*", re.IGNORECASE), ""),
     (re.compile(r"\bde maniere generale[, ]*", re.IGNORECASE), ""),
     (re.compile(r"\bglobalement[, ]*", re.IGNORECASE), ""),
+    # Vouvoiement → tutoiement
+    (re.compile(r"\bvous devez\b", re.IGNORECASE), "tu dois"),
+    (re.compile(r"\bvous devriez\b", re.IGNORECASE), "tu devrais"),
+    (re.compile(r"\bvous pouvez\b", re.IGNORECASE), "tu peux"),
+    (re.compile(r"\bvous pourriez\b", re.IGNORECASE), "tu pourrais"),
+    (re.compile(r"\bvous avez\b", re.IGNORECASE), "tu as"),
+    (re.compile(r"\bvous etes\b", re.IGNORECASE), "tu es"),
+    (re.compile(r"\bvous êtes\b", re.IGNORECASE), "tu es"),
+    (re.compile(r"\bvos muscles\b", re.IGNORECASE), "tes muscles"),
+    (re.compile(r"\bvos bras\b", re.IGNORECASE), "tes bras"),
+    (re.compile(r"\bvos jambes\b", re.IGNORECASE), "tes jambes"),
+    (re.compile(r"\bvos epaules\b", re.IGNORECASE), "tes epaules"),
+    (re.compile(r"\bvotre\b", re.IGNORECASE), "ton"),
+    (re.compile(r"\bvos\b", re.IGNORECASE), "tes"),
 )
 
 # MiniMax foreign word → French replacements.  Keyed by lowercase foreign word.
