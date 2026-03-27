@@ -243,22 +243,21 @@ ANALYSIS_REPORT_SUMMARY = (
 # ── CREDITS & PAIEMENTS ─────────────────────────────────────────────────────
 
 NO_CREDITS = (
-    "Tu n'as plus de credits d'analyse.\n\n"
-    "Choisis un forfait pour continuer :"
+    "Tu as utilise toutes tes analyses ce mois-ci.\n\n"
+    "Passe a un abonnement pour continuer :"
 )
 
-PLAN_ESSENTIALS = "Essentials — 5 analyses pour 19,99 EUR"
-PLAN_PERFORMANCE = "Performance — 15 analyses pour 49,99 EUR"
-PLAN_ELITE = "Elite — Analyses illimitees pour 29,99 EUR/mois"
+PLAN_SOLO = "Solo — 15 analyses/mois | 4,99 EUR le 1er mois puis 14,99 EUR/mois"
+PLAN_COACH = "Coach — 60 analyses/mois | 19,99 EUR le 1er mois puis 39,99 EUR/mois"
 
 PAYMENT_CONFIRMED_CREDITS = (
-    "Paiement recu. {credits} analyses ajoutees a ton compte.\n"
+    "Abonnement active. {credits} analyses/mois.\n"
     "Envoie ta prochaine video quand tu veux."
 )
 
 PAYMENT_CONFIRMED_UNLIMITED = (
-    "Paiement recu. Acces illimite active pendant 1 an.\n"
-    "Envoie autant de videos que tu veux."
+    "Abonnement Coach active. 60 analyses/mois.\n"
+    "Envoie tes videos quand tu veux."
 )
 
 CREDITS_STATUS = "Il te reste *{credits}* analyse(s)."

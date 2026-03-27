@@ -365,8 +365,8 @@ async def home() -> HTMLResponse:
           un rapport HTML clair, orienté terrain, directement exploitable.
         </p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="#process">Voir le process</a>
-          <a class="btn btn-secondary" href="#rapport">Ce que contient le rapport</a>
+          <a class="btn btn-primary" href="#pricing">Voir les offres</a>
+          <a class="btn btn-secondary" href="#process">Comment ca marche</a>
         </div>
         <div class="stats">
           <div class="stat">
@@ -453,24 +453,52 @@ async def home() -> HTMLResponse:
       </article>
     </section>
 
-    <section class="quote">
-      <div>
-        <h2>Le bon usage</h2>
-        <p>
-          Cette page n'est pas l'interface d'analyse. Le produit vit sur WhatsApp.
-          Le site sert de vitrine produit et de point de verification technique.
-        </p>
-      </div>
-      <div class="quote-box">
-        <strong>Conseil capture</strong><br>
-        Garde la camera fixe, evite les coupes, montre tout le corps et l'amplitude
-        complete de la machine ou de la charge. Une meilleure prise donne un meilleur rapport.
-      </div>
+    <section class="steps" id="pricing" style="grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 32px;">
+      <article class="step" style="padding: 28px; border: 2px solid var(--line); position: relative;">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+          <div class="step-index">1</div>
+          <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);">Individuel</span>
+        </div>
+        <h3 style="font-size: 24px; margin: 0 0 4px;">Solo</h3>
+        <p style="color: var(--muted); font-size: 14px; margin: 0 0 16px;">15 analyses par mois</p>
+        <div style="margin-bottom: 16px;">
+          <span style="font-family: Fraunces, serif; font-size: 36px; letter-spacing: -0.03em;">4,99&nbsp;EUR</span>
+          <span style="color: var(--muted); font-size: 14px;"> le 1er mois</span>
+        </div>
+        <p style="color: var(--muted); font-size: 14px; margin: 0 0 18px;">puis 14,99 EUR/mois, sans engagement</p>
+        <ul style="list-style: none; padding: 0; margin: 0 0 20px; font-size: 14px; color: var(--ink);">
+          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Analyse biomecanique complete</li>
+          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Rapport HTML detaille</li>
+          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Score, corrections, plan action</li>
+          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Historique des analyses</li>
+        </ul>
+      </article>
+
+      <article class="step" style="padding: 28px; border: 2px solid var(--brand); position: relative; background: rgba(191,90,54,0.04);">
+        <div style="position: absolute; top: -12px; right: 20px; background: var(--brand); color: #fff; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.08em;">Populaire</div>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+          <div class="step-index" style="background: rgba(191,90,54,0.2);">2</div>
+          <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);">Multi-clients</span>
+        </div>
+        <h3 style="font-size: 24px; margin: 0 0 4px;">Coach</h3>
+        <p style="color: var(--muted); font-size: 14px; margin: 0 0 16px;">60 analyses par mois</p>
+        <div style="margin-bottom: 16px;">
+          <span style="font-family: Fraunces, serif; font-size: 36px; letter-spacing: -0.03em;">19,99&nbsp;EUR</span>
+          <span style="color: var(--muted); font-size: 14px;"> le 1er mois</span>
+        </div>
+        <p style="color: var(--muted); font-size: 14px; margin: 0 0 18px;">puis 39,99 EUR/mois, sans engagement</p>
+        <ul style="list-style: none; padding: 0; margin: 0 0 20px; font-size: 14px; color: var(--ink);">
+          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Tout le plan Solo inclus</li>
+          <li style="padding: 6px 0; border-top: 1px solid var(--line);">60 analyses pour tes clients</li>
+          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Rapports partageables</li>
+          <li style="padding: 6px 0; border-top: 1px solid var(--line);">Suivi multi-athletes</li>
+        </ul>
+      </article>
     </section>
 
-    <div class="footer-note">
-      FORMCHECK by ACHZOD. Analyse de mouvements de musculation sur WhatsApp.
-      Etat technique disponible sur <a href="/health"><strong>/health</strong></a>.
+    <div class="footer-note" style="text-align: center;">
+      <strong>1ere analyse gratuite.</strong> Envoie ta video sur WhatsApp pour tester.<br>
+      <span style="color: var(--muted);">FORMCHECK by ACHZOD | <a href="/health">/health</a></span>
     </div>
   </main>
 </body>

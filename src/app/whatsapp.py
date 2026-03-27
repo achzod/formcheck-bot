@@ -128,18 +128,17 @@ async def send_image(to: str, image_url: str, caption: str | None = None) -> dic
 
 
 async def send_plan_buttons(to: str, body: str, checkout_urls: dict[str, str]) -> dict[str, Any]:
-    """Send forfait options as text with Stripe links."""
+    """Send subscription options as text with Stripe links."""
     lines = [
         body,
         "",
-        "1. *Essentials* — 5 analyses (19.99 EUR)",
-        checkout_urls.get("essentials", ""),
+        "*SOLO* | 15 analyses/mois",
+        "4,99 EUR le 1er mois, puis 14,99 EUR/mois",
+        checkout_urls.get("solo", ""),
         "",
-        "2. *Performance* — 15 analyses (49.99 EUR)",
-        checkout_urls.get("performance", ""),
-        "",
-        "3. *Elite* — Illimite, 29.99 EUR/mois",
-        checkout_urls.get("elite", ""),
+        "*COACH* | 60 analyses/mois",
+        "19,99 EUR le 1er mois, puis 39,99 EUR/mois",
+        checkout_urls.get("coach", ""),
     ]
     return await send_text(to, "\n".join(lines))
 

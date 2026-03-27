@@ -18,23 +18,21 @@ stripe.api_key = settings.stripe_secret_key
 # ── Plans ───────────────────────────────────────────────────────────────
 
 PLANS: dict[str, dict] = {
-    "essentials": {
-        "name": "FORMCHECK Essentials — 5 analyses",
-        "price_cents": 1999,
-        "credits": 5,
-        "unlimited": False,
-    },
-    "performance": {
-        "name": "FORMCHECK Performance — 15 analyses",
-        "price_cents": 4999,
+    "solo": {
+        "name": "FORMCHECK Solo — 15 analyses/mois",
+        "price_cents": 1499,
+        "intro_price_cents": 499,
         "credits": 15,
         "unlimited": False,
+        "is_subscription": True,
     },
-    "elite": {
-        "name": "FORMCHECK Elite — Illimite (mensuel)",
-        "price_cents": 2999,
-        "credits": 0,
-        "unlimited": True,
+    "coach": {
+        "name": "FORMCHECK Coach — 60 analyses/mois",
+        "price_cents": 3999,
+        "intro_price_cents": 1999,
+        "credits": 60,
+        "unlimited": False,
+        "is_subscription": True,
     },
 }
 
@@ -43,22 +41,34 @@ async def create_checkout_session(plan_key: str, phone: str) -> str:
     """Create a Stripe Checkout Session and return its URL."""
     plan = PLANS[plan_key]
     metadata = {"phone": phone, "plan": plan_key}
-    is_subscription = bool(plan["unlimited"])
+    is_subscription = bool(plan.get("is_subscription", False))
 
-    line_item = {
-        "price_data": {
-            "currency": "eur",
-            "unit_amount": plan["price_cents"],
-            "product_data": {"name": plan["name"]},
-        },
-        "quantity": 1,
-    }
+    line_items: list[dict[str, Any]] = []
+
     if is_subscription:
-        line_item["price_data"]["recurring"] = {"interval": "month"}  # type: ignore[index]
+        # Recurring subscription at regular price
+        line_items.append({
+            "price_data": {
+                "currency": "eur",
+                "unit_amount": plan["price_cents"],
+                "product_data": {"name": plan["name"]},
+                "recurring": {"interval": "month"},
+            },
+            "quantity": 1,
+        })
+    else:
+        line_items.append({
+            "price_data": {
+                "currency": "eur",
+                "unit_amount": plan["price_cents"],
+                "product_data": {"name": plan["name"]},
+            },
+            "quantity": 1,
+        })
 
     params: dict[str, Any] = {
         "payment_method_types": ["card"],
-        "line_items": [line_item],
+        "line_items": line_items,
         "mode": "subscription" if is_subscription else "payment",
         "success_url": settings.stripe_success_url,
         "cancel_url": settings.stripe_cancel_url,
@@ -66,8 +76,12 @@ async def create_checkout_session(plan_key: str, phone: str) -> str:
         "client_reference_id": phone,
     }
     if is_subscription:
-        # Required so customer.subscription.* webhooks carry user metadata.
-        params["subscription_data"] = {"metadata": metadata}
+        sub_data: dict[str, Any] = {"metadata": metadata}
+        # First month at intro price: 30-day trial + one-time intro charge
+        intro_cents = plan.get("intro_price_cents")
+        if intro_cents and intro_cents < plan["price_cents"]:
+            sub_data["trial_period_days"] = 30
+        params["subscription_data"] = sub_data
 
     session = stripe.checkout.Session.create(
         **params,
@@ -131,10 +145,10 @@ async def handle_checkout_completed(session: dict) -> str | None:
         return None
 
     plan = PLANS[plan_key]
-    order_type = "subscription" if plan["unlimited"] else "one_time"
+    is_sub = bool(plan.get("is_subscription", False))
+    order_type = "subscription" if is_sub else "one_time"
     unlimited_until: dt.datetime | None = None
-    if plan["unlimited"]:
-        # Elite is monthly recurring: set entitlement to current billing period end.
+    if plan.get("unlimited"):
         unlimited_until = _get_subscription_period_end(session)
         if not unlimited_until:
             unlimited_until = dt.datetime.utcnow() + dt.timedelta(days=30)
@@ -200,7 +214,7 @@ async def handle_subscription_event(event_type: str, subscription: dict[str, Any
     """Apply entitlement updates from customer.subscription.* webhooks."""
     metadata = subscription.get("metadata", {}) or {}
     phone = metadata.get("phone")
-    plan_key = metadata.get("plan", "elite")
+    plan_key = metadata.get("plan", "solo")
     subscription_id = subscription.get("id")
 
     if not phone:
@@ -212,9 +226,9 @@ async def handle_subscription_event(event_type: str, subscription: dict[str, Any
         return None
 
     plan = PLANS.get(plan_key)
-    if not plan or not plan.get("unlimited"):
+    if not plan or not plan.get("is_subscription"):
         logger.info(
-            "Ignoring %s for non-unlimited plan %s (subscription %s)",
+            "Ignoring %s for non-subscription plan %s (subscription %s)",
             event_type,
             plan_key,
             subscription_id,
