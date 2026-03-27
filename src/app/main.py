@@ -1966,6 +1966,21 @@ except Exception as e:
     _import_errors.append(f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
+@app.get("/pay/{plan_key}")
+async def pay_redirect(plan_key: str, phone: str = ""):
+    """Short URL that redirects to Stripe Checkout."""
+    from app.stripe_handler import create_checkout_session, PLANS
+    if plan_key not in PLANS:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    try:
+        url = await create_checkout_session(plan_key, phone or "unknown")
+        from starlette.responses import RedirectResponse
+        return RedirectResponse(url=url, status_code=303)
+    except Exception:
+        logger.exception("Failed to create checkout for /pay/%s", plan_key)
+        raise HTTPException(status_code=500, detail="Payment unavailable")
+
+
 @app.get("/internal/stripe/test")
 async def test_stripe(request: Request):
     """Test Stripe checkout creation — diagnostic endpoint."""

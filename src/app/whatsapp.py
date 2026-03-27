@@ -128,17 +128,21 @@ async def send_image(to: str, image_url: str, caption: str | None = None) -> dic
 
 
 async def send_plan_buttons(to: str, body: str, checkout_urls: dict[str, str]) -> dict[str, Any]:
-    """Send subscription options as text with Stripe links."""
+    """Send subscription options as text with short payment links."""
+    from app.config import settings
+    base = settings.base_url or "https://formcheck-bot.onrender.com"
+    # Clean phone for URL param
+    phone_param = to.replace("whatsapp:", "").replace("+", "")
     lines = [
         body,
         "",
         "*SOLO* | 15 analyses/mois",
         "4,99 EUR le 1er mois, puis 14,99 EUR/mois",
-        checkout_urls.get("solo", ""),
+        f"{base}/pay/solo?phone={phone_param}",
         "",
         "*COACH* | 60 analyses/mois",
         "19,99 EUR le 1er mois, puis 39,99 EUR/mois",
-        checkout_urls.get("coach", ""),
+        f"{base}/pay/coach?phone={phone_param}",
     ]
     return await send_text(to, "\n".join(lines))
 

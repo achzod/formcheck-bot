@@ -1702,23 +1702,10 @@ async def _run_morpho_analysis(
 
 
 async def handle_no_credits(user: db.User) -> None:
-    """Send the pricing plans with Stripe checkout links."""
+    """Send the pricing plans with short payment links."""
     phone = user.phone
-    try:
-        checkout_urls = await create_all_checkout_urls(phone)
-        await wa.send_plan_buttons(phone, msg.NO_CREDITS, checkout_urls)
-    except Exception:
-        logger.exception("Failed to create checkout sessions — sending fallback")
-        # Fallback: send pricing info without Stripe links
-        await wa.send_text(
-            phone,
-            msg.NO_CREDITS + "\n\n"
-            "*SOLO* | 15 analyses/mois\n"
-            "4,99 EUR le 1er mois, puis 14,99 EUR/mois\n\n"
-            "*COACH* | 60 analyses/mois\n"
-            "19,99 EUR le 1er mois, puis 39,99 EUR/mois\n\n"
-            "Contacte coaching@achzodcoaching.com pour t'abonner."
-        )
+    # No need to pre-create Stripe sessions — /pay/{plan} creates them on click
+    await wa.send_plan_buttons(phone, msg.NO_CREDITS, {})
 
 
 async def handle_payment_success(phone: str, plan_key: str, credits: int) -> None:
