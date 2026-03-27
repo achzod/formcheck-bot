@@ -37,7 +37,7 @@ services:
       - key: BASE_URL
         value: https://formcheck-bot.onrender.com
       - key: TEST_MODE_FREE
-        value: "true"
+        value: "false"
       - key: VERIFY_TWILIO_SIGNATURE
         value: "true"
       - key: MINIMAX_ENABLED
