@@ -35,7 +35,7 @@ services:
       - key: DEBUG
         value: "false"
       - key: BASE_URL
-        value: https://formcheck-bot.onrender.com
+        value: https://formcheck.achzodcoaching.com
       - key: TEST_MODE_FREE
         value: "false"
       - key: VERIFY_TWILIO_SIGNATURE

@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
-    stripe_success_url: str = "https://formcheck-bot.onrender.com/?payment=success"
-    stripe_cancel_url: str = "https://formcheck-bot.onrender.com/?payment=cancel"
+    stripe_success_url: str = "https://formcheck.achzodcoaching.com/?payment=success"
+    stripe_cancel_url: str = "https://formcheck.achzodcoaching.com/?payment=cancel"
 
     # LLM APIs
     openai_api_key: str = ""
