@@ -2029,3 +2029,19 @@ async def test_stripe(request: Request):
         "cancel_url": settings.stripe_cancel_url,
         "results": results,
     }
+
+
+@app.post("/internal/customers/{phone}/credits")
+async def add_customer_credits(phone: str, request: Request):
+    """Admin endpoint to add credits to a customer."""
+    _require_internal_admin_token(request)
+    body = await request.json()
+    credits = int(body.get("credits", 0))
+    if credits <= 0:
+        raise HTTPException(status_code=400, detail="credits must be > 0")
+    user = await db.get_user_by_phone(phone)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.add_credits(user.id, credits)
+    updated = await db.get_user_by_phone(phone)
+    return {"phone": phone, "credits_added": credits, "total_credits": updated.credits if updated else 0}
