@@ -938,6 +938,58 @@ def _extract_exercise_from_text(text: str) -> str:
     return "Exercice non identifie"
 
 
+def _detect_exercise_mismatch(analysis: "MiniMaxAnalysis") -> None:
+    """Detect and fix exercise misidentification based on report content clues.
+
+    MiniMax sometimes names the wrong exercise despite seeing the right movement.
+    This function checks for inconsistencies between the named exercise and the
+    report content, then corrects the exercise name.
+    """
+    slug = _normalize_label_text(analysis.exercise_slug)
+    display = _normalize_label_text(analysis.exercise_display)
+    report = _normalize_label_text(analysis.report_text)
+
+    # Clues that indicate UPPER BODY (bench press, chest press, etc.)
+    upper_body_clues = (
+        "pectoraux", "pectoral", "grand pectoral", "deltoide anterieur",
+        "triceps", "bras qui poussent", "developpe couche", "bench press",
+        "poitrine", "barre sur la poitrine", "banc plat", "banc incline",
+        "omoplates", "retraction scapulaire", "scapulaire",
+        "partenaire de securite", "spotter", "prise en pronation",
+        "coudes", "angle du coude", "verrouillage des coudes",
+    )
+    # Clues that indicate LOWER BODY (leg press, squat, etc.)
+    lower_body_clues = (
+        "quadriceps", "ischio", "fessiers", "gluteaux",
+        "genoux", "angle du genou", "flexion de hanche",
+        "cuisses", "mollets", "pieds sur la plateforme",
+        "extension des jambes", "poussee des jambes",
+    )
+
+    upper_count = sum(1 for c in upper_body_clues if c in report)
+    lower_count = sum(1 for c in lower_body_clues if c in report)
+
+    is_named_lower = any(k in slug or k in display for k in ("leg_press", "squat", "lunge", "cuisses", "leg"))
+    is_named_upper = any(k in slug or k in display for k in ("bench", "chest", "press", "developpe", "ohp"))
+
+    # Mismatch: named as lower body but content is clearly upper body
+    if is_named_lower and upper_count >= 4 and upper_count > lower_count * 2:
+        # Check for specific bench press indicators
+        bench_indicators = sum(1 for c in ("pectoraux", "barre sur la poitrine", "banc", "omoplates", "coudes", "triceps", "scapulaire") if c in report)
+        if bench_indicators >= 3:
+            analysis.exercise_slug = "bench_press"
+            analysis.exercise_display = "Developpe couche (Bench Press)"
+            analysis.exercise_confidence = max(0.5, analysis.exercise_confidence * 0.7)
+
+    # Mismatch: named as upper body but content is clearly lower body
+    if is_named_upper and lower_count >= 4 and lower_count > upper_count * 2:
+        leg_indicators = sum(1 for c in ("quadriceps", "cuisses", "genoux", "plateforme", "extension des jambes") if c in report)
+        if leg_indicators >= 3:
+            analysis.exercise_slug = "leg_press"
+            analysis.exercise_display = "Presse a cuisses"
+            analysis.exercise_confidence = max(0.5, analysis.exercise_confidence * 0.7)
+
+
 def _is_unknown_exercise_label(value: Any) -> bool:
     norm = _normalize_label_text(value)
     return norm in {
@@ -1423,6 +1475,7 @@ def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
     analysis.report_text = _build_structured_report_text(analysis)
     analysis.metadata["parse_mode"] = "labeled"
     _harmonize_rep_counts(analysis, raw_text=(text or ""))
+    _detect_exercise_mismatch(analysis)
     return analysis
 
 
@@ -1501,6 +1554,7 @@ def _parse_markdown_analysis_payload(text: str) -> MiniMaxAnalysis | None:
         analysis.sections["resume"] = intro_text
     analysis.report_text = report_text
     _reconcile_exercise_from_report_text(analysis, report_text)
+    _detect_exercise_mismatch(analysis)
 
     invalid_display_norm = _normalize_label_text(analysis.exercise_display)
     if invalid_display_norm in {"formcheck", "formcheck report md", "report md"}:
@@ -2374,6 +2428,7 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
         if report_text:
             analysis.report_text = report_text
             _reconcile_exercise_from_report_text(analysis, report_text)
+            _detect_exercise_mismatch(analysis)
         else:
             analysis.report_text = _build_structured_report_text(analysis)
 
