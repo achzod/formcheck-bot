@@ -231,8 +231,8 @@ def run_browser_analysis(video_path):
         run_browser_analysis._last_body_len = 0
         run_browser_analysis._stable_count = 0
 
-        # Wait for response — up to 5 min
-        deadline = time.monotonic() + 300
+        # Wait for response — up to 10 min (skills/frame extraction take longer)
+        deadline = time.monotonic() + 600
         result_text = ""
         while time.monotonic() < deadline:
             page.wait_for_timeout(3000)
@@ -251,8 +251,13 @@ def run_browser_analysis(video_path):
             except Exception:
                 total = ""
             import re
-            # NEVER consider done while MiniMax is still processing the video
-            still_processing = "Ongoing Video Understanding" in total or "Thinking Process" in total
+            # NEVER consider done while MiniMax is still processing
+            still_processing = (
+                "Ongoing Video Understanding" in total
+                or "Thinking Process" in total
+                or "Ongoing Command Line Execution" in total
+                or "Ongoing Image" in total
+            )
 
             # Report is done when closing tag appears WITH real non-zero scores
             has_report_tag = "</FORMCHECK_REPORT_MD>" in total
