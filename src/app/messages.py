@@ -179,7 +179,11 @@ MORPHO_ERROR = (
 
 # ── MESSAGES RECEPTION VIDEO ─────────────────────────────────────────────────
 
-VIDEO_RECEIVED = "Analyse en cours..."
+VIDEO_RECEIVED = (
+    "Analyse en cours...\n\n"
+    "Pour un meilleur rapport, assure-toi qu'on voit clairement *tout ton corps* "
+    "(tete aux pieds) et tes articulations (coudes, genoux, epaules)."
+)
 
 VIDEO_QUALITY_WARNING = (
     "Video recue. J'ai detecte quelques limites :\n"
