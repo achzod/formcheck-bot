@@ -43,33 +43,7 @@ from analysis.minimax_motion_coach import (
 )
 
 
-PROMPT_REPORT = _DEFAULT_ANALYSIS_PROMPT.format(start=_REPORT_START_TAG, end=_REPORT_END_TAG)
-
-PROMPT_FRAMES = (
-    "Analyse cette video de musculation. ETAPE 1: genere les frames annotees.\n\n"
-    "1. IDENTIFIE L'EXERCICE:\n"
-    "Position du corps (cle primaire):\n"
-    "Allonge sur le DOS + BARRE au-dessus + BRAS qui poussent = Developpe couche (Bench Press). JAMAIS presse a cuisses.\n"
-    "Allonge sur le DOS + POIDS SUR LES PIEDS + JAMBES qui poussent = Presse a cuisses.\n"
-    "Assis + BRAS qui poussent = Chest press machine ou Developpe epaules.\n"
-    "Debout + flexion jambes = Squat.\n\n"
-    "2. EXTRAIT LES FRAMES CLES avec ffmpeg (3-5 frames):\n"
-    "Meilleure repetition (technique parfaite)\n"
-    "Pire repetition (compensation visible)\n"
-    "1-2 repetitions de milieu de serie\n"
-    "Repetition la plus fatiguee (fin de serie)\n\n"
-    "3. POUR CHAQUE FRAME, cree une image annotee avec overlay DIRECT sur le screenshot reel:\n"
-    "Fleches ROUGES = problemes, compensations, risque\n"
-    "Fleches VERTES = correct, bonne technique\n"
-    "Fleches JAUNES = attention, limite acceptable\n"
-    "Angles articulaires mesures en degres (coude, epaule, genou, hanche)\n"
-    "Alignement du dos, position de la tete, stabilite des pieds\n"
-    "Encadre en haut: numero de la rep, score technique /10, probleme principal ou point positif, timestamp\n\n"
-    "TOUT en francais. Genere les images maintenant."
-)
-
-# Combined prompt for single-message flow (fallback)
-PROMPT = PROMPT_REPORT
+PROMPT = _DEFAULT_ANALYSIS_PROMPT.format(start=_REPORT_START_TAG, end=_REPORT_END_TAG)
 
 
 def log(msg):
@@ -208,93 +182,56 @@ def run_browser_analysis(video_path):
         except Exception:
             pass
 
-        def send_message(prompt_text, attach_file=None):
-            """Send a message in the MiniMax chat (prompt + optional file)."""
-            editor = page.locator(".tiptap-editor").first
-            editor.click(timeout=3000, force=True)
-            editor.evaluate(
-                """(el, text) => {
-                    el.focus(); el.textContent = text;
-                    el.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }));
-                }""",
-                prompt_text,
-            )
-            if attach_file:
-                upload_input = page.locator("input[type='file']").last
-                upload_input.set_input_files(attach_file, timeout=30000)
-                fname = os.path.basename(attach_file)
-                try:
-                    page.locator(f"text={fname}").first.wait_for(timeout=15000)
-                except Exception:
-                    page.wait_for_timeout(3000)
-            for _ in range(30):
-                try:
-                    enabled = page.evaluate("""() => {
-                        const root = document.querySelector('#input-send-icon');
-                        if (!root) return false;
-                        const target = root.firstElementChild || root;
-                        const cn = String(target.className || '');
-                        return !cn.includes('cursor-not-allowed') && !cn.includes('bg-bg_interaction_primary_inactive');
-                    }""")
-                    if enabled:
-                        break
-                except Exception:
-                    pass
-                page.wait_for_timeout(500)
-            try:
-                page.locator("#input-send-icon").first.click(timeout=3000)
-            except Exception:
-                page.keyboard.press("Enter")
+        # Set prompt
+        editor = page.locator(".tiptap-editor").first
+        editor.click(timeout=3000, force=True)
+        editor.evaluate(
+            """(el, text) => {
+                el.focus(); el.textContent = text;
+                el.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }));
+            }""",
+            PROMPT,
+        )
+        log(f"[{dt()}] prompt set")
 
-        # ═══ STEP 1: Send video + frames prompt ═══
-        send_message(PROMPT_FRAMES, attach_file=video_path)
-        log(f"[{dt()}] STEP 1 sent (frames prompt + video)")
-        run_browser_analysis._last_body_len = 0
-        run_browser_analysis._stable_count = 0
+        # Upload video
+        upload_input = page.locator("input[type='file']").last
+        upload_input.set_input_files(video_path, timeout=30000)
+        log(f"[{dt()}] file attached")
 
-        # Wait for frames to complete (up to 5 min)
-        frames_deadline = time.monotonic() + 300
-        while time.monotonic() < frames_deadline:
+        # Wait for attachment
+        fname = os.path.basename(video_path)
+        try:
+            page.locator(f"text={fname}").first.wait_for(timeout=15000)
+        except Exception:
             page.wait_for_timeout(3000)
+
+        # Wait for send button
+        for _ in range(30):
             try:
-                total = page.locator("body").inner_text(timeout=3000)
+                enabled = page.evaluate("""() => {
+                    const root = document.querySelector('#input-send-icon');
+                    if (!root) return false;
+                    const target = root.firstElementChild || root;
+                    const cn = String(target.className || '');
+                    return !cn.includes('cursor-not-allowed') && !cn.includes('bg-bg_interaction_primary_inactive');
+                }""")
+                if enabled:
+                    break
             except Exception:
-                total = ""
-            still_busy = (
-                "Ongoing Video Understanding" in total
-                or "Thinking Process" in total
-                or "Ongoing Command Line Execution" in total
-                or "Ongoing Image" in total
-                or "Ongoing Generate" in total
-            )
-            # Done when: "Completed" markers appear and body is stable
-            completed_markers = total.count("Completed")
-            if not hasattr(run_browser_analysis, '_last_body_len'):
-                run_browser_analysis._last_body_len = 0
-                run_browser_analysis._stable_count = 0
-            if len(total) == run_browser_analysis._last_body_len and len(total) > 3000:
-                run_browser_analysis._stable_count += 1
-            else:
-                run_browser_analysis._stable_count = 0
-            run_browser_analysis._last_body_len = len(total)
-            body_stable = run_browser_analysis._stable_count >= 3
+                pass
+            page.wait_for_timeout(500)
 
-            if not still_busy and body_stable and completed_markers >= 1 and len(total) > 5000:
-                log(f"[{dt()}] STEP 1 DONE (frames completed)")
-                break
-
-            if int(time.monotonic() - T0) % 15 < 4:
-                log(f"[{dt()}] step1 waiting... dom={len(total)} stable={run_browser_analysis._stable_count} completed={completed_markers}")
-
-        page.wait_for_timeout(2000)  # Brief pause between steps
-
-        # ═══ STEP 2: Send report prompt (no video, same chat) ═══
-        send_message(PROMPT_REPORT)
-        log(f"[{dt()}] STEP 2 sent (report prompt)")
+        # Click send
+        try:
+            page.locator("#input-send-icon").first.click(timeout=3000)
+        except Exception:
+            page.keyboard.press("Enter")
+        log(f"[{dt()}] sent")
         run_browser_analysis._last_body_len = 0
         run_browser_analysis._stable_count = 0
 
-        # Wait for report — up to 5 min
+        # Wait for response — up to 5 min
         deadline = time.monotonic() + 300
         result_text = ""
         while time.monotonic() < deadline:
@@ -314,13 +251,8 @@ def run_browser_analysis(video_path):
             except Exception:
                 total = ""
             import re
-            # NEVER consider done while MiniMax is still processing
-            still_processing = (
-                "Ongoing Video Understanding" in total
-                or "Thinking Process" in total
-                or "Ongoing Command Line Execution" in total
-                or "Ongoing Image" in total
-            )
+            # NEVER consider done while MiniMax is still processing the video
+            still_processing = "Ongoing Video Understanding" in total or "Thinking Process" in total
 
             # Report is done when closing tag appears WITH real non-zero scores
             has_report_tag = "</FORMCHECK_REPORT_MD>" in total
