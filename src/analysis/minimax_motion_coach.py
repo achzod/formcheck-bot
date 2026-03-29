@@ -1497,6 +1497,9 @@ def _parse_labeled_analysis_payload(text: str) -> MiniMaxAnalysis | None:
         derived_total = _score_breakdown_total(analysis.score_breakdown)
         if derived_total > 0:
             analysis.score = derived_total
+    # Fallback: estimate sub-scores if MiniMax forgot them
+    if not analysis.score_breakdown and analysis.score > 0:
+        analysis.score_breakdown = _estimate_score_breakdown(analysis.score)
     analysis.plan_action = _extract_bullets(plan_block)[:6]
     analysis.report_text = _build_structured_report_text(analysis)
     analysis.metadata["parse_mode"] = "labeled"
@@ -1575,6 +1578,10 @@ def _parse_markdown_analysis_payload(text: str) -> MiniMaxAnalysis | None:
         derived_total = _score_breakdown_total(analysis.score_breakdown)
         if derived_total > 0:
             analysis.score = derived_total
+
+    # Fallback: estimate sub-scores if MiniMax forgot them
+    if not analysis.score_breakdown and analysis.score > 0:
+        analysis.score_breakdown = _estimate_score_breakdown(analysis.score)
 
     if intro_text and "resume" not in analysis.sections:
         analysis.sections["resume"] = intro_text
@@ -2370,6 +2377,9 @@ def _parse_analysis_payload(text: str) -> MiniMaxAnalysis:
             derived_total = _score_breakdown_total(analysis.score_breakdown)
             if derived_total > 0:
                 analysis.score = derived_total
+
+        if not analysis.score_breakdown and analysis.score > 0:
+            analysis.score_breakdown = _estimate_score_breakdown(analysis.score)
 
         positives = payload.get("positives", [])
         if isinstance(positives, list):
