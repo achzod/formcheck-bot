@@ -69,6 +69,16 @@ class Review(Base):
     created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
 
 
+class ReportStore(Base):
+    __tablename__ = "report_store"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    analysis_id: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    token: Mapped[str] = mapped_column(String(50))
+    html_content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+
 class MiniMaxRemoteJob(Base):
     __tablename__ = "minimax_remote_jobs"
 
@@ -274,6 +284,30 @@ async def has_credits(user: User) -> bool:
             await session.commit()
         return user.credits > 0
     return user.credits > 0
+
+
+# ── Report Store (persistent HTML reports) ────────────────────────────────
+
+async def save_report_to_db(analysis_id: str, token: str, html_content: str) -> None:
+    async with async_session() as session:
+        existing = await session.execute(
+            select(ReportStore).where(ReportStore.analysis_id == analysis_id)
+        )
+        report = existing.scalar_one_or_none()
+        if report:
+            report.html_content = html_content
+            report.token = token
+        else:
+            session.add(ReportStore(analysis_id=analysis_id, token=token, html_content=html_content))
+        await session.commit()
+
+
+async def get_report_from_db(analysis_id: str) -> ReportStore | None:
+    async with async_session() as session:
+        result = await session.execute(
+            select(ReportStore).where(ReportStore.analysis_id == analysis_id)
+        )
+        return result.scalar_one_or_none()
 
 
 # ── Reviews ──────────────────────────────────────────────────────────────
