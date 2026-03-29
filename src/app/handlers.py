@@ -1231,6 +1231,13 @@ async def _post_report_tasks(phone: str, user_id: int, analysis_id: int) -> None
                 trend=trend,
             ))
 
+        # 3. Check upsell (if credits just hit 0)
+        await _upsell_check(phone, user_id)
+
+        # 4. Schedule re-engagement check in 7 days
+        await asyncio.sleep(7 * 24 * 3600 - 2 * 3600)  # 7 days minus the 2h already waited
+        await _reengagement_check(phone, user_id)
+
     except asyncio.CancelledError:
         pass
     except Exception:
@@ -1839,7 +1846,7 @@ async def handle_no_credits(user: db.User) -> None:
 
 
 async def handle_payment_success(phone: str, plan_key: str, credits: int) -> None:
-    """Send a payment confirmation message to the user."""
+    """Send a payment confirmation message to the user + notify admin."""
     from app.stripe_handler import PLANS
 
     plan = PLANS.get(plan_key, {})
@@ -1847,6 +1854,89 @@ async def handle_payment_success(phone: str, plan_key: str, credits: int) -> Non
         await wa.send_text(phone, msg.PAYMENT_CONFIRMED_UNLIMITED)
     else:
         await wa.send_text(phone, msg.PAYMENT_CONFIRMED_CREDITS.format(credits=credits))
+
+    # Notify admin by email
+    asyncio.create_task(_notify_admin_payment(phone, plan_key, plan.get("name", plan_key), plan.get("price_cents", 0)))
+
+
+async def _notify_admin_payment(phone: str, plan_key: str, plan_name: str, price_cents: int) -> None:
+    """Send email notification to admin when a payment is received."""
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+
+        admin_email = "coaching@achzodcoaching.com"
+        subject = f"FormCheck — Nouveau paiement {plan_key.upper()}"
+        body = (
+            f"Nouveau paiement FormCheck\n\n"
+            f"Client: {phone}\n"
+            f"Plan: {plan_name}\n"
+            f"Montant: {price_cents / 100:.2f} EUR\n\n"
+            f"Voir dans l'admin: https://formcheck.achzodcoaching.com/admin"
+        )
+        message = MIMEText(body, "plain", "utf-8")
+        message["Subject"] = subject
+        message["From"] = admin_email
+        message["To"] = admin_email
+
+        smtp_host = getattr(app_settings, "smtp_host", "") or ""
+        smtp_port = int(getattr(app_settings, "smtp_port", 587) or 587)
+        smtp_user = getattr(app_settings, "smtp_user", "") or ""
+        smtp_pass = getattr(app_settings, "smtp_pass", "") or ""
+
+        if smtp_host and smtp_user:
+            with smtplib.SMTP(smtp_host, smtp_port) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.send_message(message)
+            logger.info("Admin payment notification sent for %s (%s)", phone, plan_key)
+        else:
+            logger.info("SMTP not configured — skipping admin payment notification for %s (%s)", phone, plan_key)
+    except Exception:
+        logger.exception("Failed to send admin payment notification")
+
+
+async def _reengagement_check(phone: str, user_id: int) -> None:
+    """Check if user hasn't sent a video in 7 days and nudge them."""
+    try:
+        last_date = await db.get_user_last_analysis_date(user_id)
+        if not last_date:
+            return
+        days_since = (dt.datetime.utcnow() - last_date).days
+        if days_since >= 7:
+            user = await db.get_user_by_phone(phone)
+            if user and (user.credits > 0 or user.is_unlimited):
+                credits = user.credits if not user.is_unlimited else 999
+                await wa.send_text(phone, msg.REENGAGEMENT_7DAYS.format(credits=credits))
+    except Exception:
+        logger.exception("Re-engagement check failed for %s", phone)
+
+
+async def _upsell_check(phone: str, user_id: int) -> None:
+    """If user burned all credits fast, suggest upgrade."""
+    try:
+        from app.stripe_handler import PLANS
+        user = await db.get_user_by_phone(phone)
+        if not user or user.is_unlimited or user.credits > 0:
+            return
+        # Check how fast they used their credits
+        history = await db.get_user_score_history(user_id, limit=30)
+        if len(history) < 3:
+            return
+        first = history[-1]["date"]
+        last = history[0]["date"]
+        days = max(1, (last - first).days)
+        if days <= 21:  # Used all credits in 3 weeks or less
+            # Suggest the next plan up
+            upgrade_line = ""
+            if not any(True for _ in []):  # placeholder
+                upgrade_line = "*PRO* | 30 analyses/mois | 29,90 EUR/mois"
+            await wa.send_text(phone, msg.UPSELL_CREDITS_USED.format(
+                days=days,
+                upgrade_line=upgrade_line,
+            ))
+    except Exception:
+        logger.exception("Upsell check failed for %s", phone)
 
 
 async def _send_credits_status(user: db.User) -> None:
