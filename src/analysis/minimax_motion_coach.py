@@ -111,6 +111,8 @@ _DEFAULT_ANALYSIS_PROMPT = (
     "JAMAIS de section dupliquee. Chaque section apparait UNE SEULE FOIS.\n"
     "Chaque rep detectee DOIT avoir un commentaire. Pas de rep vide.\n"
     "Le nombre de Repetitions detectees DOIT correspondre exactement au nombre de reps dans l'analyse rep par rep.\n"
+    "COMPTAGE STRICT: compte UNIQUEMENT les repetitions que tu vois REELLEMENT dans la video. Ne devine pas, ne complete pas, ne suppose pas qu'il y en a plus. Si tu vois 12 reps, ecris 12 reps. PAS 20. Mieux vaut sous-estimer que surestimer.\n"
+    "REPOS INTER-REPS: estime le temps de pause ENTRE deux repetitions consecutives (moment ou le mouvement s'arrete entre la fin d'une rep et le debut de la suivante). Si le mouvement est continu sans pause visible, ecris 0.00 s.\n"
     "La section INTENSITE DE SERIE doit TOUJOURS avoir du contenu (estimation %1RM, justification, impact).\n"
     "Le message final doit etre UNIQUEMENT un rapport Markdown entre les balises exactes suivantes:\n"
     "{start}\n"
