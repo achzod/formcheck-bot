@@ -1038,14 +1038,9 @@ async def _deliver_pipeline_success(
             intensity_label = _m.group(2).strip().lower()
 
     if reps >= 2 and intensity_score > 0:
-        if rest_s > 0.5:
-            intensity_line = "\nIntensite: {score}/100 ({label}) | repos moyen {rest:.1f}s".format(
-                score=intensity_score, label=intensity_label, rest=rest_s,
-            )
-        else:
-            intensity_line = "\nIntensite: {score}/100 ({label})".format(
-                score=intensity_score, label=intensity_label,
-            )
+        intensity_line = "\nIntensite: {score}/100 ({label})".format(
+            score=intensity_score, label=intensity_label,
+        )
 
     credits_line = ""
     if user_updated and not user_updated.is_unlimited:

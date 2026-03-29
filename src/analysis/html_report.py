@@ -345,9 +345,34 @@ _FOREIGN_WORD_MAP: dict[str, str] = {
     "ressentiraís": "ressentirais", "sentirías": "sentirais",
 }
 
+# English words to silently remove if no French replacement exists.
+# These are common English words that should NEVER appear in a French report.
+_ENGLISH_STOPWORDS: set[str] = {
+    "the", "and", "with", "from", "this", "that", "which", "when",
+    "while", "because", "should", "would", "could", "into", "onto", "about",
+    "after", "before", "between", "during", "without", "against", "through",
+    "until", "since", "above", "below", "within", "although", "though",
+    "however", "therefore", "moreover", "furthermore", "nevertheless",
+    "whereas", "whereby", "thereby", "herein", "thereof",
+    "whether", "either", "neither", "both", "each", "every",
+    "also", "just", "only", "even", "still", "yet", "very", "too",
+    "much", "many", "more", "most", "some", "any", "few", "several",
+    "other", "another", "such", "same", "own",
+    "will", "shall", "may", "might", "must", "need",
+    "does", "did", "has", "have", "had", "was", "were", "been", "being",
+    "your", "his", "her", "its", "our", "their", "them",
+    "who", "what", "where", "how", "why",
+    "not", "nor", "than", "then",
+}
+
+_ENGLISH_STOPWORD_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(w) for w in sorted(_ENGLISH_STOPWORDS, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+
 _FOREIGN_WORD_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b{}\b".format(re.escape(word)), re.IGNORECASE), repl)
-    for word, repl in _FOREIGN_WORD_MAP.items()
+    for word, repl in sorted(_FOREIGN_WORD_MAP.items(), key=lambda x: -len(x[0]))
 ]
 # Catch-all: strip words ending in obvious English suffixes not shared with French
 _ENGLISH_SUFFIX_CLEANUP = re.compile(
@@ -633,6 +658,8 @@ def _clean_report_text_for_rendering(report_text: str) -> str:
             line = pattern.sub(replacement, line)
         # Strip remaining obvious English-suffix words
         line = _ENGLISH_SUFFIX_CLEANUP.sub("", line)
+        # Remove English stopwords that have no place in French text
+        line = _ENGLISH_STOPWORD_RE.sub("", line)
         line = re.sub(r"^\s*(?:[-–—]{2,}|[-*•])\s*", "", line)
         line = re.sub(r"\s{2,}", " ", line).strip(" -–—_")
         if re.fullmatch(r"[\s\-–—_=:|.]+", line or ""):
@@ -1090,12 +1117,7 @@ def _build_client_intro_card(
                 intensity_value
             )
         )
-    if ("avg_rest" in source_metrics) or avg_rest > 0:
-        metric_chips.append(
-            '<div class="metric-chip"><span class="metric-chip-label">Repos inter-reps</span><span class="metric-chip-value">{:.2f}s</span></div>'.format(
-                avg_rest
-            )
-        )
+    # Repos inter-reps retiré — donnée souvent non fiable depuis MiniMax
     if detection_conf > 0:
         metric_chips.append(
             '<div class="metric-chip"><span class="metric-chip-label">Confiance exo</span><span class="metric-chip-value">{}%</span></div>'.format(
