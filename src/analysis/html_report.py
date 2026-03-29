@@ -319,6 +319,13 @@ _FOREIGN_WORD_MAP: dict[str, str] = {
     "aumentar": "augmenter", "aumenter": "augmenter",
     "locking": "verrouillage",
     "pousséer": "pousser", "pousséant": "poussant",
+    "weights": "charge", "weight": "charge",
+    "transferred": "transfere", "transfer": "transferer",
+    "accumulate": "accumuler", "accumulated": "accumulee",
+    "adequate": "adequat", "adequately": "adequatement",
+    "movement": "mouvement", "movements": "mouvements",
+    "compromet": "compromet",  # already French, keep
+    "deductionnels": "deduits",
     "sticking point": "point de blocage",
     "rep range": "fourchette de repetitions",
     "time under tension": "temps sous tension",
