@@ -985,6 +985,46 @@ try:
             "totals": totals,
         }
 
+    @app.get("/internal/reviews")
+    async def internal_reviews(request: Request, status: str = "", limit: int = 50) -> dict:
+        """List reviews, optionally filtered by status."""
+        _require_internal_admin_token(request)
+        reviews = await db.get_reviews(status=status or None, limit=limit)
+        return {
+            "reviews": [
+                {
+                    "id": int(r.id),
+                    "analysis_id": int(r.analysis_id),
+                    "phone": r.phone,
+                    "rating": r.rating,
+                    "text": r.text,
+                    "client_name": r.client_name,
+                    "client_email": r.client_email,
+                    "status": r.status,
+                    "request_sent_at": r.request_sent_at.isoformat() if r.request_sent_at else None,
+                    "responded_at": r.responded_at.isoformat() if r.responded_at else None,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in reviews
+            ],
+        }
+
+    @app.post("/internal/reviews/{review_id}/approve")
+    async def approve_review(review_id: int, request: Request) -> dict:
+        _require_internal_admin_token(request)
+        review = await db.update_review(review_id, status="approved")
+        if not review:
+            raise HTTPException(status_code=404, detail="Review not found")
+        return {"status": "approved", "id": review_id}
+
+    @app.post("/internal/reviews/{review_id}/reject")
+    async def reject_review(review_id: int, request: Request) -> dict:
+        _require_internal_admin_token(request)
+        review = await db.update_review(review_id, status="rejected")
+        if not review:
+            raise HTTPException(status_code=404, detail="Review not found")
+        return {"status": "rejected", "id": review_id}
+
     @app.get("/internal/customers/{phone}/history")
     async def internal_customer_history(
         phone: str,

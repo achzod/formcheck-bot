@@ -739,15 +739,31 @@ async def handle_text(user: db.User, data: dict) -> None:
         await db.delete_morpho_flow_state(phone)
         await wa.send_text(phone, msg.MORPHO_WELCOME)
         await db.set_morpho_flow_state(phone, "waiting_front")
+    elif text in ("avis", "review", "noter"):
+        # Manual review trigger
+        pending = await db.get_pending_review(phone)
+        if pending and pending.rating is None:
+            await wa.send_text(phone, msg.REVIEW_REQUEST)
+        else:
+            # Create a review for the last analysis
+            history = await db.get_user_score_history(user.id, limit=1)
+            if history:
+                review = await db.create_review(user_id=user.id, analysis_id=history[0]["id"], phone=phone)
+                await wa.send_text(phone, msg.REVIEW_REQUEST)
+                await db.mark_review_sent(review.id)
+            else:
+                await wa.send_text(phone, "Envoie d'abord une video pour pouvoir laisser un avis.")
     elif text in ("salut", "hello", "bonjour", "yo", "hey", "hi", "coucou", "slt"):
         await wa.send_text(
             phone,
-            "Yo ! Envoie-moi une *video* de ton exercice (max 16 MB sur WhatsApp) pour une analyse biomecanique.\n"
-            "Si ta video est plus lourde, coupe-la en 2-4 clips (1/3, 2/3, 3/3).\n"
-            "Tape *menu* pour voir toutes les options.",
+            "Yo ! Envoie une *video* pour une analyse biomecanique.\n"
+            "Tape *menu* pour les options.",
         )
     else:
-        await wa.send_text(phone, msg.HELP_TEXT)
+        # Check if user is in a review flow
+        review_handled = await _handle_review_response(user, data.get("text", "").strip())
+        if not review_handled:
+            await wa.send_text(phone, msg.HELP_TEXT)
 
 
 async def handle_video(user: db.User, data: dict) -> None:
@@ -1101,12 +1117,124 @@ async def _deliver_pipeline_success(
     except Exception:
         pass
 
+    # Schedule post-report tasks (review request, progression, re-engagement)
+    asyncio.create_task(_post_report_tasks(phone, user_id, analysis_id))
+
     cleanup_video(video_path)
     if preview_frame_path:
         try:
             Path(preview_frame_path).unlink(missing_ok=True)
         except Exception:
             pass
+
+
+async def _handle_review_response(user: db.User, text: str) -> bool:
+    """Handle review flow responses. Returns True if the message was a review response."""
+    phone = user.phone
+    pending = await db.get_pending_review(phone)
+    if not pending or not pending.request_sent_at:
+        return False
+
+    # Step 1: Rating (1-5)
+    if pending.rating is None:
+        try:
+            rating = int(text.strip())
+            if 1 <= rating <= 5:
+                await db.update_review(pending.id, rating=rating)
+                await wa.send_text(phone, msg.REVIEW_THANKS_RATING)
+                return True
+        except ValueError:
+            pass
+        # "skip" or "non" or "pas maintenant"
+        if text.lower() in ("skip", "non", "pas maintenant", "plus tard", "non merci"):
+            await db.update_review(pending.id, status="skipped")
+            await wa.send_text(phone, msg.REVIEW_SKIP)
+            return True
+        return False
+
+    # Step 2: Text feedback
+    if pending.rating and not pending.text:
+        if len(text) >= 3:
+            await db.update_review(pending.id, text=text)
+            await wa.send_text(phone, msg.REVIEW_ASK_CONTACT)
+            return True
+        return False
+
+    # Step 3: Contact info (prenom + email)
+    if pending.rating and pending.text and not pending.client_email:
+        import re
+        email_match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', text)
+        if email_match:
+            email = email_match.group()
+            name = text.replace(email, "").strip() or user.name or "Anonyme"
+            await db.update_review(
+                pending.id,
+                client_name=name,
+                client_email=email,
+                status="awaiting_approval",
+                responded_at=dt.datetime.utcnow(),
+            )
+            await wa.send_text(phone, msg.REVIEW_COMPLETE)
+            return True
+        # If just a name without email
+        if "@" not in text and len(text) >= 2:
+            await db.update_review(
+                pending.id,
+                client_name=text.strip(),
+                status="awaiting_approval",
+                responded_at=dt.datetime.utcnow(),
+            )
+            await wa.send_text(phone, msg.REVIEW_COMPLETE)
+            return True
+        return False
+
+    return False
+
+
+async def _post_report_tasks(phone: str, user_id: int, analysis_id: int) -> None:
+    """Background tasks after report delivery: review request, progression summary."""
+    try:
+        # 1. Schedule review request in 2 hours
+        review = await db.create_review(user_id=user_id, analysis_id=analysis_id, phone=phone)
+        await asyncio.sleep(2 * 3600)  # 2 hours
+
+        # Check if user already started a review flow (e.g. typed "avis" manually)
+        current = await db.get_pending_review(phone)
+        if current and current.id == review.id and current.rating is None:
+            await wa.send_text(phone, msg.REVIEW_REQUEST)
+            await db.mark_review_sent(review.id)
+
+        # 2. Send progression summary every 5 analyses
+        history = await db.get_user_score_history(user_id, limit=20)
+        scored = [h for h in history if h["score"] and h["score"] > 0]
+        if len(scored) >= 5 and len(scored) % 5 == 0:
+            await asyncio.sleep(10)  # small gap after review request
+            avg = sum(h["score"] for h in scored) / len(scored)
+            first_5_avg = sum(h["score"] for h in scored[-5:]) / 5
+            last_5_avg = sum(h["score"] for h in scored[:5]) / 5
+            trend = ""
+            if last_5_avg > first_5_avg + 3:
+                trend = "Tendance : en progression."
+            elif last_5_avg < first_5_avg - 3:
+                trend = "Tendance : en baisse. Revois tes corrections."
+            else:
+                trend = "Tendance : stable."
+            lines = []
+            for h in scored[:5]:
+                lines.append("{} — {}/100".format(
+                    (h["exercise"] or "?")[:25],
+                    h["score"],
+                ))
+            await wa.send_text(phone, msg.PROGRESS_SUMMARY.format(
+                history_lines="\n".join(lines),
+                avg_score=int(avg),
+                trend=trend,
+            ))
+
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        logger.exception("Post-report tasks failed (analysis_id=%s)", analysis_id)
 
 
 async def complete_remote_minimax_job(job_id: int, analysis_payload: str) -> bool:

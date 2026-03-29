@@ -52,6 +52,23 @@ class Analysis(Base):
     user: Mapped[User] = relationship(back_populates="analyses")
 
 
+class Review(Base):
+    __tablename__ = "reviews"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    analysis_id: Mapped[int] = mapped_column(ForeignKey("analyses.id"), index=True)
+    phone: Mapped[str] = mapped_column(String(20), index=True)
+    rating: Mapped[int | None] = mapped_column(default=None)  # 1-5
+    text: Mapped[str | None] = mapped_column(Text, default=None)
+    client_name: Mapped[str | None] = mapped_column(String(100), default=None)
+    client_email: Mapped[str | None] = mapped_column(String(200), default=None)
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, approved, rejected
+    request_sent_at: Mapped[dt.datetime | None] = mapped_column(default=None)
+    responded_at: Mapped[dt.datetime | None] = mapped_column(default=None)
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+
 class MiniMaxRemoteJob(Base):
     __tablename__ = "minimax_remote_jobs"
 
@@ -258,6 +275,84 @@ async def has_credits(user: User) -> bool:
         return user.credits > 0
     return user.credits > 0
 
+
+# ── Reviews ──────────────────────────────────────────────────────────────
+
+async def create_review(user_id: int, analysis_id: int, phone: str) -> Review:
+    async with async_session() as session:
+        review = Review(user_id=user_id, analysis_id=analysis_id, phone=phone)
+        session.add(review)
+        await session.commit()
+        await session.refresh(review)
+        return review
+
+
+async def get_pending_review(phone: str) -> Review | None:
+    """Get the most recent review awaiting a response for this phone."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Review)
+            .where(Review.phone == phone, Review.rating.is_(None), Review.status == "pending")
+            .order_by(Review.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
+async def update_review(review_id: int, **kwargs: Any) -> Review | None:
+    async with async_session() as session:
+        review = await session.get(Review, review_id)
+        if not review:
+            return None
+        for key, value in kwargs.items():
+            if hasattr(review, key):
+                setattr(review, key, value)
+        await session.commit()
+        await session.refresh(review)
+        return review
+
+
+async def mark_review_sent(review_id: int) -> None:
+    async with async_session() as session:
+        review = await session.get(Review, review_id)
+        if review:
+            review.request_sent_at = dt.datetime.utcnow()
+            await session.commit()
+
+
+async def get_reviews(status: str | None = None, limit: int = 50) -> Sequence[Review]:
+    async with async_session() as session:
+        q = select(Review).order_by(Review.created_at.desc()).limit(limit)
+        if status:
+            q = q.where(Review.status == status)
+        result = await session.execute(q)
+        return result.scalars().all()
+
+
+async def get_user_last_analysis_date(user_id: int) -> dt.datetime | None:
+    async with async_session() as session:
+        result = await session.execute(
+            select(Analysis.created_at)
+            .where(Analysis.user_id == user_id, Analysis.score.isnot(None))
+            .order_by(Analysis.created_at.desc())
+            .limit(1)
+        )
+        row = result.scalar_one_or_none()
+        return row
+
+
+async def get_user_score_history(user_id: int, limit: int = 10) -> list[dict[str, Any]]:
+    async with async_session() as session:
+        result = await session.execute(
+            select(Analysis.id, Analysis.exercise, Analysis.score, Analysis.created_at)
+            .where(Analysis.user_id == user_id, Analysis.score.isnot(None))
+            .order_by(Analysis.created_at.desc())
+            .limit(limit)
+        )
+        return [{"id": r[0], "exercise": r[1], "score": r[2], "date": r[3]} for r in result.all()]
+
+
+# ── Credits ──────────────────────────────────────────────────────────────
 
 async def decrement_credit(user_id: int) -> None:
     async with async_session() as session:

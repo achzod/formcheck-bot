@@ -217,6 +217,56 @@ FOLLOWUP_CORRECTIVE_REMINDER = (
     "pour voir ta progression."
 )
 
+# ── AVIS / REVIEW ──────────────────────────────────────────────────────
+
+REVIEW_REQUEST = (
+    "Tu as eu le temps de lire ton rapport ?\n\n"
+    "Donne-moi une note de *1 a 5* sur l'analyse que tu viens de recevoir."
+)
+
+REVIEW_THANKS_RATING = (
+    "Merci ! Un petit mot sur ton experience ? "
+    "Dis-moi en une ou deux phrases ce que tu en as pense."
+)
+
+REVIEW_ASK_CONTACT = (
+    "Top. Pour publier ton avis, laisse-moi ton *prenom* et ton *email* "
+    "(sur une seule ligne, ex: Achkan coaching@achzod.com)."
+)
+
+REVIEW_COMPLETE = (
+    "Merci pour ton retour. Ton avis sera publie apres validation.\n"
+    "Bonne seance."
+)
+
+REVIEW_SKIP = (
+    "Pas de souci. Tu peux toujours laisser un avis plus tard en tapant *avis*."
+)
+
+# ── RELANCE / RE-ENGAGEMENT ──────────────────────────────────────────────
+
+REENGAGEMENT_7DAYS = (
+    "Ca fait une semaine que tu n'as pas filme.\n"
+    "Il te reste *{credits}* analyse(s) ce mois-ci.\n\n"
+    "Envoie ta prochaine video quand tu veux."
+)
+
+UPSELL_CREDITS_USED = (
+    "Tu as utilise toutes tes analyses en {days} jours.\n"
+    "Tu t'entraines serieusement.\n\n"
+    "Passe au plan superieur pour ne plus te limiter :\n"
+    "{upgrade_line}"
+)
+
+# ── PROGRESSION ──────────────────────────────────────────────────────────
+
+PROGRESS_SUMMARY = (
+    "*Ta progression FormCheck*\n\n"
+    "{history_lines}\n\n"
+    "Score moyen : *{avg_score}/100*\n"
+    "{trend}"
+)
+
 # ── RAPPORT D'ANALYSE ────────────────────────────────────────────────────────
 
 ANALYSIS_REPORT_SHORT = (
@@ -288,7 +338,8 @@ MENU_TEXT = (
     "*morpho* — Profil morphologique\n"
     "*commandes* — Etat de tes commandes\n"
     "*historique* — Resume analyses/commandes/SAV\n"
-    "*sav* — Ouvrir ou suivre un ticket support\n\n"
+    "*sav* — Ouvrir ou suivre un ticket support\n"
+    "*avis* — Laisser un avis\n\n"
     "Contact: coaching@achzodcoaching.com"
 )
 
