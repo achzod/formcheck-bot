@@ -140,6 +140,16 @@ def _get_subscription_period_end(session: dict[str, Any]) -> dt.datetime | None:
     return _parse_utc_from_unix(subscription.get("current_period_end"))
 
 
+async def cancel_subscription(subscription_id: str) -> bool:
+    """Cancel a Stripe subscription immediately."""
+    try:
+        stripe.Subscription.cancel(subscription_id)
+        return True
+    except Exception:
+        logger.exception("Failed to cancel subscription %s", subscription_id)
+        return False
+
+
 async def create_all_checkout_urls(phone: str) -> dict[str, str]:
     """Create checkout URLs for all three plans."""
     urls: dict[str, str] = {}

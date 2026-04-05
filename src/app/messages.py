@@ -249,6 +249,19 @@ REVIEW_SKIP = (
 
 # ── RELANCE / RE-ENGAGEMENT ──────────────────────────────────────────────
 
+CANCEL_CONFIRM = (
+    "Tu es sur de vouloir annuler ton abonnement ?\n"
+    "Tape *confirmer annulation* pour valider."
+)
+
+CANCEL_DONE = (
+    "Ton abonnement a ete annule.\n"
+    "Tes credits restants sont utilisables jusqu'a la fin du mois en cours.\n"
+    "Tu peux te reabonner a tout moment en tapant *forfaits*."
+)
+
+CANCEL_NO_SUB = "Tu n'as pas d'abonnement actif."
+
 REENGAGEMENT_7DAYS = (
     "Ca fait une semaine que tu n'as pas filme.\n"
     "Il te reste *{credits}* analyse(s) ce mois-ci.\n\n"
@@ -343,7 +356,8 @@ MENU_TEXT = (
     "*commandes* — Etat de tes commandes\n"
     "*historique* — Resume analyses/commandes/SAV\n"
     "*sav* — Ouvrir ou suivre un ticket support\n"
-    "*avis* — Laisser un avis\n\n"
+    "*avis* — Laisser un avis\n"
+    "*annuler* — Annuler ton abonnement\n\n"
     "Contact: coaching@achzodcoaching.com"
 )
 

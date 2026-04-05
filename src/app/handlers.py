@@ -732,6 +732,29 @@ async def handle_text(user: db.User, data: dict) -> None:
         await _send_credits_status(user)
     elif text in ("forfaits", "plans", "acheter", "buy"):
         await handle_no_credits(user)
+    elif text in ("annuler", "annuler abonnement", "cancel", "resiliation", "resilier"):
+        sub = await db.get_active_subscription(phone)
+        if sub:
+            await wa.send_text(phone, msg.CANCEL_CONFIRM)
+        else:
+            await wa.send_text(phone, msg.CANCEL_NO_SUB)
+    elif text in ("confirmer annulation", "confirmer"):
+        sub = await db.get_active_subscription(phone)
+        if sub and sub.metadata_json:
+            import json as _json
+            meta = _json.loads(sub.metadata_json)
+            sub_id = meta.get("subscription_id", "")
+            if sub_id:
+                from app.stripe_handler import cancel_subscription
+                ok = await cancel_subscription(sub_id)
+                if ok:
+                    await wa.send_text(phone, msg.CANCEL_DONE)
+                else:
+                    await wa.send_text(phone, msg.ERROR_GENERIC)
+            else:
+                await wa.send_text(phone, msg.CANCEL_NO_SUB)
+        else:
+            await wa.send_text(phone, msg.CANCEL_NO_SUB)
     elif text in ("morpho", "profil", "profil morpho", "morphologie"):
         await _start_morpho_flow(user)
     elif text in ("morpho reset", "reset morpho"):

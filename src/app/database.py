@@ -704,6 +704,22 @@ async def create_payment(
         return payment
 
 
+async def get_active_subscription(phone: str) -> CustomerOrder | None:
+    """Get the active subscription order for a phone number."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(CustomerOrder)
+            .where(
+                CustomerOrder.phone == phone,
+                CustomerOrder.order_type == "subscription",
+                CustomerOrder.status.in_(["active", "paid"]),
+            )
+            .order_by(CustomerOrder.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
 async def upsert_customer_order(
     *,
     phone: str,
