@@ -36,9 +36,9 @@ _import_errors: list[str] = []
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request) -> HTMLResponse:
     try:
-        wa_num = getattr(app_settings, "whatsapp_wa_me_number", "") or "15557636881"
+        wa_num = getattr(app_settings, "whatsapp_wa_me_number", "") or "971585210514"
     except Exception:
-        wa_num = "15557636881"
+        wa_num = "971585210514"
     payment = request.query_params.get("payment", "")
     payment_banner = ""
     if payment == "success":
@@ -53,6 +53,9 @@ async def home(request: Request) -> HTMLResponse:
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>FORMCHECK by ACHZOD</title>
   <meta name="description" content="Analyse biomecanique de mouvements de musculation sur WhatsApp. Envoie ta video, recois un rapport clair, utile et actionnable.">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://formcheck.achzodcoaching.com/">
+  <meta property="og:url" content="https://formcheck.achzodcoaching.com/">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;700&display=swap');
     :root {
@@ -540,6 +543,25 @@ async def home(request: Request) -> HTMLResponse:
   </main>
 </body>
 </html>""".replace("{wa_num}", wa_num).replace("{payment_banner}", payment_banner)
+    )
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+async def robots_txt() -> PlainTextResponse:
+    return PlainTextResponse(
+        "User-agent: *\nAllow: /\nDisallow: /internal/\nDisallow: /health\n"
+        "Sitemap: https://formcheck.achzodcoaching.com/sitemap.xml\n"
+    )
+
+
+@app.get("/sitemap.xml", response_class=PlainTextResponse)
+async def sitemap_xml() -> PlainTextResponse:
+    return PlainTextResponse(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        '  <url><loc>https://formcheck.achzodcoaching.com/</loc></url>\n'
+        '</urlset>\n',
+        media_type="application/xml",
     )
 
 
